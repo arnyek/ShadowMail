@@ -1,0 +1,871 @@
+﻿kulcs;magyar;angol
+appTitle;ShadowMail;ShadowMail
+helloHeading;A ShadowMail működik;ShadowMail is working
+helloDataDir;Adatmappa;Data folder
+helloSqlite;SQLite verzió;SQLite version
+helloVersion;Programverzió;Program version
+loading;Betöltés…;Loading…
+errorTitle;ShadowMail: hiba;ShadowMail: error
+dataDirNotWritable (1);"Az adatmappa nem írható, ezért a program kilép:
+C:\ShadowMail\data
+
+Ok: EACCES
+
+Másold a programot egy írható helyre (pl. a Dokumentumok mappába vagy pendrive-ra), és onnan indítsd.";"The data folder cannot be written, so the program closes:
+C:\ShadowMail\data
+
+Reason: EACCES
+
+Copy the program to a writable place (for example your Documents folder or a USB drive) and start it from there."
+dataDirNotWritable (2);"Az adatmappa nem írható, ezért a program kilép:
+C:\ShadowMail\data
+
+Ok: EACCES
+
+Másold a programot egy írható helyre (pl. a Dokumentumok mappába vagy pendrive-ra), és onnan indítsd.";"The data folder cannot be written, so the program closes:
+C:\ShadowMail\data
+
+Reason: EACCES
+
+Copy the program to a writable place (for example your Documents folder or a USB drive) and start it from there."
+legacyDataFolder;"Ez az adatmappa a ShadowMail egy korábbi, titkosítatlan fejlesztői változatából van, ez a változat nem nyitja meg. Nevezd át vagy töröld a data mappát.";"This data folder comes from an earlier, unencrypted development version of ShadowMail; this version does not open it. Rename or delete the data folder."
+vaultFileMissing;"Az adatmappában titkosított adatbázis van, de hiányzik mellőle a vault.json, ezért nem nyitható meg. Tedd vissza a vault.json fájlt (például egy mentésből), vagy nevezd át a data mappát.";"The data folder has an encrypted database, but the vault.json next to it is missing, so it cannot be opened. Put the vault.json file back (for example from a backup), or rename the data folder."
+vaultCreateHeading;Mesterjelszó beállítása;Set a master password
+vaultCreateIntro;"A mesterjelszó védi a levelezést: a postafiókok jelszavait, a leveleket és a keresőindexet. Titkosítva, ebben a mappában utaznak a programmal; bármelyik gépen ezzel a mesterjelszóval nyithatók meg.";"The master password protects your mail: the mailbox passwords, the messages and the search index. They travel encrypted with the program in this folder; on any computer they open with this master password."
+vaultForgetWarning;"A következő lépésben helyreállító kódot kapsz: ezzel léphetsz be, ha elfelejted a mesterjelszót. Kód és jelszó nélkül a helyben tárolt adat nem nyitható meg újra.";"In the next step you get a recovery code: with it you can get in if you forget the master password. Without the code and the password, the data stored here cannot be opened again."
+vaultPassword;Mesterjelszó;Master password
+vaultPasswordAgain;Mesterjelszó még egyszer;Master password again
+vaultMinLength (1);Legalább 1 karakter.;At least 1 character.
+vaultMinLength (2);Legalább 2 karakter.;At least 2 characters.
+vaultCreateButton;Beállítás;Set password
+vaultMismatch;A két jelszó nem egyezik.;The two passwords do not match.
+vaultUnlockHeading;ShadowMail zárolva;ShadowMail is locked
+vaultUnlockButton;Feloldás;Unlock
+vaultWorking;Egy pillanat…;One moment…
+vaultLockButton;Zárolás;Lock
+settingsHeading;Beállítások;Settings
+vaultChangeHeading;Mesterjelszó cseréje;Change the master password
+vaultOldPassword;Jelenlegi mesterjelszó;Current master password
+vaultNewPassword;Új mesterjelszó;New master password
+vaultNewPasswordAgain;Új mesterjelszó még egyszer;New master password again
+vaultChangeButton;Csere;Change
+vaultChanged;A mesterjelszó megváltozott.;The master password has been changed.
+vaultErrors.wrong_password;Hibás mesterjelszó;Wrong master password
+vaultErrors.password_too_short;A mesterjelszó túl rövid (legalább 10 karakter).;The master password is too short (at least 10 characters).
+vaultErrors.password_too_long;A mesterjelszó túl hosszú.;The master password is too long.
+vaultErrors.bad_password;Érvénytelen jelszó.;Invalid password.
+vaultErrors.vault_exists;A mesterjelszó már be van állítva.;The master password is already set.
+vaultErrors.no_vault;Még nincs mesterjelszó beállítva.;No master password has been set yet.
+vaultErrors.busy;"Egy művelet már folyamatban van, várj egy kicsit.";"Another operation is in progress; wait a moment."
+vaultErrors.locked;A program zárolva van.;The program is locked.
+vaultErrors.unsupported_kdf;Ismeretlen kulcsképzés: a program újabb verziója kell hozzá.;Unknown key derivation: a newer version of the program is needed.
+vaultErrors.confirm_word;A megerősítéshez pontosan ezt kell beírni: TÖRLÉS;"To confirm, type exactly this: DELETE"
+vaultErrors.unlocked;A program fel van oldva: az újrakezdés csak a feloldó képernyőről indítható.;The program is unlocked: starting over is only possible from the unlock screen.
+vaultErrors.vault_corrupt;A vault-fájl sérült.;The vault file is damaged.
+vaultErrors.vault_old_version;"Ez az adatmappa a ShadowMail egy korábbi fejlesztői változatából van, ez a változat nem nyitja meg. Kezdd újra (Elfelejtettem a mesterjelszót → Nincs kódom; minden helyi adat törlődik), vagy nevezd át vagy töröld a data mappát.";"This data folder comes from an earlier development version of ShadowMail; this version does not open it. Start over (I forgot the master password → I have no code; all local data is deleted), or rename or delete the data folder."
+vaultErrors.vault_newer_version;"Ezt az adatmappát egy újabb ShadowMail-változat készítette. Indítsd azt a változatot, vagy egy még újabbat; ez a régebbi változat nem nyitja meg, és nem is módosítja.";"This data folder was made by a newer version of ShadowMail. Start that version or a later one; this older version neither opens nor changes it."
+vaultErrors.db_key;Az adatbázis nem nyitható ezzel a kulccsal.;The database cannot be opened with this key.
+vaultErrors.db_open_failed;Az adatbázis nem nyitható meg.;The database cannot be opened.
+vaultErrors.db_missing;"Az adatbázis (mail.sqlite) hiányzik az adatmappából, ezért nem nyitható meg. Tedd vissza, például egy mentésből.";"The database (mail.sqlite) is missing from the data folder, so it cannot be opened. Put it back, for example from a backup."
+vaultErrors.db_no_space (1);"Nincs elég szabad hely az adatbázis mentéséhez: 1 MB kell, 1 MB szabad. Szabadíts fel helyet, és próbáld újra; az adatok érintetlenek.";"Not enough free space to back up the database: 1 MB needed, 1 MB free. Free up some space and try again; your data is untouched."
+vaultErrors.db_no_space (2);"Nincs elég szabad hely az adatbázis mentéséhez: 2 MB kell, 2 MB szabad. Szabadíts fel helyet, és próbáld újra; az adatok érintetlenek.";"Not enough free space to back up the database: 2 MB needed, 2 MB free. Free up some space and try again; your data is untouched."
+vaultErrors.wrong_recovery_code;Hibás helyreállító kód;Wrong recovery code
+vaultErrors.wrong_group;Ez nem egyezik a kód ezen csoportjával.;This does not match that group of the code.
+vaultErrors.no_pending_code;Nincs megerősítésre váró kód.;There is no code waiting for confirmation.
+vaultErrors.reset_pending;"Egy korábbi újrakezdés félbeszakadt, és a program nem tudja biztosan eldönteni, hol tartott.";"An earlier start-over was interrupted, and the program cannot tell for sure how far it got."
+vaultErrors.not_available;Nincs befejezendő újrakezdés: a program a szokásos módon feloldható.;There is no start-over to finish: the program can be unlocked as usual.
+vaultErrors.bad_recovery_code;"Ez nem helyreállító kód: 25 karakter, ötös csoportokban.";"This is not a recovery code: 25 characters, in groups of five."
+vaultErrors.no_recovery;Ehhez a vaulthoz nincs helyreállító kód.;This vault has no recovery code.
+vaultErrors.internal;Váratlan hiba történt.;An unexpected error occurred.
+vaultError (1);Hibás mesterjelszó;Wrong master password
+vaultError (2);Hibás mesterjelszó;Wrong master password
+vaultDbUpgrade;"Az adatbázis frissítése: először mentés készül, nagyobb adatnál ez néhány percig is eltarthat. Ne zárd be a programot.";"Updating the database: a backup is made first, which can take a few minutes with a lot of mail. Do not close the program."
+vaultForgot;Elfelejtettem a mesterjelszót;I forgot the master password
+lockDraftsFailed (1);"A zároláskor 1 piszkozat mentése nem sikerült; a legutóbbi automatikus mentés a Piszkozatokban van.";"On locking, 1 draft could not be saved; the latest autosave is in Drafts."
+lockDraftsFailed (2);"A zároláskor 2 piszkozat mentése nem sikerült; a legutóbbi automatikus mentés a Piszkozatokban van.";"On locking, 2 drafts could not be saved; the latest autosave is in Drafts."
+vaultForgotHeading;Elfelejtett mesterjelszó;Forgotten master password
+vaultForgotHaveCode;Van helyreállító kódom;I have a recovery code
+vaultForgotNoCode;Nincs kódom;I have no code
+vaultRecoverHeading;Belépés a helyreállító kóddal;Sign in with the recovery code
+vaultRecoverIntro;"A helyreállító kóddal és egy új mesterjelszóval minden adat megmarad. Utána új kódot kapsz, a mostani érvényét veszti.";"With the recovery code and a new master password, all your data stays. You then get a new code, and the current one stops working."
+vaultRecoverCode;Helyreállító kód;Recovery code
+vaultRecoverButton;Belépés és új mesterjelszó;Sign in and set a new master password
+vaultResetHeading;Teljes újrakezdés;Start over completely
+vaultResetWarning;"Kód nélkül a helyben tárolt adat nem nyitható meg, ezért MINDEN helyi adat elvész: a fiókok és a jelszavaik, a keresőindex, a POP3-levelek, a helyi mappák, a csak helyben lévő piszkozatok és Elküldött-másolatok. Az IMAP-levelek a fiók újbóli felvétele után a szerverről újra letöltődnek.";"Without the code the data stored here cannot be opened, so ALL local data is lost: the accounts and their passwords, the search index, the POP3 messages, the local folders, and the drafts and Sent copies kept only here. IMAP messages are downloaded again from the server after you add the account again."
+vaultResetConfirmLabel;A megerősítéshez írd be: TÖRLÉS;"To confirm, type: DELETE"
+vaultResetButton;Minden helyi adat törlése és új mesterjelszó;Delete all local data and set a new master password
+vaultResetBack;Mégis tudom a jelszót;I remember the password after all
+vaultResetPendingText;"Egy korábbi újrakezdés félbeszakadt, és a program nem tudja biztosan eldönteni, hol tartott. Befejezheted: ekkor MINDEN helyi adat törlődik, mint a »Nincs kódom« útnál.";"An earlier start-over was interrupted, and the program cannot tell for sure how far it got. You can finish it: then ALL local data is deleted, as with »I have no code«."
+vaultFinishResetButton;Újrakezdés befejezése;Finish starting over
+recoveryHeading;Helyreállító kód;Recovery code
+recoveryIntro;"Ezzel a kóddal léphetsz be, ha elfelejted a mesterjelszót. Írd le vagy mentsd el, és tartsd biztos helyen, a géptől és a pendrive-tól külön.";"With this code you can get in if you forget the master password. Write it down or save it, and keep it somewhere safe, apart from the computer and the USB drive."
+recoveryWarning;"Aki a kódot megszerzi, a mesterjelszó nélkül is kinyitja a levelezésedet. A program a kódot nem tárolja: ha elveszik, a Beállításokban újat készíthetsz. A régi kód és a régi jelszó egy korábbi adatmappa-mentéssel együtt továbbra is kinyitja a levelezést. Ha a kód vagy a jelszó illetéktelen kézbe került, a régi mentéseket is semmisítsd meg.";"Anyone who gets the code can open your mail without the master password. The program does not store the code: if you lose it, you can make a new one in Settings. The old code and the old password still open your mail together with an earlier backup of the data folder. If the code or the password got into the wrong hands, destroy the old backups too."
+recoveryCodeAfterError (1);"Wrong recovery code Az új helyreállító kódod (írd fel, a régi már nem érvényes): ABCDE-FGHJK-MNPQR-STVWX-YZ123";"Wrong recovery code Your new recovery code (write it down, the old one no longer works): ABCDE-FGHJK-MNPQR-STVWX-YZ123"
+recoveryCodeAfterError (2);"Wrong recovery code Az új helyreállító kódod (írd fel, a régi már nem érvényes): ABCDE-FGHJK-MNPQR-STVWX-YZ123";"Wrong recovery code Your new recovery code (write it down, the old one no longer works): ABCDE-FGHJK-MNPQR-STVWX-YZ123"
+recoveryCopy;Másolás;Copy
+recoveryCopied;Vágólapra másolva.;Copied to the clipboard.
+recoveryClipboardNote;A kód 60 mp múlva törlődik a vágólapról.;The code is removed from the clipboard in 60 seconds.
+recoverySave;Mentés fájlba;Save to file
+recoverySaved;Elmentve.;Saved.
+recoveryCheck (1);Ellenőrzés: írd be a kód 1. csoportját;Check: type group 1 of the code
+recoveryCheck (2);Ellenőrzés: írd be a kód 2. csoportját;Check: type group 2 of the code
+recoveryCheckWrong;Ez nem egyezik a kód ezen csoportjával.;This does not match that group of the code.
+recoveryDone;"Megvan, tovább";"Got it, continue"
+recoveryUnconfirmed;"A helyreállító kódod nincs megerősítve. Készíts újat a Beállításokban, és írd fel.";Your recovery code has not been confirmed. Make a new one in Settings and write it down.
+recoveryGoSettings;Új kód készítése…;Make a new code…
+recoveryNewHeading;Új helyreállító kód;New recovery code
+recoveryNewIntro;Az új kód elkészülte után a mostani érvényét veszti.;"Once the new code is made, the current one stops working."
+recoveryNewButton;Új kód készítése;Make a new code
+recoveryFileName;ShadowMail-helyreallito-kod.txt;ShadowMail-recovery-code.txt
+recoveryFileText (1);"ShadowMail helyreállító kód
+
+ABCDE-FGHJK-MNPQR-STVWX-YZ123
+
+Ezzel a kóddal lehet belépni, ha a mesterjelszó elfelejtődik (""Elfelejtettem a mesterjelszót"" -> ""Van helyreállító kódom"").
+Aki megszerzi, a mesterjelszó nélkül is kinyitja a levelezést: tartsd biztos helyen, a programtól külön.
+";"ShadowMail recovery code
+
+ABCDE-FGHJK-MNPQR-STVWX-YZ123
+
+With this code you can get in if the master password is forgotten (""I forgot the master password"" -> ""I have a recovery code"").
+Anyone who gets it can open the mail without the master password: keep it somewhere safe, apart from the program.
+"
+recoveryFileText (2);"ShadowMail helyreállító kód
+
+ABCDE-FGHJK-MNPQR-STVWX-YZ123
+
+Ezzel a kóddal lehet belépni, ha a mesterjelszó elfelejtődik (""Elfelejtettem a mesterjelszót"" -> ""Van helyreállító kódom"").
+Aki megszerzi, a mesterjelszó nélkül is kinyitja a levelezést: tartsd biztos helyen, a programtól külön.
+";"ShadowMail recovery code
+
+ABCDE-FGHJK-MNPQR-STVWX-YZ123
+
+With this code you can get in if the master password is forgotten (""I forgot the master password"" -> ""I have a recovery code"").
+Anyone who gets it can open the mail without the master password: keep it somewhere safe, apart from the program.
+"
+accountNoPassword;nincs jelszó;no password
+accountNoPasswordHint;"Ehhez a fiókhoz nincs elmentett jelszó: nyisd meg a Szerkesztést, és add meg újra.";No password is saved for this account: open Edit and enter it again.
+accountsHeading;Postafiókok;Mailboxes
+accountsEmpty;Még nincs postafiók.;No mailbox yet.
+accountNew;Új fiók;New account
+accountEdit;Szerkesztés;Edit
+accountDelete;Törlés;Delete
+accountDeleteConfirm (1);"Biztosan törlöd a(z) „Work” fiókot? A fiók levelei, mappái és jelszavai is törlődnek erről a gépről (a szerveren maradnak).";"Delete the account “Work”? Its messages, folders and passwords are deleted from this computer too (they stay on the server)."
+accountDeleteConfirm (2);"Biztosan törlöd a(z) „Work” fiókot? A fiók levelei, mappái és jelszavai is törlődnek erről a gépről (a szerveren maradnak).";"Delete the account “Work”? Its messages, folders and passwords are deleted from this computer too (they stay on the server)."
+accountDeleteYes;"Igen, törlöm";"Yes, delete it"
+accountSave;Mentés;Save
+accountCancel;Mégse;Cancel
+accountSaved;Mentve.;Saved.
+accountTest;Kapcsolat próbája;Test the connection
+accountTesting;Próba folyamatban…;Testing…
+accountFields.type;Típus;Type
+accountFields.name;Fiók neve;Account name
+accountFields.email;E-mail cím;Email address
+accountFields.display_name;Megjelenő név;Display name
+accountFields.incoming;Bejövő szerver;Incoming server
+accountFields.in_host;Szerver;Server
+accountFields.in_port;Port;Port
+accountFields.in_security;Biztonság;Security
+accountFields.in_user;Felhasználónév;User name
+accountFields.in_password;Jelszó;Password
+accountFields.smtp;Kimenő (SMTP) szerver;Outgoing (SMTP) server
+accountFields.smtp_host;Szerver;Server
+accountFields.smtp_port;Port;Port
+accountFields.smtp_security;Biztonság;Security
+accountFields.smtp_user;Felhasználónév (üres = a bejövővel azonos);User name (empty = the same as incoming)
+accountFields.smtp_same_password;Az SMTP-jelszó ugyanaz;The SMTP password is the same
+accountFields.smtp_password;SMTP-jelszó;SMTP password
+accountFields.tls_verify;Tanúsítvány ellenőrzése;Verify the certificate
+accountFields.index_years;Indexelt levelek: utolsó N év;Indexed messages: last N years
+accountFields.index_all;mind;all
+accountFields.sync_interval_min;Frissítés (perc);Refresh (minutes)
+accountFields.save_sent_to_server;Elküldött levelek mentése a szerverre;Save sent messages on the server
+accountFields.pop3_delete_after_days;Törlés a szerverről N nap után (üres = soha);Delete from the server after N days (empty = never)
+accountFields.signature;Aláírás;Signature
+accountPasswordUnchanged;•••• (változatlan);•••• (unchanged)
+securityLabels.tls;SSL/TLS;SSL/TLS
+securityLabels.starttls;STARTTLS;STARTTLS
+securityLabels.none;Nincs (titkosítatlan);None (unencrypted)
+typeLabels.imap;IMAP;IMAP
+typeLabels.pop3;POP3;POP3
+tlsVerifyOffWarning;"A tanúsítvány-ellenőrzés ki van kapcsolva: a kapcsolat titkosított, de nem ellenőrzött, hogy valóban a te szervereddel beszélsz. Csak akkor kapcsold ki, ha a tárhely tanúsítványa más névre szól.";"Certificate verification is off: the connection is encrypted, but it is not checked that you are really talking to your server. Only turn it off if your host’s certificate is issued to a different name."
+noSecurityWarning;Titkosítás nélkül a jelszó és a levelek olvashatóan mennek a hálózaton.;"Without encryption, the password and the messages travel over the network in readable form."
+indexHelp;"Ennél régebbi levelekben csak a feladóra, címzettre, tárgyra és dátumra lehet keresni, a megnyitottakban a szövegre is.";"In older messages you can only search by sender, recipient, subject and date; in the ones you have opened, by the text too."
+indexHelpImap;A régebbiek szövegére a Keresés a szerveren is gomb keres.;"To search the text of older ones, use the Search on the server too button."
+pop3SeenHelp;"Egyes szerverek (pl. Dovecot) a POP3-letöltéskor a levelet a szerveren olvasottnak jelölik. Ha ugyanezt a postafiókot IMAP-on (webmail, telefon) is nézed, ott a letöltött levelek olvasottként látszanak.";"Some servers (e.g. Dovecot) mark a message as read on the server when POP3 downloads it. If you also read this mailbox over IMAP (webmail, phone), the downloaded messages show as read there."
+reindexStatus (1);"Újraindexelés: 1 levél szövege kikerült az indexből, 1 levélé a következő szinkronnál töltődik be.";"Reindexing: the text of 1 message was taken out of the index; the text of 1 message is loaded at the next sync."
+reindexStatus (2);"Újraindexelés: 2 levél szövege kikerült az indexből, 2 levélé a következő szinkronnál töltődik be.";"Reindexing: the text of 2 messages was taken out of the index; the text of 2 messages is loaded at the next sync."
+accountErrors.required;Kötelező mező.;Required field.
+accountErrors.too_long;Túl hosszú.;Too long.
+accountErrors.bad_email;Érvénytelen e-mail cím.;Invalid email address.
+accountErrors.bad_type;Válassz típust.;Choose a type.
+accountErrors.type_locked;Meglévő fiók típusa nem változtatható.;The type of an existing account cannot be changed.
+accountErrors.bad_host;Érvénytelen szervernév.;Invalid server name.
+accountErrors.bad_security;Válassz biztonsági módot.;Choose a security mode.
+accountErrors.bad_port;A port 1 és 65535 közötti egész szám.;The port is a whole number between 1 and 65535.
+accountErrors.bad_index_years;"Egész szám 1 és 50 között, vagy „mind”.";"A whole number between 1 and 50, or “all”."
+accountErrors.bad_interval;Egész szám 1 és 1440 között.;A whole number between 1 and 1440.
+accountErrors.bad_days;"Egész szám 0 és 3650 között, vagy üres.";"A whole number between 0 and 3650, or empty."
+accountErrors.bad_password;Érvénytelen jelszó.;Invalid password.
+accountErrors.bad_chars;Sortörés vagy vezérlőkarakter nem lehet benne.;It cannot contain a line break or a control character.
+accountErrors.not_found;A fiók nem található.;The account was not found.
+accountErrors.unknown;Hibás érték.;Invalid value.
+accountError (1);Kötelező mező.;Required field.
+accountError (2);Kötelező mező.;Required field.
+signatureImage.label;Aláírás-kép;Signature image
+signatureImage.none;Nincs kép. A kép a szöveges aláírás alatt jelenik meg a levelekben.;No image. The image appears under the text signature in your messages.
+signatureImage.alt;Az aláírás képe;The signature image
+signatureImage.upload;Kép feltöltése…;Upload image…
+signatureImage.replace;Csere…;Replace…
+signatureImage.remove;Eltávolítás;Remove
+signatureImage.help;"PNG vagy JPG, legfeljebb 800 x 400 képpont és 150 KB. A kép nem méreteződik át; a metaadatai (például a GPS-hely vagy a szerző) mentéskor kikerülnek.";"PNG or JPG, at most 800 x 400 pixels and 150 KB. The image is not resized; its metadata (such as the GPS location or the author) is removed when it is saved."
+signatureImage.saveFirst;Aláírás-képet a fiók mentése után tölthetsz fel.;You can upload a signature image after saving the account.
+signatureImage.error (1);"A kép 1920 x 1080 px, legfeljebb 800 x 400 px lehet.";"The image is 1920 x 1080 px; it can be at most 800 x 400 px."
+signatureImage.error (2);"A kép 1920 x 1080 px, legfeljebb 800 x 400 px lehet.";"The image is 1920 x 1080 px; it can be at most 800 x 400 px."
+probeIncoming;Bejövő;Incoming
+probeSmtp;Kimenő (SMTP);Outgoing (SMTP)
+probeOk;rendben;OK
+probeErrors.auth_failed;Hibás felhasználónév vagy jelszó.;Wrong user name or password.
+probeErrors.auth_not_offered;A szerver ezen a kapcsolaton nem enged bejelentkezést (titkosítás nélkül a legtöbb szerver nem engedi: válassz SSL/TLS-t vagy STARTTLS-t).;The server does not allow signing in on this connection (most servers do not without encryption: choose SSL/TLS or STARTTLS).
+probeErrors.host_not_found;A szerver nem található (ellenőrizd a szervernevet).;The server was not found (check the server name).
+probeErrors.connection_refused;A szerver nem fogadja a kapcsolatot ezen a porton (ellenőrizd a portot).;The server does not accept connections on this port (check the port).
+probeErrors.timeout;A szerver nem válaszolt időben (rossz port vagy tűzfal).;The server did not answer in time (wrong port or a firewall).
+probeErrors.tls_certificate;"A szerver tanúsítványa nem érvényes erre a névre, vagy nem megbízható.";"The server’s certificate is not valid for this name, or it is not trusted."
+probeErrors.starttls_unsupported;A szerver nem támogatja a STARTTLS-t ezen a porton.;The server does not support STARTTLS on this port.
+probeErrors.tls_mismatch;A biztonsági mód nem illik a porthoz (pl. SSL/TLS egy titkosítatlan porton).;The security mode does not match the port (e.g. SSL/TLS on an unencrypted port).
+probeErrors.mailbox_in_use;"A postafiókot épp egy másik kapcsolat használja (másik program vagy egy korábbi letöltés); kicsit később újra.";"Another connection is using the mailbox right now (another program or an earlier download); try again a little later."
+probeErrors.unknown;Ismeretlen hiba a kapcsolódáskor.;Unknown error while connecting.
+probeError (1);Hibás felhasználónév vagy jelszó.;Wrong user name or password.
+probeError (2);Hibás felhasználónév vagy jelszó.;Wrong user name or password.
+viewMail;Levelek;Mail
+viewSettings;Fiókok és beállítások;Accounts and settings
+settingsNavLabel;Beállítások;Settings
+viewContacts;Címlista;Contacts
+claudeOffer;Claude meg szeretne mutatni egy levelet. A megnyitás elhagyja a félkész szerkesztést.;Claude would like to show you a message. Opening it leaves the unfinished editing.
+claudeOfferOpen;Megnyitás;Open
+claudeOfferSearch;Claude meg szeretne mutatni egy keresést. A megjelenítés elhagyja a félkész szerkesztést.;Claude would like to show you a search. Showing it leaves the unfinished editing.
+claudeOfferSearchOpen;Megjelenítés;Show
+contacts.title;Címlista;Contacts
+contacts.search;Keresés a címlistában;Search contacts
+contacts.searchClear;Keresés törlése;Clear the search
+contacts.count (1);1 névjegy;1 contact
+contacts.count (2);2 névjegy;2 contacts
+contacts.selected (1);1 kijelölve;1 selected
+contacts.selected (2);2 kijelölve;2 selected
+contacts.listLabel;Névjegyek;Contacts
+contacts.newContact;Új névjegy;New contact
+contacts.import;Importálás…;Import…
+contacts.export;Exportálás;Export
+contacts.exportAllVcf;"Mind, vCard (.vcf)";"All, vCard (.vcf)"
+contacts.exportAllCsv;"Mind, CSV (.csv)";"All, CSV (.csv)"
+contacts.exportSelVcf;"A kijelöltek, vCard (.vcf)";"Selected, vCard (.vcf)"
+contacts.exportSelCsv;"A kijelöltek, CSV (.csv)";"Selected, CSV (.csv)"
+contacts.deleteSelected;Kijelöltek törlése;Delete selected
+contacts.select (1);Anna Smith kijelölése;Select Anna Smith
+contacts.select (2);Anna Smith kijelölése;Select Anna Smith
+contacts.source.auto;Automatikus;Automatic
+contacts.source.manual;Kézi;Manual
+contacts.source.import;Importált;Imported
+contacts.sourceHint.auto;Küldéskor került be magától;Added automatically when you sent mail
+contacts.sourceHint.manual;Kézzel vetted fel;You added it yourself
+contacts.sourceHint.import;Fájlból importáltad;You imported it from a file
+contacts.empty;"Még nincs névjegy. Küldéskor a címzettek maguktól bekerülnek, vagy importálhatsz egy fájlt.";"No contacts yet. Recipients are added automatically when you send mail, or you can import a file."
+contacts.noMatch;Nincs találat.;No results.
+contacts.choose;Válassz egy névjegyet a listából.;Choose a contact from the list.
+contacts.noName;(név nélkül);(no name)
+contacts.write;Levél írása;Write a message
+contacts.edit;Szerkesztés;Edit
+contacts.delete;Törlés;Delete
+contacts.primary;elsődleges;primary
+contacts.fields.displayName;Megjelenített név;Display name
+contacts.fields.givenName;Utónév;First name
+contacts.fields.familyName;Vezetéknév;Last name
+contacts.fields.org;Cég;Company
+contacts.fields.title;Beosztás;Job title
+contacts.fields.note;Megjegyzés;Note
+contacts.emails;E-mail címek;Email addresses
+contacts.phones;Telefonszámok;Phone numbers
+contacts.address;Cím;Address
+contacts.number;Szám;Number
+contacts.label;Címke;Label
+contacts.primaryChoice;Elsődleges cím;Primary address
+contacts.addEmail;Cím hozzáadása;Add an address
+contacts.addPhone;Telefon hozzáadása;Add a phone
+contacts.removeEmail (1);1. cím eltávolítása;Remove address 1
+contacts.removeEmail (2);2. cím eltávolítása;Remove address 2
+contacts.removePhone (1);1. telefon eltávolítása;Remove phone 1
+contacts.removePhone (2);2. telefon eltávolítása;Remove phone 2
+contacts.save;Mentés;Save
+contacts.cancel;Mégse;Cancel
+contacts.newTitle;Új névjegy;New contact
+contacts.editTitle;Névjegy szerkesztése;Edit contact
+contacts.saved;A névjegy mentve.;The contact has been saved.
+contacts.errors.bad_request;"Valamelyik mező nem megfelelő: kell egy név vagy egy érvényes cím, és a mezők nem lehetnek túl hosszúak.";"A field is not right: a name or a valid address is needed, and the fields cannot be too long."
+contacts.errors.address_taken;Ez a cím már egy másik névjegyé.;This address already belongs to another contact.
+contacts.errors.not_found;Ez a névjegy közben megszűnt.;This contact no longer exists.
+contacts.errors.preview_expired;Az előnézet lejárt (5 perc). Válaszd ki újra a fájlt.;The preview has expired (5 minutes). Choose the file again.
+contacts.errors.nothing_to_export;Nincs mit exportálni.;There is nothing to export.
+contacts.errors.unsupported_file;"Ezt a fájlt nem tudom beolvasni: .vcf, .vcard vagy .csv kell.";"This file cannot be read: a .vcf, .vcard or .csv file is needed."
+contacts.errors.read_failed;A fájl nem olvasható.;The file cannot be read.
+contacts.errors.write_failed;A fájlt nem sikerült menteni.;The file could not be saved.
+contacts.errors.too_large;A fájl túl nagy (legfeljebb 10 MB).;The file is too large (at most 10 MB).
+contacts.errors.too_many;A fájlban túl sok névjegy van (legfeljebb 10 000).;"The file has too many contacts (at most 10,000)."
+contacts.errors.not_available;Ez most nem érhető el.;This is not available right now.
+contacts.errors.internal;Váratlan hiba történt.;An unexpected error occurred.
+contacts.error (1);"Valamelyik mező nem megfelelő: kell egy név vagy egy érvényes cím, és a mezők nem lehetnek túl hosszúak.";"A field is not right: a name or a valid address is needed, and the fields cannot be too long."
+contacts.error (2);"Valamelyik mező nem megfelelő: kell egy név vagy egy érvényes cím, és a mezők nem lehetnek túl hosszúak.";"A field is not right: a name or a valid address is needed, and the fields cannot be too long."
+contacts.openOther;A másik névjegy megnyitása;Open the other contact
+contacts.deleteTitle (1);Névjegy törlése;Delete contact
+contacts.deleteTitle (2);2 névjegy törlése;Delete 2 contacts
+contacts.deleteText;A törölt névjegy a következő levélnél nem kerül vissza magától.;A deleted contact does not come back by itself with the next message.
+contacts.deleted (1);1 névjegy törölve.;1 contact deleted.
+contacts.deleted (2);2 névjegy törölve.;2 contacts deleted.
+contacts.importTitle;Importálás előnézete;Import preview
+contacts.importCounts (1);"Új: 1, összevont: 1, változatlan: 1, nem importálható: 1";"New: 1, merged: 1, unchanged: 1, cannot be imported: 1"
+contacts.importCounts (2);"Új: 2, összevont: 2, változatlan: 2, nem importálható: 2";"New: 2, merged: 2, unchanged: 2, cannot be imported: 2"
+contacts.importInvalid;Nem importálható sorok;Rows that cannot be imported
+contacts.importWarnings (1);1 névjegynél kimaradt cím vagy telefon (a névjegy bejön);1 contact lost an address or phone number (the contact is still imported)
+contacts.importWarnings (2);2 névjegynél kimaradt cím vagy telefon (a névjegy bejön);2 contacts lost an address or phone number (the contact is still imported)
+contacts.importSample;Minta;Sample
+contacts.importKind.new;új;new
+contacts.importKind.merged;összevont;merged
+contacts.reasons.two_people;a címei két névjegyhez tartoznak;its addresses belong to two contacts
+contacts.reasons.no_name_or_address;nincs neve és érvényes címe;it has no name and no valid address
+contacts.reasons.missing_end;hiányzik a névjegy vége (END:VCARD);the end of the contact is missing (END:VCARD)
+contacts.reasons.missing_begin;hiányzik a névjegy eleje (BEGIN:VCARD);the start of the contact is missing (BEGIN:VCARD)
+contacts.reasons.line_too_long;túl hosszú sor (64 KB felett);a line is too long (over 64 KB)
+contacts.reasons.unterminated_quote;lezáratlan idézőjel;an unclosed quotation mark
+contacts.reasons.unknown_header;ismeretlen fejléc: nem Google- és nem Outlook-formátum;unknown header: neither Google nor Outlook format
+contacts.reasons.address_limit (1);1 cím vagy telefon a 20-as korlát fölött kimaradt;1 address or phone number over the limit of 20 left out
+contacts.reasons.address_limit (2);2 cím vagy telefon a 20-as korlát fölött kimaradt;2 addresses or phone numbers over the limit of 20 left out
+contacts.reasons.invalid_address (1);1 nem e-mail alakú cím kimaradt;1 address not in email form left out
+contacts.reasons.invalid_address (2);2 nem e-mail alakú cím kimaradt;2 addresses not in email form left out
+contacts.reason (1);a címei két névjegyhez tartoznak;its addresses belong to two contacts
+contacts.reason (2);a címei két névjegyhez tartoznak;its addresses belong to two contacts
+contacts.row (1);1. sor;Row 1
+contacts.row (2);2. sor;Row 2
+contacts.doImport;Importálás;Import
+contacts.imported (1);"Importálva: 1 új, 1 összevont, 1 változatlan.";"Imported: 1 new, 1 merged, 1 unchanged."
+contacts.imported (2);"Importálva: 2 új, 2 összevont, 2 változatlan.";"Imported: 2 new, 2 merged, 2 unchanged."
+contacts.exported (1);1 névjegy exportálva.;1 contact exported.
+contacts.exported (2);2 névjegy exportálva.;2 contacts exported.
+contacts.addSender;Címlistához ad;Add to contacts
+contacts.senderAdded;A feladó bekerült a címlistába.;The sender has been added to your contacts.
+splitterContacts;Névjegylista szélessége;Contact list width
+splitters.sidebar;Mappasáv szélessége;Folder pane width
+splitters.list;Levéllista szélessége;Message list width
+splitters.listh;Levéllista magassága;Message list height
+splitters.settings;Beállítások menü szélessége;Settings menu width
+settingsNav.accounts;Fiókok;Accounts
+settingsNav.appearance;Megjelenés;Appearance
+settingsNav.security;Biztonság;Security
+settingsNav.claude;Claude-hozzáférés;Claude access
+settingsNav.about;Névjegy;About
+claudeAccess.title;Claude-hozzáférés;Claude access
+claudeAccess.intro;"Bekapcsolva a gépeden futó Claude (Claude Desktop vagy Claude Code) eléri a leveleidet ezen a programon keresztül, amíg a ShadowMail fut és fel van oldva. Kikapcsolva, zárolva vagy bezárt programmal Claude semmit nem ér el.";"When it is on, the Claude running on your computer (Claude Desktop or Claude Code) can reach your mail through this program, while ShadowMail is running and unlocked. When it is off, locked or the program is closed, Claude can reach nothing."
+claudeAccess.switchLabel;Claude-hozzáférés bekapcsolva;Claude access on
+claudeAccess.switchFailed;A kapcsolót nem sikerült átállítani.;The switch could not be changed.
+claudeAccess.stateLabel;Állapot:;Status:
+claudeAccess.stateOff;Kikapcsolva;Off
+claudeAccess.stateStarting;Indul…;Starting…
+claudeAccess.stateWaiting;Várakozik (nincs kapcsolódó Claude);Waiting (no Claude connected)
+claudeAccess.stateConnected (1);Kapcsolódva: 1;Connected: 1
+claudeAccess.stateConnected (2);Kapcsolódva: 2;Connected: 2
+claudeAccess.connectTitle;Beállítás a Claude-ban;Setting it up in Claude
+claudeAccess.connectIntro;A ShadowMail a Claude beállításait nem írja: az alábbiak egyikét te másolod be. Mindkettő a program mostani helyét tartalmazza.;ShadowMail does not write Claude’s settings: you copy one of the following yourself. Both contain the program’s current location.
+claudeAccess.desktopTitle;Claude Desktop: a claude_desktop_config.json fájlba;Claude Desktop: into the claude_desktop_config.json file
+claudeAccess.desktopHint;"A fájl helye Windowson: %APPDATA%\Claude\claude_desktop_config.json (macOS-en: ~/Library/Application Support/Claude/claude_desktop_config.json). Ha már van benne ""mcpServers"", csak a ""shadowmail"" részt tedd mellé. Mentés után indítsd újra a Claude Desktopot.";"The file on Windows: %APPDATA%\Claude\claude_desktop_config.json (on macOS: ~/Library/Application Support/Claude/claude_desktop_config.json). If it already has ""mcpServers"", only add the ""shadowmail"" part next to the others. After saving, restart Claude Desktop."
+claudeAccess.codeTitle;Claude Code: parancs a terminálba;Claude Code: a command for the terminal
+claudeAccess.codeHint;"A --scope user miatt minden projektben elérhető. A Claude Code-ban a /mcp parancs mutatja, kapcsolódott-e.";With --scope user it is available in every project. In Claude Code the /mcp command shows whether it is connected.
+claudeAccess.codeHintPowershell;"A program útjában $ vagy ` jel van, ezért ez a parancs PowerShellbe való (a parancssor másként kezeli az idézőjelet). A --scope user miatt minden projektben elérhető; a Claude Code-ban a /mcp parancs mutatja, kapcsolódott-e.";"The program’s path contains a $ or ` character, so this command is for PowerShell (the Command Prompt treats the quotes differently). With --scope user it is available in every project; in Claude Code the /mcp command shows whether it is connected."
+claudeAccess.copy;Másolás;Copy
+claudeAccess.copied;Kimásolva;Copied
+claudeAccess.copyFailed;A másolás nem sikerült.;Copying failed.
+claudeAccess.moved;"Ha áthelyezted a ShadowMail mappáját, másold be újra: a Claude a régi helyen keresi a programot.";"If you moved the ShadowMail folder, copy it in again: Claude looks for the program in the old place."
+claudeAccess.rulesTitle;Mit tehet Claude?;What can Claude do?
+claudeAccess.freeTitle;Megerősítés nélkül:;Without confirmation:
+claudeAccess.free;"olvasás és keresés (a levél nem lesz olvasott), jelölés (olvasott, csillag), áthelyezés, Kukába helyezés, mappa létrehozása és átnevezése, piszkozat írása (a Piszkozatok mappába, ""Claude"" jellel), frissítés, a fiók kapcsolatának próbája.";"reading and searching (a message does not become read), marking (read, star), moving, moving to Trash, creating and renaming folders, writing drafts (into Drafts, with a ""Claude"" mark), refreshing, testing an account’s connection."
+claudeAccess.confirmTitle;"Csak a te megerősítéseddel, ebben az ablakban:";"Only with your confirmation, in this window:"
+claudeAccess.confirm;"levél küldése, végleges törlés, mappa és fiók törlése, fiók-beállítás módosítása, leállt fiók belépésének újraindítása.";"sending a message, deleting permanently, deleting a folder or an account, changing account settings, restarting the sign-in of a stopped account."
+claudeAccess.neverTitle;Soha:;Never:
+claudeAccess.never;"jelszó, mesterjelszó és helyreállító kód, mellékletek tartalma, helyi fájl csatolása, és ez a kapcsoló.";"passwords, the master password and the recovery code, the content of attachments, attaching a local file, and this switch."
+claudeAccess.threat;"A védelem a gépeden futó más programok és a levelekbe rejtett utasítások ellen szól; egy, a te felhasználódként futó kártevő ellen ez a kapcsoló nem véd.";"The protection is against other programs on your computer and instructions hidden in messages; it does not protect against malware running as your user."
+claudeAccess.webTools;"Javaslat: a Claude-ban a webes és egyéb eszközök jóváhagyás-kérése maradjon bekapcsolva, mert egy levélbe rejtett utasítás azokon át próbálhatna adatot kivinni.";"Suggestion: in Claude, keep the approval prompts for web and other tools on, because an instruction hidden in a message could try to take data out through them."
+claudeAccess.recentTitle;Legutóbbi Claude-hívások;Recent Claude calls
+claudeAccess.recentEmpty;Még nem volt hívás.;No calls yet.
+claudeAccess.recentHint;"Az utolsó 20 hívás, csak a memóriában: zárolás vagy újraindítás után üres. Keresőszó, cím, tárgy vagy levélszöveg nem kerül ide.";"The last 20 calls, kept only in memory: empty after locking or a restart. Search words, addresses, subjects and message text are never kept here."
+claudeAccess.colTime;Idő;Time
+claudeAccess.colTool;Eszköz;Tool
+claudeAccess.colResult;Eredmény;Result
+claudeAccess.colItems;Darab;Items
+claudeAccess.result (1);rendben;OK
+claudeAccess.result (2);rendben;OK
+claudeAccess.confirmResult (1);megerősítés: jóváhagyva;confirmation: approved
+claudeAccess.confirmResult (2);megerősítés: jóváhagyva;confirmation: approved
+passwordShow;Jelszó megjelenítése;Show password
+passwordHide;Jelszó elrejtése;Hide password
+backToMail;Vissza a levelekhez;Back to mail
+sidebarCollapse;Oldalsáv összecsukása;Collapse the sidebar
+sidebarExpand;Oldalsáv kinyitása;Expand the sidebar
+accountFoldersHide (1);Work: mappák elrejtése;Work: hide folders
+accountFoldersHide (2);Work: mappák elrejtése;Work: hide folders
+accountFoldersShow (1);Work: mappák megjelenítése;Work: show folders
+accountFoldersShow (2);Work: mappák megjelenítése;Work: show folders
+refresh;Frissítés;Refresh
+folderRoles.inbox;Beérkezett;Inbox
+folderRoles.drafts;Piszkozatok;Drafts
+folderRoles.sent;Elküldött;Sent
+folderRoles.trash;Kuka;Trash
+folderRoles.junk;Levélszemét;Junk
+folderRoles.archive;Archívum;Archive
+foldersHeading;Mappák;Folders
+unreadCount (1);1 olvasatlan;1 unread
+unreadCount (2);2 olvasatlan;2 unread
+noMailAccounts;Még nincs postafiók. Vegyél fel egyet a „Fiókok és beállítások” alatt.;No mailbox yet. Add one under “Accounts and settings”.
+noFolders;A mappák az első szinkron után jelennek meg.;The folders appear after the first sync.
+chooseFolder;Válassz mappát.;Choose a folder.
+listEmpty;Ebben a mappában nincs levél.;There are no messages in this folder.
+listCount (1);1 levél;1 message
+listCount (2);2 levél;2 messages
+listFiltered (1);" (szűrve, összesen 1)";" (filtered, 1 in total)"
+listFiltered (2);" (szűrve, összesen 2)";" (filtered, 2 in total)"
+listFilteredEmpty;Nincs a szűrőknek megfelelő levél.;No message matches the filters.
+mcpUnavailable;"A ShadowMail nem fut, zárolva van, vagy a Claude-hozzáférés ki van kapcsolva.";"ShadowMail is not running, is locked, or Claude access is turned off."
+mcpTooMany;"A ShadowMailhez már két Claude-kapcsolat él (ennyi lehet egyszerre). Zárj be egy másik Claude-munkamenetet, és próbáld újra.";Two Claude connections to ShadowMail are already open (that is the most at a time). Close another Claude session and try again.
+listLoadError (1);A levéllista nem tölthető be: megszakadt a kapcsolat;The message list cannot be loaded: the connection was lost
+listLoadError (2);A levéllista nem tölthető be: megszakadt a kapcsolat;The message list cannot be loaded: the connection was lost
+clearFilters;Szűrők törlése;Clear filters
+listSortField.date;Dátum;Date
+listSortField.from;Feladó;Sender
+listSortField.subject;Tárgy;Subject
+listSortChip (1);"Rendezés: Dátum, növekvő";"Sort: Date, ascending"
+listSortChip (2);"Rendezés: Dátum, növekvő";"Sort: Date, ascending"
+listColumns.star;Csillag;Star
+listColumns.attachment;Melléklet;Attachment
+listColumns.from;Feladó;Sender
+listColumns.subject;Tárgy;Subject
+listColumns.date;Dátum;Date
+noSubject;(nincs tárgy);(no subject)
+unknownSender;(ismeretlen feladó);(unknown sender)
+flagged;Csillagozott;Starred
+hasAttachment;Van melléklet;Has attachment
+listToolsLabel;Levéllista;Message list
+selectRow;Kijelölés;Select
+selectAll;Mind kijelölése;Select all
+selectMenu;Kijelölési lehetőségek;Selection options
+selectMenuItems.all;Mind;All
+selectMenuItems.none;Egyik sem;None
+selectMenuItems.read;Olvasottak;Read
+selectMenuItems.unread;Olvasatlanok;Unread
+moreMenu;További;More
+sortMenu.date;Rendezés dátum szerint;Sort by date
+sortMenu.from;Rendezés feladó szerint;Sort by sender
+sortMenu.subject;Rendezés tárgy szerint;Sort by subject
+sortMenu.reverse;Fordított sorrend;Reverse order
+starToggle;Csillag;Star
+listRange (1);1–50 (összesen 1 levél);1–50 (1 message in total)
+listRange (2);1–50 (összesen 2 levél);1–50 (2 messages in total)
+syncPhases.connecting;kapcsolódás…;connecting…
+syncPhases.metadata (1);mappa frissítése: INBOX;updating folder: INBOX
+syncPhases.metadata (2);mappa frissítése: INBOX;updating folder: INBOX
+syncPhases.bodies (1);szövegek indexelése;indexing message text
+syncPhases.bodies (2);szövegek indexelése;indexing message text
+syncedAt (1);frissítve 14:05;updated 14:05
+syncedAt (2);frissítve 14:05;updated 14:05
+syncNever;még nem frissült;not updated yet
+syncLive;élő;live
+syncErrors.connection_lost;"megszakadt a kapcsolat, újrapróbálom…";"the connection was lost; retrying…"
+syncErrors.host_not_found;"a szerver nem érhető el (nincs hálózat, vagy hibás a szervernév); újrapróbálom…";"the server cannot be reached (no network, or a wrong server name); retrying…"
+syncErrors.connection_refused;"a szerver nem fogadja a kapcsolatot (nincs hálózat, a szerver tilt, vagy hibás a port); újrapróbálom…";"the server does not accept the connection (no network, the server refuses it, or a wrong port); retrying…"
+syncErrors.timeout;"a szerver nem válaszolt időben; újrapróbálom…";"the server did not answer in time; retrying…"
+syncErrors.auth_failed;a szerver elutasította a belépést (hibás felhasználónév vagy jelszó).;the server refused the sign-in (wrong user name or password).
+syncErrors.no_password;nincs elmentett jelszó: add meg a fiók beállításainál.;no password is saved: enter it in the account settings.
+syncErrors.folder;néhány mappát a szerver nem adott ki.;the server did not give out some folders.
+syncErrors.uidl_unsupported;"a POP3-szerver nem támogatja az UIDL parancsot, ezért nem tudom, mely levelek újak.";"the POP3 server does not support the UIDL command, so it cannot be told which messages are new."
+syncErrors.mailbox_in_use;"a postafiókot épp egy másik kapcsolat használja; újrapróbálom…";"another connection is using the mailbox right now; retrying…"
+syncErrors.partial;"néhány levelet a szerver nem adott ki; a következő frissítéskor újra megpróbálom.";"the server did not give out some messages; they are tried again at the next refresh."
+syncError (1);"megszakadt a kapcsolat, újrapróbálom…";"the connection was lost; retrying…"
+syncError (2);"megszakadt a kapcsolat, újrapróbálom…";"the connection was lost; retrying…"
+syncStopped;"Az automatikus frissítés szünetel: javítsd a fiók beállítását, vagy nyomd meg a Frissítés gombot.";"Automatic refresh is paused: fix the account settings, or press the Refresh button."
+readerEmpty;Válassz levelet a listából.;Choose a message from the list.
+readerLoading;A levél betöltése…;Loading the message…
+readerHeaders.from;Feladó;From
+readerHeaders.to;Címzett;To
+readerHeaders.cc;Másolat;Cc
+readerHeaders.replyTo;Válaszcím;Reply-To
+readerHeaders.date;Dátum;Date
+readerFrameTitle;A levél szövege;The message text
+readerImagesBlocked (1);"A levélben külső kép van, ezeket a biztonság kedvéért nem töltöttem be (a feladó így nem tudja meg, hogy megnyitottad).";"The message has an external image; for your safety it was not loaded (so the sender cannot tell that you opened it)."
+readerImagesBlocked (2);"A levélben külső képek vannak, ezeket a biztonság kedvéért nem töltöttem be (a feladó így nem tudja meg, hogy megnyitottad).";"The message has external images; for your safety they were not loaded (so the sender cannot tell that you opened it)."
+readerLoadImages;Képek betöltése;Load images
+readerAttachments (1);Mellékletek (1);Attachments (1)
+readerAttachments (2);Mellékletek (2);Attachments (2)
+readerSave;Mentés…;Save…
+readerOpen;Megnyitás;Open
+readerExecutable;"Futtatható fájl: csak menteni lehet, megnyitni innen nem.";"Executable file: it can only be saved, not opened from here."
+readerBrowserActive;"Weboldal-jellegű fájl (HTML, SVG, XML): a böngészőben programot futtathatna, ezért csak menteni lehet.";"Web-page-like file (HTML, SVG, XML): in a browser it could run a program, so it can only be saved."
+readerNotOpenable;"Ezt a fájltípust nem nyitom meg közvetlenül, csak menteni lehet.";"This file type is not opened directly; it can only be saved."
+readerThread;Szál;Thread
+readerThreadHide;Szál elrejtése;Hide the thread
+readerThreadHeading (1);A szál levelei (1);Messages in the thread (1)
+readerThreadHeading (2);A szál levelei (2);Messages in the thread (2)
+readerThreadCurrent;ez a levél;this message
+readerControlsHidden (1);"A levél 1 vezérlőkaraktert tartalmaz, ezek itt nem látszanak; a Forrás nézetben jelölve.";"The message contains 1 control character; it is not shown here, the Source view marks it."
+readerControlsHidden (2);"A levél 2 vezérlőkaraktert tartalmaz, ezek itt nem látszanak; a Forrás nézetben jelölve.";"The message contains 2 control characters; they are not shown here, the Source view marks them."
+readerTextCut (1);"A levél további 1 karaktere itt nem látszik; a teljes szöveg a Forrás nézetben.";"The remaining 1 character of the message is not shown here; the full text is in the Source view."
+readerTextCut (2);"A levél további 2 karaktere itt nem látszik; a teljes szöveg a Forrás nézetben.";"The remaining 2 characters of the message are not shown here; the full text is in the Source view."
+source.menuHeaders;Fejlécek;Headers
+source.menuOriginal;Eredeti megjelenítése;Show original
+source.menuSave;Mentés .eml-ként;Save as .eml
+source.title;A levél forrása;Message source
+source.tabsLabel;A forrás nézetei;Views of the source
+source.tabs.headers;Fejlécek;Headers
+source.tabs.original;Eredeti;Original
+source.loading;A forrás betöltése…;Loading the source…
+source.save;Mentés .eml-ként;Save as .eml
+source.saved;A levél elmentve .eml-ként.;The message has been saved as .eml.
+source.summaryLabel;Összefoglaló;Summary
+source.rows.from;Feladó;From
+source.rows.to;Címzett;To
+source.rows.cc;Másolat;Cc
+source.rows.date;Dátum;Date
+source.rows.subject;Tárgy;Subject
+source.rows.messageId;Message-ID;Message-ID
+source.rows.spf;SPF;SPF
+source.rows.dkim;DKIM;DKIM
+source.rows.dmarc;DMARC;DMARC
+source.authResults.pass;pass (megfelelt);pass (passed)
+source.authResults.fail;fail (nem felelt meg);fail (failed)
+source.authResults.softfail;softfail (gyanús);softfail (suspicious)
+source.authResults.neutral;neutral (semleges);neutral
+source.authResults.none;none (nincs aláírás vagy szabály);none (no signature or policy)
+source.authResults.temperror;temperror (átmeneti hiba);temperror (temporary error)
+source.authResults.permerror;permerror (tartós hiba);permerror (permanent error)
+source.authResults.policy;policy (szabály szerint);policy (by policy)
+source.authMissing;nincs adat;no data
+source.authBy (1);"Az eredmény a levél Authentication-Results sorából való, amelyet „mx.example.invalid” írt. A ShadowMail maga nem ellenőriz; ha a fogadó szerver nem írt ilyen sort, ezt a feladó is beleírhatta.";"The result comes from the message’s Authentication-Results line, written by “mx.example.invalid”. ShadowMail does not check it itself; if the receiving server wrote no such line, the sender could have written this one."
+source.authBy (2);"Az eredmény a levél Authentication-Results sorából való, amelyet „mx.example.invalid” írt. A ShadowMail maga nem ellenőriz; ha a fogadó szerver nem írt ilyen sort, ezt a feladó is beleírhatta.";"The result comes from the message’s Authentication-Results line, written by “mx.example.invalid”. ShadowMail does not check it itself; if the receiving server wrote no such line, the sender could have written this one."
+source.authNone;"A levélben nincs Authentication-Results sor, ezért SPF/DKIM/DMARC-eredmény nem látszik. A ShadowMail maga nem ellenőriz.";"The message has no Authentication-Results line, so no SPF/DKIM/DMARC result is shown. ShadowMail does not check it itself."
+source.rawHeaders;A teljes fejrész;The full header
+source.noHeaders;Ennek a levélnek nincs felismerhető fejrésze.;This message has no recognizable header.
+source.truncated (1);"A levél 3.5 MB, az első 2 MB látszik. A teljes levélhez mentsd .eml-ként.";"The message is 3.5 MB; the first 2 MB is shown. For the full message, save it as .eml."
+source.truncated (2);"A levél 3.5 MB, az első 2 MB látszik. A teljes levélhez mentsd .eml-ként.";"The message is 3.5 MB; the first 2 MB is shown. For the full message, save it as .eml."
+source.headersTruncated;"A fejrész hosszabb 2 MB-nál, csak az eleje látszik. A teljeshez mentsd .eml-ként.";"The header is longer than 2 MB; only its start is shown. For the full one, save it as .eml."
+source.marks (1);"1 láthatatlan karakter (vezérlő-, irányváltó, nulla szélességű stb.) jelként látszik (⟨U+…⟩).";"1 invisible character (control, direction, zero-width and so on) is shown as a mark (⟨U+…⟩)."
+source.marks (2);"2 láthatatlan karakter (vezérlő-, irányváltó, nulla szélességű stb.) jelként látszik (⟨U+…⟩).";"2 invisible characters (control, direction, zero-width and so on) are shown as marks (⟨U+…⟩)."
+source.markTitle (1);Láthatatlan karakter: U+202E;Invisible character: U+202E
+source.markTitle (2);Láthatatlan karakter: U+202E;Invisible character: U+202E
+source.unmarked (1);… és további 1 láthatatlan karakter (nincs egyenként jelölve);… and 1 more invisible character (not marked one by one)
+source.unmarked (2);… és további 2 láthatatlan karakter (nincs egyenként jelölve);… and 2 more invisible characters (not marked one by one)
+source.cutByMarks;"… a jelölésekkel a szöveg hosszabb lenne 2 MB-nál, a vége nem látszik. A teljes levélhez mentsd .eml-ként.";"… with the marks the text would be longer than 2 MB, so its end is not shown. For the full message, save it as .eml."
+backToList;Vissza a listához;Back to the list
+readerToolsLabel;Műveletek a levélen;Actions on the message
+readerMore;További;More
+readerDetailsShow;Részletek megjelenítése;Show details
+readerDetailsHide;Részletek elrejtése;Hide details
+readerToSummary (1);"címzett: Anna, Bob";"to: Anna, Bob"
+readerToSummary (2);"címzett: Anna, Bob";"to: Anna, Bob"
+readerNoRecipient;nincs címzett;no recipient
+readerAttachmentKind.executable;futtatható;executable
+readerAttachmentKind.browserActive;weboldal-jellegű;web-page-like
+readerAttachmentKind.notOpenable;csak menthető;save only
+settingsAppearance;Megjelenés;Appearance
+readerPaneLabel;Olvasópanel;Reading pane
+taskbarUnreadLabel;Olvasatlan levelek száma a tálca-ikonon;Unread count on the taskbar icon
+taskbarUnreadFailed;A beállítást nem sikerült menteni.;The setting could not be saved.
+taskbarUnreadBadge (1);1 olvasatlan levél;1 unread message
+taskbarUnreadBadge (2);2 olvasatlan levél;2 unread messages
+readerPaneOptions.none;Nincs: a levél a lista helyén nyílik;None: the message opens in place of the list
+readerPaneOptions.right;Jobbra a lista mellett;On the right of the list
+readerPaneOptions.bottom;Alul a lista alatt;Below the list
+languageLabel;Nyelv / Language;Nyelv / Language
+languageOptions.hu;Magyar;Magyar
+languageOptions.en;English;English
+themeLabel;Téma;Theme
+themes.default;Alap (világos);Default (light)
+themes.dark;Sötét;Dark
+themes.graphite;Grafit;Graphite
+themes.classic-blue;Klasszikus kék;Classic blue
+themes.classic-light;Klasszikus világos;Classic light
+languageApplying;"Nyelvváltás: a nyitott levélírók mentése, utána az ablak újratölt…";"Changing the language: the open composers save, then the window reloads…"
+languageFailed;"A nyelvet nem sikerült menteni; a beállítás nem változott.";"The language could not be saved; the setting is unchanged."
+readerPaneShort.none;olvasópanel nélkül;no reading pane
+readerPaneShort.right;olvasópanel jobbra;reading pane on the right
+readerPaneShort.bottom;olvasópanel alul;reading pane at the bottom
+readerPaneButton (1);Elrendezés: olvasópanel nélkül. Kattintásra: olvasópanel nélkül;Layout: no reading pane. Click for: no reading pane
+readerPaneButton (2);Elrendezés: olvasópanel nélkül. Kattintásra: olvasópanel nélkül;Layout: no reading pane. Click for: no reading pane
+readerSeenFailed (1);"A levelet nem sikerült olvasottnak jelölni a szerveren: megszakadt a kapcsolat, újrapróbálom…";"The message could not be marked as read on the server: the connection was lost; retrying…"
+readerSeenFailed (2);"A levelet nem sikerült olvasottnak jelölni a szerveren: megszakadt a kapcsolat, újrapróbálom…";"The message could not be marked as read on the server: the connection was lost; retrying…"
+readerErrors.not_found;Ez a levél már nincs meg (közben törölték vagy áthelyezték).;This message is no longer there (it was deleted or moved in the meantime).
+readerErrors.gone;Ez a levél már nincs meg a szerveren.;This message is no longer on the server.
+readerErrors.stale;A mappa megváltozott a szerveren. Frissítés után nyisd meg újra.;"The folder changed on the server. Refresh, then open it again."
+readerErrors.not_downloaded;A levél fájlja nincs meg a data\store mappában.;The message file is not in the data\store folder.
+readerErrors.store_corrupt;"A levél fájlja sérült a data\store mappában, ezért nem nyitható meg. A többi levél és a keresés ettől működik.";"The message file in the data\store folder is damaged, so it cannot be opened. The other messages and the search still work."
+readerErrors.pop3_local;POP3-fióknál ez a művelet csak helyben értelmezhető.;For a POP3 account this action only makes sense locally.
+readerErrors.locked;A tároló zárolva van.;The store is locked.
+readerErrors.no_account;A levél fiókja nem aktív.;The message’s account is not active.
+readerErrors.sync_stopped;"A fiók szünetel, mert a szerver elutasította a belépést. Javítsd a beállítást, vagy nyomd meg a Frissítés gombot.";"The account is paused because the server refused the sign-in. Fix the settings, or press the Refresh button."
+readerErrors.not_open;A levél közben bezárult. Nyisd meg újra.;The message was closed in the meantime. Open it again.
+readerErrors.not_a_draft;Ez a levél már nincs a Piszkozatok között (közben áthelyezték vagy elküldték).;This message is no longer in Drafts (it was moved or sent meanwhile).
+readerErrors.executable;"Futtatható fájlt nem nyitok meg, csak menteni lehet.";"Executable files are not opened; they can only be saved."
+readerErrors.browser_active;"Weboldal-jellegű fájlt (HTML, SVG, XML) nem nyitok meg, csak menteni lehet.";"Web-page-like files (HTML, SVG, XML) are not opened; they can only be saved."
+readerErrors.not_openable;"Ezt a fájltípust nem nyitom meg közvetlenül, csak menteni lehet.";"This file type is not opened directly; it can only be saved."
+readerErrors.open_failed;A mellékletet nem sikerült megnyitni (nincs hozzá program?).;The attachment could not be opened (is there no program for it?).
+readerErrors.motw_failed;"A melléklet nem jelölhető meg biztonságosan; mentsd el, és nyisd meg onnan.";"The attachment cannot be marked safely; save it and open it from there."
+readerErrors.internal;Váratlan hiba történt.;An unexpected error occurred.
+actionsLabel;Műveletek a kijelölt leveleken;Actions on the selected messages
+actions.read;Olvasott;Mark as read
+actions.unread;Olvasatlan;Mark as unread
+actions.star;Csillagoz;Star
+actions.unstar;Csillag le;Remove star
+actions.delete;Törlés;Delete
+actions.move;Áthelyezés;Move
+actions.moveTo;Áthelyezés ide…;Move to…
+actions.archive;Archiválás;Archive
+selectedCount (1);1 kijelölve;1 selected
+selectedCount (2);2 kijelölve;2 selected
+confirmDeleteTitle;Végleges törlés;Delete permanently
+confirmDeleteTrash (1);"A levél a Kukában van: a törlés után a szerveren sem lesz meg, és nem állítható vissza.";"The message is in Trash: after deleting, it is gone from the server too and cannot be restored."
+confirmDeleteTrash (2);"2 levél a Kukában van: a törlés után a szerveren sem lesz meg, és nem állítható vissza.";"2 messages are in Trash: after deleting, they are gone from the server too and cannot be restored."
+confirmDeleteNoTrash (1);"Ebben a fiókban nincs Kuka mappa, ezért a levél véglegesen törlődik, a szerverről is. Nem állítható vissza.";"This account has no Trash folder, so the message is deleted permanently, from the server too. This cannot be undone."
+confirmDeleteNoTrash (2);"Ebben a fiókban nincs Kuka mappa, ezért a(z) 2 levél véglegesen törlődik, a szerverről is. Nem állítható vissza.";"This account has no Trash folder, so the 2 messages are deleted permanently, from the server too. This cannot be undone."
+confirmDeleteYes;Végleges törlés;Delete permanently
+confirmCancel;Mégse;Cancel
+close;Bezárás;Close
+claudeDraftNotice (1);Claude piszkozatot készített: Hello;Claude made a draft: Hello
+claudeDraftNotice (2);Claude piszkozatot készített: Hello;Claude made a draft: Hello
+claudeDraftOpen;Megnyitás;Open
+claudeDraftNotYet;"A piszkozat még nem érkezett meg a Piszkozatok mappába; próbáld újra pár másodperc múlva.";"The draft has not reached the Drafts folder yet; try again in a few seconds."
+claudeMark;Claude;Claude
+claudeMarkTitle;Ezt a piszkozatot Claude készítette;Claude made this draft
+claudeConfirm.header;"Ezt a kérést Claude indította. Csak akkor hagyd jóvá, ha te is ezt akarod.";Claude started this request. Only approve it if you want it too.
+claudeConfirm.titles.send;Claude levelet küldene;Claude would send a message
+claudeConfirm.titles.deleteMessages;Claude véglegesen törölne leveleket;Claude would delete messages permanently
+claudeConfirm.titles.deleteFolder;Claude törölne egy mappát;Claude would delete a folder
+claudeConfirm.titles.updateAccount;Claude módosítaná egy fiók beállításait;Claude would change an account’s settings
+claudeConfirm.titles.deleteAccount;Claude törölne egy fiókot;Claude would delete an account
+claudeConfirm.titles.restartLogin;Claude újraindítaná egy fiók belépését;Claude would restart an account’s sign-in
+claudeConfirm.unknownTitle;Claude kérése;Claude’s request
+claudeConfirm.reject;Elutasítás;Reject
+claudeConfirm.approve;Jóváhagyás;Approve
+claudeConfirm.lock;Zárolás;Lock
+claudeConfirm.rejectAllOff;"Mind elutasítása, Claude-hozzáférés ki";"Reject all, turn Claude access off"
+claudeConfirm.offFailed;"A Claude-hozzáférést nem sikerült kikapcsolni; a kérések még várnak. Utasítsd el őket egyenként, vagy zárold a programot.";"Claude access could not be turned off; the requests are still waiting. Reject them one by one, or lock the program."
+claudeConfirm.more (1);Utána még 1 kérés vár.;1 more request is waiting after this one.
+claudeConfirm.more (2);Utána még 2 kérés vár.;2 more requests are waiting after this one.
+claudeConfirm.from;Feladó;From
+claudeConfirm.to;Címzett;To
+claudeConfirm.cc;Másolat;Cc
+claudeConfirm.bcc;Titkos másolat;Bcc
+claudeConfirm.subject;Tárgy;Subject
+claudeConfirm.noSubject;(nincs tárgy);(no subject)
+claudeConfirm.text;Szöveg;Text
+claudeConfirm.noText;(üres);(empty)
+claudeConfirm.showAll (1);A teljes szöveg megjelenítése (1 karakter);Show the full text (1 character)
+claudeConfirm.showAll (2);A teljes szöveg megjelenítése (2 karakter);Show the full text (2 characters)
+claudeConfirm.showStart;Csak az eleje;Only the start
+claudeConfirm.attachments;Mellékletek;Attachments
+claudeConfirm.links;Linkek a levélben (felirat -> valódi cél):;Links in the message (label -> real target):
+claudeConfirm.linksMore (1);… és még 1 link;… and 1 more link
+claudeConfirm.linksMore (2);… és még 2 link;… and 2 more links
+claudeConfirm.account;Fiók;Account
+claudeConfirm.folder;Mappa;Folder
+claudeConfirm.listMore (1);… és még 1 levél;… and 1 more message
+claudeConfirm.listMore (2);… és még 2 levél;… and 2 more messages
+claudeConfirm.folderDelete (1);"A mappa és benne egy levél véglegesen törlődik, a szerveren is. Nem állítható vissza.";"The folder and the message in it are deleted permanently, on the server too. This cannot be undone."
+claudeConfirm.folderDelete (2);"A mappa és benne 2 levél véglegesen törlődik, a szerveren is. Nem állítható vissza.";"The folder and the 2 messages in it are deleted permanently, on the server too. This cannot be undone."
+claudeConfirm.accountDelete (1);"A fiók, a mappái, a letöltött levelei (1 levél) és a mentett jelszava törlődik ebből a programból. A levelezőszerveren semmi nem törlődik.";"The account, its folders, its downloaded messages (1 message) and its saved password are deleted from this program. Nothing is deleted on the mail server."
+claudeConfirm.accountDelete (2);"A fiók, a mappái, a letöltött levelei (2 levél) és a mentett jelszava törlődik ebből a programból. A levelezőszerveren semmi nem törlődik.";"The account, its folders, its downloaded messages (2 messages) and its saved password are deleted from this program. Nothing is deleted on the mail server."
+claudeConfirm.changesHead;A változások (régi -> új):;The changes (old -> new):
+claudeConfirm.empty;(üres);(empty)
+claudeConfirm.on;be;on
+claudeConfirm.off;ki;off
+claudeConfirm.never;soha;never
+claudeConfirm.loginChanged;"A mentett jelszót a program a következő belépéskor az új szervernek vagy felhasználónak adja. Csak akkor hagyd jóvá, ha ismered a szervert.";At the next sign-in the program gives the saved password to the new server or user. Only approve it if you know the server.
+claudeConfirm.deletesSooner;A rövidebb idő miatt a következő letöltéskor a szerverről régebbi levelek törlődhetnek.;"With the shorter time, older messages may be deleted from the server at the next download."
+claudeConfirm.restartsLogin;"A fiók szinkronja most le van állítva (elutasított belépés miatt). A mentés újraindítja: egy belépési kísérlet történik. Ha a jelszó rossz, a szerver ideiglenesen letilthatja a gépet.";"This account’s sync is stopped now (because a sign-in was refused). Saving restarts it: one sign-in attempt is made. If the password is wrong, the server may temporarily block this computer."
+claudeConfirm.restartReason (1);"A leállítás oka: megszakadt a kapcsolat, újrapróbálom…";"Why it stopped: the connection was lost; retrying…"
+claudeConfirm.restartReason (2);"A leállítás oka: megszakadt a kapcsolat, újrapróbálom…";"Why it stopped: the connection was lost; retrying…"
+claudeConfirm.restartWarning;"Ha a jelszó továbbra is rossz, a szerver ideiglenesen letilthatja a gépet. Jóváhagyás után egy belépési kísérlet történik.";"If the password is still wrong, the server may temporarily block this computer. After you approve, one sign-in attempt is made."
+actionErrors.server_refused;a szerver elutasította.;the server refused it.
+actionErrors.uidvalidity_changed;"a mappa a szerveren közben megváltozott (újra lett létrehozva), ezért nem nyúltam hozzá; frissítés után próbáld újra.";"the folder changed on the server in the meantime (it was created again), so it was left alone; refresh and try again."
+actionErrors.mixed_selection;egyszerre csak egy mappa leveleivel lehet dolgozni.;you can only work with the messages of one folder at a time.
+actionErrors.bad_target;ide nem lehet áthelyezni.;it cannot be moved there.
+actionErrors.not_found;a levél közben eltűnt (frissítés után próbáld újra).;the message disappeared in the meantime (refresh and try again).
+actionError (1);"Olvasott nem sikerült, a lista visszaállt: a szerver elutasította.";"Mark as read failed, the list was restored: the server refused it."
+actionError (2);"Olvasott nem sikerült, a lista visszaállt: a szerver elutasította.";"Mark as read failed, the list was restored: the server refused it."
+replyModes.reply;Válasz;Reply
+replyModes.replyAll;Válasz mindenkinek;Reply all
+replyModes.forward;Továbbítás;Forward
+replyModes.edit;Szerkesztés;Edit
+newMessage;Új levél;New message
+composeTitle;Új levél - ShadowMail;New message - ShadowMail
+composeFrom;Feladó;From
+composeTo;Címzett;To
+composeCc;Másolat;Cc
+composeBcc;Titkos másolat;Bcc
+composeShowCopies;"Másolat, titkos másolat…";"Cc, Bcc…"
+composeSubject;Tárgy;Subject
+composeBody;A levél szövege;The message text
+composeSuggestions;Címjavaslatok;Address suggestions
+composeFormatting;Formázás;Formatting
+composeTools.bold;Félkövér;Bold
+composeTools.italic;Dőlt;Italic
+composeTools.underline;Aláhúzott;Underline
+composeTools.ul;Felsorolás;Bulleted list
+composeTools.ol;Számozott lista;Numbered list
+composeTools.link;Link;Link
+composeTools.quote;Idézet;Quote
+composeTools.clear;Formázás törlése;Clear formatting
+composeToolLabels.link;Link;Link
+composeToolLabels.quote;Idézet;Quote
+composeToolLabels.clear;Tisztítás;Clear
+composeLinkUrl;Cím (https://… vagy mailto:…);Address (https://… or mailto:…)
+composeLinkOk;Beszúrás;Insert
+composeSend;Küldés;Send
+composeSending;Küldés…;Sending…
+composeSaveDraft;Mentés piszkozatként;Save as draft
+composeSaving;Mentés…;Saving…
+composeAttach;Melléklet…;Attach…
+composeAttachments;Mellékletek;Attachments
+composeRemoveAttachment (1);report.pdf eltávolítása;Remove report.pdf
+composeRemoveAttachment (2);report.pdf eltávolítása;Remove report.pdf
+composeSavedAt (1);Piszkozat mentve: 09:07;Draft saved at 09:07
+composeSavedAt (2);Piszkozat mentve: 09:07;Draft saved at 09:07
+composeCloseTitle;Bezárod a levelet?;Close the message?
+composeCloseText;A legutóbbi változások nincsenek mentve.;The latest changes are not saved.
+composeSaveAndClose;Mentés piszkozatként;Save as draft
+composeDiscard;Elvetés;Discard
+composeCloseWindow;Ablak bezárása;Close the window
+composeDiscardTitle;Elveted a levelet?;Discard the message?
+composeDiscardText;A levél és a mentett piszkozata is törlődik.;The message and its saved draft are both deleted.
+composeAttachmentsLabel (1);Mellékletek (1);Attachments (1)
+composeAttachmentsLabel (2);Mellékletek (2);Attachments (2)
+composeKeptAsDraft;A levél megmaradt a Piszkozatok között.;The message was kept in Drafts.
+composeSuspectTitle;ShadowMail;ShadowMail
+composeSuspectText (1);"A levél hibás vagy káros tartalmú lehet: egyetlen, 1 karakternél hosszabb, tördeletlen szövegrészt tartalmaz. Megnyitod a választ az eredeti szöveg idézése nélkül?";The message may be broken or harmful: it contains one unbroken run of text longer than 1 character. Open the reply without quoting the original text?
+composeSuspectText (2);"A levél hibás vagy káros tartalmú lehet: egyetlen, 2 karakternél hosszabb, tördeletlen szövegrészt tartalmaz. Megnyitod a választ az eredeti szöveg idézése nélkül?";The message may be broken or harmful: it contains one unbroken run of text longer than 2 characters. Open the reply without quoting the original text?
+composeSuspectSlowText (1);"A levél hibás vagy káros tartalmú lehet: egyetlen bekezdése túl sok, lassan megjeleníthető karaktert tartalmaz. Megnyitod a választ az eredeti szöveg idézése nélkül?";The message may be broken or harmful: one of its paragraphs holds too many characters that are slow to display. Open the reply without quoting the original text?
+composeSuspectSlowText (2);"A levél hibás vagy káros tartalmú lehet: egyetlen bekezdése túl sok, lassan megjeleníthető karaktert tartalmaz. Megnyitod a választ az eredeti szöveg idézése nélkül?";The message may be broken or harmful: one of its paragraphs holds too many characters that are slow to display. Open the reply without quoting the original text?
+composeSuspectOmit;Idézet nélkül;Without the quote
+composeSuspectCancel;Mégse;Cancel
+composeBodyOmitted;[Az eredeti levél szövege kimaradt: hibás vagy káros tartalmú lehet.];[The text of the original message was left out: it may be broken or harmful.]
+composeStalled (1);"A levél hibás vagy káros tartalmú lehet: a válasz szerkesztője 1 másodperc alatt sem nyílt meg, ezért bezártam. Az eredeti levél nem változott.";"The message may be broken or harmful: the editor of the reply did not open in 1 second, so it was closed. The original message has not changed."
+composeStalled (2);"A levél hibás vagy káros tartalmú lehet: a válasz szerkesztője 2 másodperc alatt sem nyílt meg, ezért bezártam. Az eredeti levél nem változott.";"The message may be broken or harmful: the editor of the reply did not open in 2 seconds, so it was closed. The original message has not changed."
+composeSentLocked;"Az elküldött levél már nem módosítható és nem küldhető el újra. Ha valakinek újra el kell küldeni, írj új levelet.";"A sent message can no longer be changed or sent again. If it has to go to someone again, write a new message."
+composeChangedWhileSending;A küldés közben beírt változások NEM mentek el a levéllel.;The changes typed during sending were NOT sent with the message.
+composeOldDraftLeft;"A korábbi feladó fiókjában a piszkozat még nem törlődött; a következő mentéskor újra próbálom.";"The draft in the previous sender’s account has not been deleted yet; this is tried again at the next save."
+composeWaitSending;"A levél küldése folyamatban van; várd meg a végét.";"The message is being sent; wait until it finishes."
+composeSentWithWarnings (1);A levél elment.;The message was sent.
+composeSentWithWarnings (2);A levél elment.;The message was sent.
+composeErrors.no_recipients;Adj meg legalább egy címzettet.;Enter at least one recipient.
+composeErrors.bad_address;Érvénytelen cím;Invalid address
+composeErrors.bad_link;"A link csak https://, http:// vagy mailto: kezdetű lehet.";"A link can only start with https://, http:// or mailto:."
+composeErrors.too_large;A mellékletek együtt legfeljebb 25 MB-osak lehetnek (a legtöbb szerver nagyobbat nem fogad).;The attachments can be at most 25 MB together (most servers do not accept more).
+composeErrors.not_a_file;"Mappát nem lehet csatolni, csak fájlt.";"A folder cannot be attached, only a file."
+composeErrors.file_not_found;A fájl nem található.;The file was not found.
+composeErrors.forbidden_path;A program saját adatmappájából nem lehet csatolni.;Nothing can be attached from the program’s own data folder.
+composeErrors.no_drafts_folder;A fióknak nincs Piszkozatok mappája.;The account has no Drafts folder.
+composeErrors.no_recipient_accepted;A szerver egyik címzettet sem fogadta el.;The server did not accept any of the recipients.
+composeErrors.no_session;"A szerkesztő munkamenete lejárt; nyiss új levelet.";"The editor session has expired; open a new message."
+composeErrors.already_sent;"a levél már elment; újraküldéshez írj új levelet.";"the message has already been sent; to send it again, write a new message."
+composeErrors.auth_failed;az SMTP-szerver elutasította a belépést (hibás felhasználónév vagy jelszó a fiók beállításainál).;the SMTP server refused the sign-in (wrong user name or password in the account settings).
+composeError (1);Adj meg legalább egy címzettet.;Enter at least one recipient.
+composeError (2);Adj meg legalább egy címzettet.;Enter at least one recipient.
+folderMenu.newSub;Új almappa…;New subfolder…
+folderMenu.rename;Átnevezés…;Rename…
+folderMenu.moveUp;Feljebb;Move up
+folderMenu.moveDown;Lejjebb;Move down
+folderMenu.delete;Törlés…;Delete…
+accountMenu.moveUp;Feljebb;Move up
+accountMenu.moveDown;Lejjebb;Move down
+accountMenu.sortFolders;Mappák betűrendbe;Sort folders A-Z
+folderProtected;Ez a fiók egyik alapmappája: nem nevezhető át és nem törölhető.;This is one of the account’s standard folders: it cannot be renamed or deleted.
+newFolderTitle (1);Új mappa: Work;New folder: Work
+newFolderTitle (2);Új mappa: Work;New folder: Work
+newSubfolderTitle (1);Új almappa ebben: Projects;New subfolder in: Projects
+newSubfolderTitle (2);Új almappa ebben: Projects;New subfolder in: Projects
+renameFolderTitle (1);Átnevezés: Projects;Rename: Projects
+renameFolderTitle (2);Átnevezés: Projects;Rename: Projects
+folderNameLabel;A mappa neve;Folder name
+folderCreate;Létrehozás;Create
+folderRename;Átnevezés;Rename
+folderDelete;Mappa törlése;Delete folder
+deleteFolderTitle;Mappa törlése;Delete folder
+confirmFolderDelete (1);"A(z) „Projects” mappa törlődik, és vele együtt a benne lévő 1 levél is, a szerverről is. Nem állítható vissza.";"The folder “Projects” is deleted, and with it the message in it, from the server too. This cannot be undone."
+confirmFolderDelete (2);"A(z) „Projects” mappa törlődik, és vele együtt a benne lévő 2 levél is, a szerverről is. Nem állítható vissza.";"The folder “Projects” is deleted, and with it the 2 messages in it, from the server too. This cannot be undone."
+folderErrors.bad_name;"Érvénytelen név (üres, túl hosszú, vagy tiltott karaktert tartalmaz: % * "" \).";"Invalid name (empty, too long, or it contains a forbidden character: % * "" \)."
+folderErrors.name_has_delimiter;"A név nem tartalmazhat elválasztó karaktert (/ vagy a szerver saját elválasztóját, pl. pont). Almappát a mappa helyi menüjéből hozhatsz létre.";"The name cannot contain a separator character (/ or the server’s own separator, e.g. a dot). You can create a subfolder from the folder’s context menu."
+folderErrors.folder_exists;Már van ilyen nevű mappa.;There is already a folder with this name.
+folderErrors.protected_folder;Ez a fiók egyik alapmappája: nem nevezhető át és nem törölhető.;This is one of the account’s standard folders: it cannot be renamed or deleted.
+folderErrors.has_children;A mappának almappái vannak: előbb azokat töröld.;The folder has subfolders: delete those first.
+folderErrors.no_subfolders;Ez a szerver nem támogat almappákat.;This server does not support subfolders.
+folderErrors.confirm_needed;A törléshez megerősítés kell.;Deleting needs a confirmation.
+folderErrors.order_mismatch;"A mappák vagy fiókok közben megváltoztak, a sorrend nem mentődött. Próbáld újra.";"The folders or accounts changed in the meantime, the order was not saved. Try again."
+folderError (1);"Érvénytelen név (üres, túl hosszú, vagy tiltott karaktert tartalmaz: % * "" \).";"Invalid name (empty, too long, or it contains a forbidden character: % * "" \)."
+folderError (2);"Érvénytelen név (üres, túl hosszú, vagy tiltott karaktert tartalmaz: % * "" \).";"Invalid name (empty, too long, or it contains a forbidden character: % * "" \)."
+searchLabel;Keresés;Search
+searchPlaceholder;Keresés minden levélben (ékezet nélkül is)…;Search all messages (accents optional)…
+searchFiltersButton;Szűrők;Filters
+searchFiltersLabel;Keresési szűrők;Search filters
+searchClear;Keresés törlése;Clear the search
+searchAnyTime;Bármikor;Any time
+searchDateRange (1);2026. 03. 05. – 2026. 04. 01.;05/03/2026 – 01/04/2026
+searchDateRange (2);2026. 03. 05. – 2026. 04. 01.;05/03/2026 – 01/04/2026
+searchPeople (1);anna;anna
+searchPeople (2);anna;anna
+searchFilter.account;Fiók;Account
+searchFilter.folder;Mappa;Folder
+searchFilter.from;Feladó;From
+searchFilter.to;Címzett;To
+searchFilter.since;Dátumtól;From date
+searchFilter.until;Dátumig;To date
+searchFilter.hasAttachment;Van melléklet;Has attachment
+searchFilter.unread;Olvasatlan;Unread
+searchFilter.flagged;Csillagos;Starred
+searchFilter.sort;Rendezés;Sort
+searchAllAccounts;Minden fiók;All accounts
+searchAllFolders;Minden mappa;All folders
+searchSort.relevance;Relevancia;Relevance
+searchSort.date;Dátum;Date
+searchResultsLabel;Találatok;Results
+searchRunning;Keresés…;Searching…
+searchNoHits;Nincs találat.;No results.
+searchCount (1);1 találat;1 result
+searchCount (2);2 találat;2 results
+searchHeadersOnly (1);"1 levél régebbi a fiókja indexelési határánál: ezekben csak a feladó, címzett és tárgy szerint keresek, kivéve a már megnyitottakat. A szövegükben az alábbi gombokkal kereshetsz.";"1 message is older than its account’s indexing limit: in it, only the sender, recipients and subject are searched, unless it was already opened. You can search its text with the buttons below."
+searchHeadersOnly (2);"2 levél régebbi a fiókja indexelési határánál: ezekben csak a feladó, címzett és tárgy szerint keresek, kivéve a már megnyitottakat. A szövegükben az alábbi gombokkal kereshetsz.";"2 messages are older than their account’s indexing limit: in these, only the sender, recipients and subject are searched, except for the ones already opened. You can search their text with the buttons below."
+searchOnServer;Keresés a szerveren is;Search on the server too
+searchOnServerHelp;"(a régebbi IMAP-levelek szövegében; a szerver keresése általában nem ékezet-független)";"(in the text of older IMAP messages; the server’s search is usually not accent-insensitive)"
+searchInOld;Keresés a régi levelek szövegében is;Search the text of old messages too
+searchCancel;Megszakítás;Cancel
+searchFoundOnServer;szerveren talált;found on the server
+searchFoundInOld;régi levélben talált;found in an old message
+searchServerProgress (1);Keresés a szerveren…;Searching on the server…
+searchServerProgress (2);Keresés a szerveren…;Searching on the server…
+searchPop3Progress (1);Keresés a régi levelekben…;Searching old messages…
+searchPop3Progress (2);Keresés a régi levelekben…;Searching old messages…
+searchServerDone (1);Szerveres keresés kész: 1 új találat;Server search finished: 1 new result
+searchServerDone (2);Szerveres keresés kész: 2 új találat;Server search finished: 2 new results
+searchError (1);megszakadt a kapcsolat;the connection was lost
+searchError (2);megszakadt a kapcsolat;the connection was lost
+searchPop3Done (1);Keresés a régi levelekben kész: 1 új találat;Search in old messages finished: 1 new result
+searchPop3Done (2);Keresés a régi levelekben kész: 2 új találat;Search in old messages finished: 2 new results
+readerError (1);megszakadt a kapcsolat;the connection was lost
+readerError (2);megszakadt a kapcsolat;the connection was lost
+sizeKb (1);1 B;1 B
+sizeKb (2);2 B;2 B
+fileFilterText;Szöveg;Text
+fileFilterContacts;"Névjegyek (.vcf, .csv)";"Contacts (.vcf, .csv)"
+contactsExportBase;ShadowMail-cimlista;ShadowMail-contacts
+sourceFileFallback;level;message
+attachmentFallback;melleklet;attachment
+resetConfirmWord;TÖRLÉS;DELETE
+outgoingQuote.wrote (1);"05/03/2026, 09:07, Anna <a@example.invalid> írta:";"05/03/2026, 09:07, Anna <a@example.invalid> wrote:"
+outgoingQuote.wrote (2);"05/03/2026, 09:07, Anna <a@example.invalid> írta:";"05/03/2026, 09:07, Anna <a@example.invalid> wrote:"
+outgoingQuote.forwarded;'-------- Továbbított üzenet --------;'---------- Forwarded message ----------
+outgoingQuote.labels.from;Feladó;From
+outgoingQuote.labels.date;Dátum;Date
+outgoingQuote.labels.subject;Tárgy;Subject
+outgoingQuote.labels.to;Címzett;To
+outgoingQuote.labels.cc;Másolat;Cc

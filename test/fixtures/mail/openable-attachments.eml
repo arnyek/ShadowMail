@@ -1,0 +1,49 @@
+From: Mellekletek <mellekletek@example.invalid>
+To: en@example.invalid
+Subject: Mellekletek engedelylistaja
+Date: Wed, 12 Nov 2026 10:00:00 +0100
+Message-ID: <k20@example.invalid>
+MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="K20B"
+
+--K20B
+Content-Type: text/plain; charset=utf-8
+
+A megnyithato tipusok engedelylistajanak mellekletei.
+
+--K20B
+Content-Type: application/vnd.openxmlformats-officedocument.wordprocessingml.document; name="dokumentum.docx"
+Content-Disposition: attachment; filename="dokumentum.docx"
+Content-Transfer-Encoding: base64
+
+UEsDBGRvY3g=
+
+--K20B
+Content-Type: application/vnd.ms-word.document.macroEnabled.12; name="makro.docm"
+Content-Disposition: attachment; filename="makro.docm"
+Content-Transfer-Encoding: base64
+
+UEsDBGRvY20=
+
+--K20B
+Content-Type: application/zip; name="archivum.zip"
+Content-Disposition: attachment; filename="archivum.zip"
+Content-Transfer-Encoding: base64
+
+UEsDBHppcA==
+
+--K20B
+Content-Type: text/plain; name="jegyzet.txt"
+Content-Disposition: attachment; filename="jegyzet.txt"
+Content-Transfer-Encoding: base64
+
+amVneXpldA==
+
+--K20B
+Content-Type: application/octet-stream; name="szamla.pdf.exe"
+Content-Disposition: attachment; filename="szamla.pdf.exe"
+Content-Transfer-Encoding: base64
+
+TVo=
+
+--K20B--

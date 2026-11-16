@@ -1,0 +1,14 @@
+From: Hostile Sender <hostile@sender.invalid>
+To: Teszt <teszt@example.invalid>
+Subject: Hostile: link stylesheet
+Date: Tue, 10 Nov 2026 10:00:00 +0100
+Message-ID: <hostile-link-stylesheet@hostile.invalid>
+MIME-Version: 1.0
+Content-Type: text/html; charset=utf-8
+Content-Transfer-Encoding: 8bit
+
+<link rel="stylesheet" href="https://link.hostile.invalid/style.css">
+<link rel="prefetch" href="https://prefetch.hostile.invalid/">
+<link rel="dns-prefetch" href="//dns.hostile.invalid">
+<style>@import url("https://import.hostile.invalid/i.css");</style>
+<p>link teszt</p>

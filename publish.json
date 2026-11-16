@@ -1,0 +1,8 @@
+{
+  "exclude": ["CLAUDE.md", "docs/ui/", "docs/atveteli-lista.md"],
+  "allow": [
+    { "path": "package-lock.json", "category": "email", "reason": "generated; the authors' addresses of third-party npm packages" },
+    { "path": "THIRD-PARTY-NOTICES.txt", "category": "email", "reason": "generated; the copyright lines of third-party licenses, which must be kept word for word" },
+    { "path": "THIRD-PARTY-NOTICES.txt", "category": "card-code", "reason": "generated; license names in third-party texts (CC0), kept word for word" }
+  ]
+}

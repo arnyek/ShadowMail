@@ -1,0 +1,16 @@
+BEGIN:VCARD
+VERSION:2.1
+N;LANGUAGE=hu;CHARSET=Windows-1250:Árvíztûrõ;Tükörfúrógép
+FN;CHARSET=Windows-1250:Árvíztûrõ Tükörfúrógép
+ORG;CHARSET=Windows-1250:Példa Kft.
+TITLE;CHARSET=Windows-1250:Ügyvezetõ
+NOTE;CHARSET=Windows-1250;ENCODING=QUOTED-PRINTABLE:Megjegyz=E9s els=F5 sora=0Am=E1sodik sora
+TEL;WORK;VOICE:+36 1 234 5678
+TEL;CELL;VOICE:+36 30 123 4567
+ADR;WORK;PREF;CHARSET=Windows-1250:;;Fõ utca 1.;Budapest;;1011;Magyarország
+LABEL;WORK;PREF;CHARSET=Windows-1250;ENCODING=QUOTED-PRINTABLE:F=F5 utca 1.=0D=0A1011 Budapest
+X-MS-OL-DEFAULT-POSTAL-ADDRESS:2
+EMAIL;PREF;INTERNET:arviz@example.hu
+X-MS-OL-DESIGN;CHARSET=utf-8:<card xmlns="http://schemas.microsoft.com/office/outlook/12/electronicbusinesscards"/>
+REV:20261113T090000Z
+END:VCARD

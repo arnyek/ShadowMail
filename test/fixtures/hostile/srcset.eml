@@ -1,0 +1,12 @@
+From: Hostile Sender <hostile@sender.invalid>
+To: Teszt <teszt@example.invalid>
+Subject: Hostile: srcset
+Date: Tue, 10 Nov 2026 10:00:00 +0100
+Message-ID: <hostile-srcset@hostile.invalid>
+MIME-Version: 1.0
+Content-Type: text/html; charset=utf-8
+Content-Transfer-Encoding: 8bit
+
+<p>srcset teszt</p>
+<img src="data:image/gif;base64,R0lGODlhAQABAAAAACw=" srcset="https://srcset.hostile.invalid/a.png 1x, https://srcset.hostile.invalid/b.png 2x">
+<picture><source srcset="https://picture.hostile.invalid/c.webp"><img alt="pic"></picture>

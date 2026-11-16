@@ -1,0 +1,14 @@
+From: Hostile Sender <hostile@sender.invalid>
+To: Teszt <teszt@example.invalid>
+Subject: Hostile: iframe
+Date: Tue, 10 Nov 2026 10:00:00 +0100
+Message-ID: <hostile-iframe@hostile.invalid>
+MIME-Version: 1.0
+Content-Type: text/html; charset=utf-8
+Content-Transfer-Encoding: 8bit
+
+<iframe src="https://iframe.hostile.invalid/"></iframe>
+<iframe srcdoc="&lt;script&gt;parent.document.body.setAttribute('data-pwned','srcdoc')&lt;/script&gt;"></iframe>
+<object data="https://object.hostile.invalid/x.swf"></object>
+<embed src="https://embed.hostile.invalid/x">
+<p>iframe teszt</p>

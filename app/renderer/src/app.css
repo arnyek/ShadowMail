@@ -1,0 +1,2266 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
+/*
+ * Screen layout. Colors and sizes come from theme.css: no raw hex here.
+ * The controls of the ui/ folder are styled in ui/ui.css.
+ */
+body {
+  margin: 0;
+  font-family: var(--font);
+  font-size: var(--fs-m);
+  line-height: var(--lh);
+  color: var(--c-text);
+  background: var(--c-bg);
+}
+
+main {
+  padding: var(--space-5) var(--space-6);
+}
+
+h1,
+h2,
+h3 {
+  font-weight: var(--fw-strong);
+}
+
+dt {
+  font-weight: var(--fw-strong);
+  margin-top: var(--space-3);
+}
+
+dd {
+  margin: var(--space-1) 0 0;
+  font-family: var(--font-mono);
+}
+
+/*
+ * The base of every <button>: no native look anywhere. A plain button is an outlined pill;
+ * the classed ones (ui/ components, list rows, links) override it.
+ */
+button {
+  font: inherit;
+  line-height: 20px;
+  padding: 7px var(--space-4);
+  align-self: flex-start;
+  border: 1px solid var(--c-border-strong);
+  border-radius: var(--radius-pill);
+  background: var(--c-bg);
+  color: var(--c-text);
+  cursor: pointer;
+}
+
+button:hover {
+  background: var(--c-hover);
+}
+
+button:disabled,
+button:disabled:hover {
+  border-color: var(--c-border);
+  background: var(--c-bg);
+  color: var(--c-text-disabled);
+  cursor: default;
+}
+
+button.primary {
+  border-color: var(--c-accent);
+  background: var(--c-accent);
+  color: var(--c-on-accent);
+  font-weight: var(--fw-strong);
+}
+
+button.primary:hover {
+  background: var(--c-accent-hover);
+}
+
+button.danger {
+  border: 1px solid var(--c-danger);
+  padding: 7px var(--space-4);
+  background: var(--c-danger);
+  color: var(--c-on-accent);
+  font-weight: var(--fw-strong);
+}
+
+button.danger:hover {
+  background: var(--c-danger-hover);
+}
+
+button.primary:disabled,
+button.danger:disabled {
+  border-color: var(--c-border);
+  background: var(--c-hover);
+  color: var(--c-text-disabled);
+}
+
+button.link {
+  border: 0;
+  border-radius: 0;
+  background: none;
+  padding: 0;
+  color: var(--c-accent);
+  cursor: pointer;
+  text-align: left;
+}
+
+button.link:hover {
+  background: none;
+  text-decoration: underline;
+}
+
+select {
+  font: inherit;
+  height: var(--field-h);
+  padding: 0 var(--space-2);
+  border: 1px solid var(--c-border-strong);
+  border-radius: var(--radius-s);
+  background: var(--c-bg);
+  color: var(--c-text);
+}
+
+input[type="checkbox"],
+input[type="radio"] {
+  accent-color: var(--c-accent);
+}
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+}
+
+form.vault {
+  max-width: 460px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.warning {
+  background: var(--c-warning-bg);
+  color: var(--c-warning-text);
+  border-left: 4px solid var(--c-warning-border);
+  padding: var(--space-2) var(--space-3);
+}
+
+.hint {
+  color: var(--c-text-2);
+  margin: 0;
+}
+
+.ok {
+  color: var(--c-success);
+}
+
+dl.about {
+  margin-top: var(--space-6);
+  color: var(--c-text-2);
+  font-size: var(--fs-s);
+}
+
+fieldset {
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius-m);
+  padding: var(--space-2) var(--space-3) var(--space-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+form.account-editor {
+  max-width: 560px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.check {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.inline {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.danger {
+  background: var(--c-danger-bg);
+  color: var(--c-danger);
+  border-left: 4px solid var(--c-danger);
+  padding: var(--space-2) var(--space-3);
+}
+
+.buttons {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.account-list {
+  list-style: none;
+  padding: 0;
+}
+
+.account-list li {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) 0;
+  border-bottom: 1px solid var(--c-border);
+}
+
+ul.probe {
+  padding-left: 18px;
+}
+
+.status {
+  color: var(--c-accent);
+}
+
+/* App frame and mail view */
+main.app {
+  padding: 0;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* Header: menu, brand, the search's place, settings and lock */
+.app-header {
+  flex: none;
+  display: grid;
+  grid-template-columns: var(--sidebar-w) minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-2);
+  height: var(--header-h);
+  padding: 0 var(--space-2) 0 var(--space-2);
+  box-sizing: border-box;
+  background: var(--c-surface);
+}
+
+.app-header-start,
+.app-header-end {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.app-header-search {
+  min-width: 0;
+  max-width: 720px;
+}
+
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding-left: var(--space-1);
+  font-size: var(--fs-l);
+  color: var(--c-text);
+  white-space: nowrap;
+}
+
+.brand-icon {
+  color: var(--c-accent);
+}
+
+main.app > .notice {
+  flex: none;
+}
+
+main.app > .error {
+  margin: var(--space-1) var(--space-4);
+}
+
+.settings {
+  flex: 1;
+  padding: var(--space-4) var(--space-6);
+  overflow: auto;
+}
+
+.setting-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+}
+
+.setting-row + .setting-row {
+  margin-top: var(--space-4);
+}
+
+.setting-note {
+  margin: var(--space-2) 0 0;
+  color: var(--c-text-2);
+}
+
+.settings-back {
+  margin-left: calc(-1 * var(--space-3));
+}
+
+.mail {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.mail-body {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  /* the middle track is the divider's (0 wide; the divider overhangs it) */
+  grid-template-columns: var(--sidebar-w) 0 minmax(0, 1fr);
+  background: var(--c-surface);
+}
+
+.mail-body:has(> .sidebar.collapsed) {
+  grid-template-columns: var(--sidebar-w-collapsed) 0 minmax(0, 1fr);
+}
+
+.mail-body > .sidebar {
+  grid-column: 1;
+}
+
+.mail-body > .splitter {
+  grid-column: 2;
+}
+
+.mail-body > .mail-main {
+  grid-column: 3;
+}
+
+/* Sidebar */
+.sidebar {
+  overflow-x: hidden;
+  overflow-y: auto;
+  min-height: 0;
+  padding-bottom: var(--space-4);
+}
+
+.sidebar-tools {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-2) var(--space-4);
+}
+
+.compose-button.btn {
+  height: 56px;
+  padding: 0 var(--space-5) 0 var(--space-4);
+  gap: var(--space-3);
+  border-radius: var(--radius-l);
+  font-weight: var(--fw-strong);
+}
+
+.compose-button .icon {
+  width: var(--icon-m);
+  height: var(--icon-m);
+}
+
+.sidebar.collapsed .sidebar-tools {
+  flex-direction: column;
+  padding: var(--space-2) 0 var(--space-4);
+}
+
+.sidebar.collapsed .compose-button.btn {
+  width: 56px;
+  padding: 0;
+  justify-content: center;
+}
+
+.sidebar.collapsed .compose-label,
+.folder-tree.collapsed .folder-label,
+.folder-tree.collapsed .unread-badge {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+.pad {
+  padding: var(--space-2) var(--space-3);
+}
+
+.folder-tree .account + .account {
+  margin-top: var(--space-3);
+}
+
+.account-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 var(--space-2) 0 var(--space-3);
+}
+
+.folder-tree h2.account-name {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-strong);
+}
+
+.account-toggle {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  width: 100%;
+  min-width: 0;
+  padding: var(--space-1) var(--space-1);
+  border: 0;
+  border-radius: var(--radius-s);
+  background: none;
+  color: var(--c-text-2);
+  font-weight: var(--fw-strong);
+}
+
+.account-toggle:hover {
+  background: var(--c-hover);
+}
+
+.account-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.folder-tree.collapsed .account-head {
+  display: none;
+}
+
+.folder-tree.collapsed .account + .account {
+  margin-top: var(--space-2);
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--c-border);
+}
+
+.folder-tree ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+/* the manual order: where a dragged folder or account head lands, a line in the accent colour of every theme */
+.folder-tree li,
+.folder-tree .account-head {
+  position: relative;
+}
+
+.folder-tree li.drop-before::before,
+.folder-tree li.drop-after::after,
+.folder-tree .account-head.drop-before::before,
+.folder-tree .account-head.drop-after::after {
+  content: '';
+  position: absolute;
+  left: var(--space-3);
+  right: var(--space-2);
+  height: 2px;
+  border-radius: var(--radius-pill);
+  background: var(--c-accent);
+  pointer-events: none;
+}
+
+.folder-tree li.drop-before::before,
+.folder-tree .account-head.drop-before::before {
+  top: -1px;
+}
+
+.folder-tree li.drop-after::after,
+.folder-tree .account-head.drop-after::after {
+  bottom: -1px;
+}
+
+.folder-tree .folder {
+  display: flex;
+  box-sizing: border-box;
+  width: calc(100% - var(--space-2));
+  height: var(--folder-h);
+  align-items: center;
+  gap: var(--space-3);
+  padding: 0 var(--space-3) 0 calc(var(--space-5) + var(--depth, 0) * var(--space-4));
+  border: 0;
+  border-radius: 0 var(--radius-pill) var(--radius-pill) 0;
+  background: none;
+  color: var(--c-text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.folder-tree .folder .icon {
+  color: var(--c-text-2);
+}
+
+.folder-tree .folder:hover {
+  background: var(--c-hover);
+}
+
+.folder-tree .folder.selected,
+.folder-tree .folder.selected:hover {
+  background: var(--c-surface-2);
+  font-weight: var(--fw-strong);
+}
+
+.folder-tree .folder.selected .icon {
+  color: var(--c-accent);
+}
+
+.folder-tree .folder.has-unread .folder-label {
+  font-weight: var(--fw-strong);
+}
+
+.folder-tree .folder.placeholder {
+  color: var(--c-text-2);
+  cursor: default;
+}
+
+.folder-tree.collapsed .folder {
+  position: relative;
+  width: 56px;
+  margin: 0 auto;
+  padding: 0;
+  justify-content: center;
+  border-radius: var(--radius-pill);
+}
+
+/* folded: a dot instead of the unread count */
+.folder-tree.collapsed .folder.has-unread::after {
+  content: "";
+  position: absolute;
+  top: 6px;
+  right: 14px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--c-accent);
+}
+
+.folder-label {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.unread-badge {
+  margin-left: auto;
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-strong);
+  color: var(--c-text);
+}
+
+.message-list {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+/* List header: select-all, tools or the icon actions, the visible range */
+.list-header {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  height: var(--list-header-h);
+  padding: 0 var(--space-4) 0 var(--space-2);
+  border-bottom: 1px solid var(--c-border);
+}
+
+.list-header > .icon-btn,
+.list-header button {
+  align-self: center;
+}
+
+.list-select {
+  display: flex;
+  align-items: center;
+}
+
+.list-select .select-all {
+  width: var(--icon-btn);
+  height: var(--icon-btn);
+  justify-content: center;
+}
+
+.list-select .select-menu .icon-btn {
+  width: 24px;
+}
+
+.list-tools,
+.action-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  flex: 1;
+  min-width: 0;
+}
+
+.selection-count {
+  margin-left: var(--space-2);
+  font-size: var(--fs-s);
+  color: var(--c-text-2);
+  white-space: nowrap;
+}
+
+.list-filtered-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-2);
+}
+
+.list-count {
+  margin-left: auto;
+  font-size: var(--fs-xs);
+  color: var(--c-text-2);
+  white-space: nowrap;
+}
+
+.icon-btn.star-on {
+  color: var(--c-star);
+}
+
+.msg-viewport {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  position: relative;
+  contain: strict;
+  container: msg-list / inline-size;
+}
+
+.msg-canvas {
+  position: relative;
+}
+
+/* One-line row: checkbox, star, sender, subject - preview, attachment, date / hover actions */
+.msg-row {
+  position: absolute;
+  left: 0;
+  right: 0;
+  box-sizing: border-box;
+  height: var(--row-h);
+  display: grid;
+  /* the row never scrolls sideways, the date and the icons stay whole. The space goes: the sender up to 96 px, then
+     the subject up to --subject-min, then the sender up to --col-from, then the subject. The sender track's maximum does
+     it: the row's content width (100%) less the fixed tracks, the five gaps and --subject-min, clamped between 96 px
+     and --col-from; under 96 px the sender shrinks first (down to nothing). With room for the full sender the row is
+     the old fixed grid */
+  --row-check: var(--col-check);
+  --subject-min: 120px;
+  grid-template-columns: var(--row-check) var(--col-star)
+    minmax(0, clamp(96px, calc(100% - var(--row-check) - var(--col-star) - var(--col-attach) - var(--col-date) - 5 * var(--space-1) - var(--subject-min)), var(--col-from)))
+    minmax(0, 1fr) var(--col-attach) var(--col-date);
+  align-items: center;
+  column-gap: var(--space-1);
+  padding: 0 var(--space-4) 0 var(--space-2);
+  border-bottom: 1px solid var(--c-border);
+  background: var(--c-bg);
+  cursor: default;
+  font-size: var(--fs-m);
+}
+
+/* a narrow list (under 351 px, where the default theme's sender would get less than 96 px; the container's width is
+   the list's box, its scrollbar included, measured): a smaller edge and checkbox column leave more room (the checkbox
+   target stays >= 24 px). After the row's own rule: it wins */
+@container msg-list (width < 351px) {
+  .msg-row {
+    --row-check: 28px;
+    padding: 0 var(--space-1);
+  }
+}
+
+.msg-row > div {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.msg-row .col-check,
+.msg-row .col-star,
+.msg-row .col-attachment {
+  display: flex;
+  justify-content: center;
+}
+
+.msg-row .star-toggle {
+  width: var(--row-btn);
+  height: var(--row-btn);
+}
+
+.msg-row .col-from {
+  padding-right: var(--space-4);
+}
+
+.col-preview {
+  color: var(--c-text-2);
+  font-weight: var(--fw-normal);
+}
+
+.msg-row.unread .col-from,
+.msg-row.unread .col-subject {
+  font-weight: var(--fw-strong);
+}
+
+.msg-row .col-attachment {
+  color: var(--c-text-2);
+}
+
+.col-date {
+  text-align: right;
+  font-size: var(--fs-s);
+  color: var(--c-text-2);
+}
+
+.msg-row.unread .col-date {
+  color: var(--c-text);
+  font-weight: var(--fw-strong);
+}
+
+.msg-row:hover {
+  z-index: 1;
+  box-shadow: var(--shadow-1);
+}
+
+.msg-row.selected {
+  background: var(--c-surface-2);
+}
+
+/* the hover actions take the date's place */
+.row-quick {
+  position: absolute;
+  top: 0;
+  right: var(--space-2);
+  bottom: 0;
+  display: none; /* rendered only on the row under the mouse; shown while hovered */
+  align-items: center;
+  background: inherit;
+}
+
+.msg-row:hover .row-quick {
+  display: flex;
+}
+
+.msg-row:hover .col-date {
+  visibility: hidden;
+}
+
+.msg-row .row-quick .icon-btn {
+  width: var(--row-btn);
+  height: var(--row-btn);
+}
+
+.status-bar {
+  background: var(--c-surface);
+  padding: var(--space-1) var(--space-3);
+  font-size: var(--fs-xs);
+  color: var(--c-text-2);
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-4);
+  min-height: 1.6em;
+}
+
+.sync-status.error {
+  color: var(--c-danger);
+}
+
+.sync-status .live {
+  color: var(--c-success);
+}
+
+.icon {
+  color: inherit;
+}
+
+/* Reader pane: under the list */
+.list-area {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+.list-area > .list-pane,
+.list-area > .message-list,
+.list-area > .search-results {
+  flex: 1;
+}
+
+.mail-main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  margin: 0 var(--space-4) var(--space-2) 0;
+  border-radius: var(--radius-l);
+  overflow: hidden;
+  background: var(--c-bg);
+}
+
+.mail-main > .action-error {
+  flex: none;
+}
+
+/* where the message opens; the setting is in Beállítások / Megjelenés */
+.mail-panes {
+  flex: 1;
+  display: grid;
+  min-width: 0;
+  min-height: 0;
+}
+
+.pane-bottom {
+  grid-template-rows: minmax(160px, 2fr) minmax(200px, 3fr);
+}
+
+.pane-right {
+  grid-template-columns: minmax(360px, 2fr) minmax(420px, 3fr);
+}
+
+/* with the divider (a message shown) a 0 wide middle track; a dragged width (--list-w) replaces the default share. The
+   default share's floors are the divider's limits (list 280, reader 360): with the old 360 + 420 a wider sidebar pushed
+   the reader out of the window */
+.pane-right:has(> .splitter) {
+  grid-template-columns: minmax(280px, 2fr) 0 minmax(360px, 3fr);
+}
+
+:root[data-split-list] .pane-right:has(> .splitter) {
+  grid-template-columns: var(--list-w) 0 minmax(360px, 1fr);
+}
+
+.pane-bottom:has(> .splitter) {
+  grid-template-rows: minmax(120px, 2fr) 0 minmax(160px, 3fr);
+}
+
+:root[data-split-listh] .pane-bottom:has(> .splitter) {
+  grid-template-rows: var(--list-h) 0 minmax(160px, 1fr);
+}
+
+.pane-right > .reader {
+  border-left: 1px solid var(--c-border);
+}
+
+.pane-bottom > .reader {
+  border-top: 1px solid var(--c-border);
+}
+
+/* in the list's place: both in one cell; the list is only hidden, so its scroll position stays */
+.pane-none {
+  grid-template: minmax(0, 1fr) / minmax(0, 1fr);
+}
+
+.pane-none > .list-area,
+.pane-none > .reader {
+  grid-area: 1 / 1;
+}
+
+.pane-none > .reader {
+  z-index: 1;
+}
+
+/* visibility alone is not enough: a child with its own "visibility: visible" (the checkbox mark)
+   would show through and catch clicks */
+.pane-none.reading > .list-area {
+  visibility: hidden;
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* no message open: the list gets the whole space */
+.mail-panes:has(> .reader-empty) {
+  grid-template: minmax(0, 1fr) / minmax(0, 1fr);
+}
+
+.reader.reader-empty {
+  display: none;
+}
+
+.reader {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  background: var(--c-bg);
+}
+
+/* Reader: toolbar, header with the monogram, attachment cards, reply pills */
+.reader-toolbar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  height: var(--toolbar-h);
+  padding: 0 var(--space-2);
+  border-bottom: 1px solid var(--c-border);
+}
+
+.reader-tools {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  flex: 1;
+  min-width: 0;
+}
+
+.reader-tools > :last-child {
+  margin-left: auto;
+}
+
+.reader-toolbar button,
+.reader-tools button {
+  align-self: center;
+}
+
+.reader-header {
+  padding: var(--space-4) var(--space-5) var(--space-3);
+}
+
+.reader-subject {
+  font-size: var(--fs-xl);
+  font-weight: var(--fw-normal);
+  margin: 0 0 var(--space-4);
+  overflow-wrap: anywhere;
+}
+
+.reader-from-row {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+}
+
+.reader-from {
+  flex: 1;
+  min-width: 0;
+}
+
+.reader-from-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-1) var(--space-2);
+}
+
+.reader-from-name {
+  font-weight: var(--fw-strong);
+}
+
+.reader-from-address {
+  font-size: var(--fs-s);
+  color: var(--c-text-2);
+  overflow-wrap: anywhere;
+}
+
+.reader-to-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  max-width: 100%;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-s);
+  background: none;
+  color: var(--c-text-2);
+  font-size: var(--fs-s);
+}
+
+.reader-to-toggle:hover {
+  background: none;
+  color: var(--c-text);
+}
+
+.reader-to-summary {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.reader-date {
+  flex: none;
+  font-size: var(--fs-s);
+  color: var(--c-text-2);
+}
+
+.reader-details {
+  margin: var(--space-3) 0 0 calc(var(--icon-btn) + var(--space-3));
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius-m);
+}
+
+.reader-header-line {
+  font-size: var(--fs-s);
+  overflow-wrap: anywhere;
+}
+
+.reader-label {
+  color: var(--c-text-2);
+}
+
+.reader-attachments,
+.reader-thread {
+  padding: var(--space-2) var(--space-5);
+  font-size: var(--fs-s);
+}
+
+.reader-attachments h3,
+.reader-thread h3 {
+  font-size: var(--fs-s);
+  font-weight: var(--fw-strong);
+  margin: var(--space-1) 0 var(--space-2);
+  color: var(--c-text-2);
+}
+
+.reader-thread ol {
+  margin: 0;
+  padding-left: 18px;
+}
+
+.reader-attachments ul {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.attachment-card {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  box-sizing: border-box;
+  width: 240px;
+  min-height: 56px;
+  padding: var(--space-2) var(--space-1) var(--space-2) var(--space-3);
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius-m);
+  background: var(--c-bg);
+}
+
+.attachment-card:hover {
+  box-shadow: var(--shadow-1);
+}
+
+.attachment-type {
+  color: var(--c-text-2);
+}
+
+.attachment-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.attachment-name,
+.attachment-text .executable {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.attachment-name {
+  font-weight: var(--fw-strong);
+}
+
+.attachment-text .hint {
+  font-size: var(--fs-xs);
+}
+
+.attachment-actions {
+  display: flex;
+}
+
+.reader-thread .current {
+  font-weight: var(--fw-strong);
+}
+
+.reader > .pad {
+  padding-left: var(--space-5);
+  padding-right: var(--space-5);
+}
+
+.reader > .banner {
+  padding-left: var(--space-5);
+  padding-right: var(--space-5);
+}
+
+.reader-replies {
+  flex: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  padding: var(--space-4) var(--space-5) var(--space-5);
+}
+
+.reader-body {
+  flex: 1;
+  min-height: 160px;
+  display: flex;
+}
+
+.mail-frame {
+  flex: 1;
+  border: 0;
+  width: 100%;
+  min-height: 160px;
+  background: var(--c-mail-bg);
+}
+
+.mail-text {
+  margin: 0;
+  padding: var(--space-3) var(--space-5);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font: inherit;
+}
+
+.warn {
+  color: var(--c-warning-text);
+}
+
+.error {
+  color: var(--c-danger);
+}
+
+/* Global search; the field in the header and the chips */
+.search-bar {
+  max-width: 720px;
+}
+
+.search-chips {
+  flex: none;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-4);
+  border-bottom: 1px solid var(--c-border);
+}
+
+.search-chips-end {
+  margin-left: auto;
+}
+
+/* 8 px inside the chips of this row, so it is one line at 1280 px */
+.search-chips .chip {
+  padding: 0 var(--space-2);
+}
+
+/* an account / folder name is cut at 160 px (the full name is the chip's tooltip) */
+.search-chips .chip-value {
+  display: inline-block;
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
+}
+
+/* a filter is on, the chip row cannot be closed: the Szűrők button shows it */
+.search-bar .icon-btn.filters-on {
+  color: var(--c-accent);
+}
+
+.chip-panel {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + var(--space-1));
+  left: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  width: 280px;
+  padding: var(--space-4);
+  border-radius: var(--radius-m);
+  background: var(--c-bg);
+  box-shadow: var(--shadow-2);
+}
+
+.search-results {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+}
+
+.result-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  flex: 1;
+  min-height: 0;
+}
+
+.result {
+  border-bottom: 1px solid var(--c-border);
+}
+
+.result.selected,
+.result.selected .result-open {
+  background: var(--c-surface-2);
+}
+
+/* the same cells as a list row (RowText) inside the hit's button */
+.result-open {
+  display: grid;
+  /* the list row's rule (above) with this grid's tracks: three gaps, no checkbox and star */
+  grid-template-columns: minmax(0, clamp(96px, calc(100% - var(--col-attach) - var(--col-date) - 3 * var(--space-1) - 120px), var(--col-from)))
+    minmax(0, 1fr) var(--col-attach) var(--col-date);
+  align-items: center;
+  column-gap: var(--space-1);
+  box-sizing: border-box;
+  width: 100%;
+  height: var(--row-h);
+  padding: 0 var(--space-4);
+  border: 0;
+  border-radius: 0;
+  background: var(--c-bg);
+  color: var(--c-text);
+  text-align: left;
+  font-size: var(--fs-m);
+  cursor: pointer;
+}
+
+.result-open:hover {
+  background: var(--c-bg);
+  box-shadow: var(--shadow-1);
+  position: relative;
+  z-index: 1;
+}
+
+.result-open > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.result-open .col-from {
+  padding-right: var(--space-4);
+}
+
+.result-open .col-attachment {
+  display: flex;
+  justify-content: center;
+  color: var(--c-text-2);
+}
+
+.result.unread .col-from,
+.result.unread .col-subject {
+  font-weight: var(--fw-strong);
+}
+
+.result-where {
+  margin-right: var(--space-2);
+}
+
+.result-snippet mark {
+  background: var(--c-highlight);
+  color: inherit;
+  font-weight: var(--fw-strong);
+}
+
+.badge {
+  margin-left: var(--space-2);
+  padding: 0 6px;
+  border-radius: var(--radius-m);
+  background: var(--c-surface-2);
+  color: var(--c-accent);
+}
+
+/* the small "Claude" mark on a draft Claude made (the Drafts list, search hits) */
+.claude-mark {
+  margin-right: var(--space-2);
+  padding: 0 6px;
+  border-radius: var(--radius-m);
+  background: var(--c-surface-2);
+  color: var(--c-accent);
+  font-size: var(--fs-s);
+}
+
+.search-footer {
+  border-top: 1px solid var(--c-border);
+  padding: var(--space-1) var(--space-2);
+  font-size: var(--fs-s);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.search-more {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+}
+
+.search-job {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+}
+
+/* Message actions */
+.list-pane {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+}
+
+.list-pane .message-list {
+  flex: 1;
+}
+
+.msg-row.open {
+  box-shadow: inset 3px 0 0 var(--c-accent);
+}
+
+.msg-row.open:hover {
+  box-shadow: inset 3px 0 0 var(--c-accent), var(--shadow-1);
+}
+
+.msg-row.leaving {
+  opacity: 0.4;
+  text-decoration: line-through;
+  pointer-events: none; /* on its way: no second action on it */
+}
+
+.msg-viewport:focus {
+  outline: none;
+}
+
+.context-menu {
+  position: fixed;
+}
+
+/* Folder management */
+.modal .field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin-bottom: var(--space-2);
+}
+
+/* Composer */
+.composer {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  padding: 0;
+  box-sizing: border-box;
+  background: var(--c-bg);
+}
+
+.compose-title {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  height: 44px;
+  padding: 0 var(--space-2) 0 var(--space-4);
+  background: var(--c-surface);
+}
+
+.compose-title h1 {
+  margin: 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--fs-m);
+  font-weight: var(--fw-strong);
+}
+
+.compose-title button {
+  align-self: center;
+}
+
+.compose-fields {
+  flex: none;
+  padding: 0 var(--space-4);
+}
+
+.compose-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 40px;
+  border-bottom: 1px solid var(--c-border);
+}
+
+.compose-label {
+  flex: none;
+  min-width: 96px;
+  color: var(--c-text-2);
+}
+
+.compose-row .suggest-wrap {
+  flex: 1;
+  min-width: 0;
+}
+
+.compose-row input {
+  width: 100%;
+  box-sizing: border-box;
+  height: 38px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--c-text);
+  font: inherit;
+  outline: none;
+}
+
+.compose-row > input {
+  flex: 1;
+  min-width: 0;
+}
+
+.compose-row:focus-within {
+  border-bottom-color: var(--c-accent);
+}
+
+.compose-row .select-trigger {
+  min-width: 0;
+  max-width: 100%;
+  height: 34px;
+  border: 0;
+  padding-left: 0;
+  background: transparent;
+}
+
+.compose-copies {
+  flex: none;
+  align-self: center;
+  font-size: var(--fs-s);
+}
+
+.suggest-wrap {
+  position: relative;
+}
+
+.suggestions {
+  position: absolute;
+  z-index: 10;
+  left: 0;
+  right: 0;
+  margin: 0;
+  padding: var(--space-1) 0;
+  list-style: none;
+  background: var(--c-bg);
+  border-radius: var(--radius-s);
+  box-shadow: var(--shadow-2);
+}
+
+.suggestions li {
+  padding: var(--space-1) var(--space-3);
+  cursor: pointer;
+}
+
+.suggestions li.active {
+  background: var(--c-surface-2);
+}
+
+.editor-toolbar {
+  flex: none;
+  display: flex;
+  gap: 0;
+  padding: var(--space-1) var(--space-3);
+  border-bottom: 1px solid var(--c-border);
+}
+
+.editor {
+  flex: 1;
+  overflow: auto;
+  padding: var(--space-3) var(--space-4);
+  background: var(--c-bg);
+  outline: none;
+}
+
+.editor blockquote {
+  margin: 0 0 0 var(--space-2);
+  padding-left: var(--space-2);
+  border-left: 3px solid var(--c-border-strong);
+  color: var(--c-text-2);
+}
+
+.compose-attachments {
+  flex: none;
+  list-style: none;
+  margin: 0;
+  padding: var(--space-2) var(--space-4);
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  font-size: var(--fs-s);
+}
+
+.attachment-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  max-width: 280px;
+  height: 32px;
+  padding: 0 0 0 var(--space-3);
+  border-radius: var(--radius-pill);
+  background: var(--c-surface);
+}
+
+.attachment-chip-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: var(--fw-strong);
+}
+
+.attachment-chip .icon-btn {
+  width: 28px;
+  height: 28px;
+}
+
+.compose-actions {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-2) var(--space-3) var(--space-3);
+  border-top: 1px solid var(--c-border);
+}
+
+.compose-actions > .btn-primary {
+  margin-right: var(--space-2);
+  padding: 0 var(--space-5) 0 var(--space-4);
+}
+
+.compose-actions button {
+  align-self: center;
+}
+
+.compose-saved {
+  flex: 1;
+  text-align: right;
+  font-size: var(--fs-s);
+}
+
+.composer > .banner {
+  flex: none;
+}
+
+/* an account that cannot log in (after a vault reset) */
+.warn-badge {
+  background: var(--c-warning-bg);
+  color: var(--c-warning-text);
+}
+
+/* the recovery code, large and easy to copy by hand */
+.recovery-code {
+  font-family: var(--font-mono);
+  font-size: 1.4em;
+  letter-spacing: 0.08em;
+  padding: 0.6em 0.8em;
+  border: 1px solid currentColor;
+  border-radius: var(--radius-m);
+  user-select: all;
+}
+
+/* Lock, unlock, create, recovery code: a centred card on the surface */
+main.lock-screen {
+  min-height: 100vh;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-4);
+  padding: var(--space-6) var(--space-4);
+  background: var(--c-surface);
+}
+
+.lock-card {
+  box-sizing: border-box;
+  width: 420px;
+  max-width: 100%;
+  padding: var(--space-6);
+  border-radius: var(--radius-l);
+  background: var(--c-bg);
+  box-shadow: var(--shadow-1);
+}
+
+.lock-card-wide {
+  width: 560px;
+}
+
+.lock-brand {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-4);
+  font-size: var(--fs-l);
+}
+
+.lock-card h1 {
+  margin: 0 0 var(--space-4);
+  font-size: var(--fs-xl);
+  font-weight: var(--fw-normal);
+}
+
+.lock-card form.vault,
+.lock-card .vault {
+  max-width: none;
+}
+
+.lock-card .vault > .btn-primary,
+.lock-card .vault > .btn-danger {
+  align-self: stretch;
+}
+
+.lock-version {
+  font-size: var(--fs-xs);
+}
+
+.vault-warning {
+  border-radius: var(--radius-m);
+}
+
+.vault-buttons,
+.vault-choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.vault-buttons {
+  justify-content: flex-end;
+}
+
+.vault-choices {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.vault-choices .btn {
+  justify-content: flex-start;
+}
+
+.password-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.password-wrap input {
+  flex: 1;
+  padding-right: 44px !important;
+}
+
+.password-wrap .password-eye {
+  position: absolute;
+  right: 2px;
+}
+
+/* inline, not flex: flex items would put line breaks into the text (innerText, copy by hand) */
+.recovery-code {
+  display: block;
+  text-align: center;
+  margin: var(--space-2) 0;
+  font-family: var(--font-mono);
+  font-size: var(--fs-l);
+  letter-spacing: 0.06em;
+  white-space: nowrap;
+  padding: var(--space-4);
+  border: 1px solid var(--c-border-strong);
+  border-radius: var(--radius-m);
+  background: var(--c-surface);
+  user-select: all;
+}
+
+.code-sep {
+  margin: 0 0.25em;
+  color: var(--c-text-2);
+}
+
+/* Settings: sub-navigation on the left, cards on the right */
+section.settings {
+  display: grid;
+  /* the menu's width (--settings-nav-w, default 240px), a 0 wide track for the divider, the content; the old gap is
+     split around the divider */
+  grid-template-columns: var(--settings-nav-w, 240px) 0 minmax(0, 1fr);
+  gap: var(--space-5) calc(var(--space-5) / 2);
+  align-items: start;
+  padding: var(--space-4) var(--space-6) var(--space-6) var(--space-4);
+  background: var(--c-surface);
+}
+
+.settings-nav {
+  position: sticky;
+  top: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.settings-nav .settings-back {
+  margin: 0 0 var(--space-3);
+}
+
+.settings-tab {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  width: 100%;
+  height: 40px;
+  padding: 0 var(--space-4);
+  border: 0;
+  border-radius: 0 var(--radius-pill) var(--radius-pill) 0;
+  background: none;
+  color: var(--c-text);
+  text-align: left;
+}
+
+.settings-tab .icon {
+  color: var(--c-text-2);
+}
+
+.settings-tab.selected,
+.settings-tab.selected:hover {
+  background: var(--c-surface-2);
+  font-weight: var(--fw-strong);
+}
+
+.settings-tab.selected .icon {
+  color: var(--c-accent);
+}
+
+.settings-content,
+.settings-cards {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  min-width: 0;
+}
+
+.settings-card {
+  padding: var(--space-5);
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius-m);
+  background: var(--c-bg);
+}
+
+.settings-card h2,
+.settings-card h3 {
+  margin-top: 0;
+  font-size: var(--fs-l);
+  font-weight: var(--fw-normal);
+}
+
+.settings-card form.vault {
+  max-width: 460px;
+}
+
+.account-list li {
+  gap: var(--space-3);
+}
+
+.account-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.account-title {
+  font-weight: var(--fw-strong);
+}
+
+.account-email {
+  font-size: var(--fs-s);
+  color: var(--c-text-2);
+}
+
+.tag {
+  padding: 2px var(--space-2);
+  border-radius: var(--radius-s);
+  background: var(--c-surface);
+  color: var(--c-text-2);
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-strong);
+}
+
+form.account-editor {
+  max-width: 820px;
+}
+
+.account-columns {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: var(--space-4);
+}
+
+.account-editor .select-trigger {
+  width: 100%;
+}
+/* the signature image's preview: its own pixels on the message page's light background, never wider than the form */
+.signature-image-preview {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin: var(--space-1) 0 var(--space-2);
+  padding: var(--space-2);
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius-s);
+  background: var(--c-mail-bg);
+  box-sizing: border-box;
+}
+
+/* the user's confirmation of a request of Claude (ClaudeConfirm.jsx) */
+.claude-confirm-modal {
+  max-width: 640px;
+  max-height: calc(100vh - 2 * var(--space-5));
+  overflow-y: auto;
+}
+.confirm-header {
+  margin: 0 0 var(--space-4);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--c-warning-border);
+  border-radius: var(--radius-s);
+  background: var(--c-warning-bg);
+  color: var(--c-warning-text);
+}
+.confirm-fields {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: var(--space-1) var(--space-3);
+  margin: 0 0 var(--space-3);
+}
+.confirm-field {
+  display: contents;
+}
+.confirm-field dt {
+  color: var(--c-text-2);
+}
+.confirm-field dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.confirm-list {
+  margin: 0;
+  padding-left: var(--space-4);
+}
+.confirm-messages {
+  max-height: 240px;
+  overflow-y: auto;
+}
+.confirm-label {
+  margin: var(--space-2) 0 var(--space-1);
+  color: var(--c-text-2);
+}
+.confirm-text {
+  max-height: 240px;
+  overflow-y: auto;
+  margin: 0;
+  padding: var(--space-2);
+  border-radius: var(--radius-s);
+  background: var(--c-surface);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font: inherit;
+}
+.confirm-warning {
+  color: var(--c-danger);
+}
+.confirm-escape {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-4);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--c-border);
+}
+.confirm-href {
+  overflow-wrap: anywhere;
+  font-family: var(--font-mono);
+}
+
+/* the "Claude-hozzáférés" page */
+.claude-state strong {
+  font-weight: var(--fw-strong);
+}
+.claude-snippet {
+  margin: var(--space-3) 0 var(--space-1);
+}
+.claude-snippet-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+.claude-snippet-head h3 {
+  margin: 0;
+  font-size: var(--fs-m);
+}
+.claude-snippet-text {
+  margin: var(--space-2) 0 0;
+  padding: var(--space-3);
+  border-radius: var(--radius-s);
+  background: var(--c-surface);
+  font-family: var(--font-mono);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.claude-moved {
+  color: var(--c-warning-text);
+}
+.claude-recent {
+  width: 100%;
+  border-collapse: collapse;
+}
+.claude-recent th,
+.claude-recent td {
+  padding: var(--space-1) var(--space-2);
+  border-bottom: 1px solid var(--c-border);
+  text-align: left;
+}
+.claude-recent th {
+  color: var(--c-text-2);
+  font-weight: var(--fw-normal);
+}
+
+/* Source view: a large Modal, two tabs, the text in a monospace <pre> that scrolls both ways */
+.modal.source-modal {
+  display: flex;
+  flex-direction: column;
+  width: min(1040px, calc(100vw - 2 * var(--space-6)));
+  max-width: none;
+  height: calc(100vh - 2 * var(--space-6));
+}
+.source-modal .modal-content {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--space-3);
+  min-height: 0;
+}
+.source-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  border-bottom: 1px solid var(--c-border);
+}
+.source-tabs {
+  display: flex;
+}
+.source-tab {
+  height: 40px;
+  padding: 0 var(--space-4);
+  border: 0;
+  border-bottom: 3px solid transparent;
+  border-radius: var(--radius-s) var(--radius-s) 0 0;
+  background: none;
+  color: var(--c-text-2);
+}
+.source-tab:hover {
+  background: var(--c-hover);
+}
+.source-tab.selected {
+  border-bottom-color: var(--c-accent);
+  color: var(--c-accent);
+  font-weight: var(--fw-strong);
+}
+.source-panel {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+.source-panel:focus-visible {
+  outline: 2px solid var(--c-accent);
+  outline-offset: 2px;
+}
+.source-text {
+  margin: 0;
+  padding: var(--space-3);
+  border-radius: var(--radius-s);
+  background: var(--c-surface);
+  font-family: var(--font-mono);
+  font-size: var(--fs-s);
+  white-space: pre;
+  user-select: text;
+  tab-size: 8;
+  width: max-content;
+  min-width: 100%;
+  box-sizing: border-box;
+}
+.source-heading {
+  margin: var(--space-4) 0 var(--space-2);
+  font-size: var(--fs-m);
+  font-weight: var(--fw-strong);
+}
+.source-summary table {
+  border-collapse: collapse;
+  font-size: var(--fs-m);
+}
+.source-summary th {
+  padding: var(--space-1) var(--space-4) var(--space-1) 0;
+  color: var(--c-text-2);
+  font-weight: var(--fw-normal);
+  text-align: left;
+  vertical-align: top;
+  white-space: nowrap;
+}
+.source-summary td {
+  padding: var(--space-1) 0;
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+.source-auth-note,
+.source-marks {
+  margin: var(--space-2) 0 0;
+}
+.auth-value {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.auth-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--c-text-2);
+}
+.auth-ok .auth-dot {
+  background: var(--c-success);
+}
+.auth-bad .auth-dot {
+  background: var(--c-danger);
+}
+.auth-bad {
+  color: var(--c-danger);
+}
+.ctl-mark {
+  padding: 0 2px;
+  border: 1px solid var(--c-warning-border);
+  border-radius: var(--radius-s);
+  background: var(--c-warning-bg);
+  color: var(--c-warning-text);
+}
+.ctl-summary {
+  color: var(--c-warning-text);
+  font-style: italic;
+}
+.reader-text-cut {
+  color: var(--c-warning-text);
+  font-style: italic;
+}
+
+/* a long text drawn in blocks inside its <pre> (text-blocks.js); the look of the <pre> is unchanged */
+.text-block {
+  display: block;
+}
+
+/* the address book (Címlista): list | details, the divider between (--contacts-list-w, default 360px) */
+section.contacts {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--c-surface);
+}
+
+.contacts-body {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: var(--contacts-list-w, 360px) 0 minmax(360px, 1fr);
+}
+
+.contacts-list-pane {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--c-border);
+}
+
+.contacts-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-3) var(--space-2);
+}
+
+.contacts-search {
+  margin: 0 var(--space-3) var(--space-2);
+}
+
+.contacts-count {
+  margin: 0;
+  padding: 0 var(--space-4) var(--space-2);
+  color: var(--c-text-2);
+  font-size: var(--fs-s);
+}
+
+.contacts-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.contact-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: var(--row-h);
+  padding: var(--space-1) var(--space-3);
+  cursor: pointer;
+  border-bottom: 1px solid var(--c-border);
+}
+
+.contact-item:hover {
+  background: var(--c-hover);
+}
+
+.contact-item.open {
+  background: var(--c-surface-2);
+}
+
+.contact-item-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.contact-item-name,
+.contact-item-address {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.contact-item-address,
+.contact-label,
+.contact-org {
+  color: var(--c-text-2);
+  font-size: var(--fs-s);
+}
+
+.contact-source {
+  flex: none;
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--c-border-strong);
+  color: var(--c-text-2);
+  font-size: var(--fs-xs);
+}
+
+.contacts-detail-pane {
+  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--space-4) var(--space-5);
+}
+
+.contact-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.contact-name {
+  margin: 0;
+}
+
+.contact-org {
+  margin: var(--space-1) 0 0;
+}
+
+.contact-actions,
+.contact-editor-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin: var(--space-3) 0;
+}
+
+.contact-fields {
+  margin: var(--space-3) 0;
+}
+
+.contact-fields dt {
+  color: var(--c-text-2);
+  font-size: var(--fs-s);
+}
+
+.contact-fields dd {
+  margin: var(--space-1) 0 0;
+  font-family: var(--font);
+}
+
+.contact-note-text {
+  white-space: pre-wrap;
+}
+
+.contact-editor h2 {
+  margin-top: 0;
+}
+
+.contact-editor-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: var(--space-3);
+}
+
+.contact-rows {
+  margin: var(--space-4) 0 0;
+  padding: 0;
+  border: 0;
+}
+
+.contact-rows legend {
+  padding: 0;
+  margin-bottom: var(--space-2);
+  font-weight: 600;
+}
+
+.contact-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--space-2);
+  margin-bottom: var(--space-2);
+}
+
+.contact-row .text-field {
+  flex: 1 1 180px;
+}
+
+.contact-note {
+  margin-top: var(--space-4);
+  display: flex;
+  flex-direction: column;
+}
+
+.import-preview ul {
+  max-height: 160px;
+  overflow-y: auto;
+  margin: 0;
+  padding-left: var(--space-5);
+}

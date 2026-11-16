@@ -1,0 +1,82 @@
+{
+  "name": "shadowmail",
+  "productName": "ShadowMail",
+  "version": "0.14.0",
+  "private": true,
+  "description": "Portable Windows mail client (IMAP/POP3/SMTP); all data lives next to the exe.",
+  "license": "GPL-3.0-or-later",
+  "author": "arnyek",
+  "type": "module",
+  "main": "app/main/main.js",
+  "engines": {
+    "node": "^22.22.2 || ^24.15.0 || >=26.0.0"
+  },
+  "scripts": {
+    "build:renderer": "vite build",
+    "start": "npm run build:renderer && electron .",
+    "test": "node --test \"test/**/*.test.js\"",
+    "check:public": "node scripts/public-check.mjs",
+    "dist:win": "npm run build:renderer && electron-builder --win zip --x64"
+  },
+  "dependencies": {
+    "better-sqlite3-multiple-ciphers": "13.0.3",
+    "dompurify": "3.4.17",
+    "html-to-text": "10.0.1",
+    "htmlparser2": "10.1.0",
+    "imapflow": "2.11.0",
+    "mailparser": "3.14.3",
+    "nodemailer": "10.5.0",
+    "react": "19.3.1",
+    "react-dom": "19.3.1"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "6.3.0",
+    "electron": "45.3.0",
+    "electron-builder": "26.18.0",
+    "jsdom": "31.0.0",
+    "lucide-react": "1.72.0",
+    "playwright-core": "1.61.1",
+    "smtp-server": "3.21.4",
+    "vite": "8.3.8"
+  },
+  "build": {
+    "appId": "local.shadowmail",
+    "productName": "ShadowMail",
+    "artifactName": "ShadowMail-${version}-win-${arch}.${ext}",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "app/main/**",
+      "app/preload/**",
+      "core/**",
+      "out/renderer/**",
+      "package.json",
+      "app/renderer/i18n/**",
+      "!node_modules/better-sqlite3-multiple-ciphers/prebuilds/{darwin-arm64,darwin-x64,linux-arm64,linux-x64,linuxmusl-arm64,linuxmusl-x64,win32-arm64}.node",
+      "!node_modules/better-sqlite3-multiple-ciphers/{src,deps,docs}/**"
+    ],
+    "asarUnpack": [
+      "**/*.node"
+    ],
+    "extraFiles": [
+      { "from": "LICENSE", "to": "LICENSE.txt" },
+      { "from": "THIRD-PARTY-NOTICES.txt", "to": "THIRD-PARTY-NOTICES.txt" }
+    ],
+    "npmRebuild": false,
+    "win": {
+      "target": [
+        "zip"
+      ],
+      "signAndEditExecutable": true,
+      "icon": "build/icon.png"
+    },
+    "electronFuses": {
+      "runAsNode": false,
+      "enableNodeOptionsEnvironmentVariable": false,
+      "enableNodeCliInspectArguments": false,
+      "enableEmbeddedAsarIntegrityValidation": true,
+      "onlyLoadAppFromAsar": true
+    }
+  }
+}

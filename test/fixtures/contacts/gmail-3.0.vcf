@@ -1,0 +1,25 @@
+BEGIN:VCARD
+VERSION:3.0
+FN:Árvíztűrő Tükörfúrógép
+N:Árvíztűrő;Tükörfúrógép;;;
+EMAIL;TYPE=INTERNET;TYPE=HOME:arviz@example.hu
+EMAIL;TYPE=INTERNET;TYPE=WORK:tukor@ceg.example.hu
+TEL;TYPE=CELL:+36 30 123 4567
+ADR;TYPE=HOME:;;Fő utca 1.;Budapest;;1011;Magyarország
+ORG:Példa Kft.
+TITLE:Ügyvezető
+BDAY:1980-05-17
+item1.URL:https\://www.example.hu
+item1.X-ABLabel:
+NOTE:Első sor\nMásodik sor\, vesszővel
+CATEGORIES:myContacts
+END:VCARD
+BEGIN:VCARD
+VERSION:3.0
+FN:Kiss Éva
+N:Kiss;Éva;;;
+EMAIL;TYPE=INTERNET:kiss.eva@example.com
+NOTE:Nagyon hosszú megjegyzés, amely biztosan átlépi a hetvenöt bájtos sorhat
+ árt, ezért a Gmail tördelve írja ki, és az olvasónak össze kell raknia.
+CATEGORIES:myContacts
+END:VCARD

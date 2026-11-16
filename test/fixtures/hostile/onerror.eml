@@ -1,0 +1,13 @@
+From: Hostile Sender <hostile@sender.invalid>
+To: Teszt <teszt@example.invalid>
+Subject: Hostile: onerror
+Date: Tue, 10 Nov 2026 10:00:00 +0100
+Message-ID: <hostile-onerror@hostile.invalid>
+MIME-Version: 1.0
+Content-Type: text/html; charset=utf-8
+Content-Transfer-Encoding: 8bit
+
+<p>onerror teszt</p>
+<img src="x" onerror="document.body.setAttribute('data-pwned','onerror');fetch('https://onerror.hostile.invalid/')">
+<body onload="document.body.setAttribute('data-pwned','onload')">
+<div onmouseover="alert(1)">hover</div>

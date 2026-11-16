@@ -1,0 +1,1390 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Mail view: account and folder tree on the left, the message list in the middle (virtual
+// scrolling: only the visible rows are in the DOM, pages of PAGE rows come from the main process
+// on demand), the reader pane under it, and the sync status line at the bottom.
+// The search in the header with filter chips, the list header (select all,
+// refresh, more; the icon actions while something is selected; the visible range), one-line rows
+// with a preview, the row star and the hover actions.
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
+import { t, locale } from '../i18n/index.js'
+import { buildFolderTree, flattenTree, assignRoles } from '../../../core/imap/folders.js'
+import { Reader } from './Reader.jsx'
+import { SearchBox, SearchChips, SearchResults, EMPTY_FILTERS, clearedFilters, fromConditions, leftSearch, listFilterOn, searchActive, toListFilter, toRequest } from './Search.jsx'
+import { Icon } from './Icon.jsx'
+import { Banner, Button, Checkbox, IconButton, Menu, MenuButton, Modal, Splitter } from './ui/index.js'
+import { folderIcon } from './folder-icons.js'
+import { dropAfter, dropped, siblingLists, stepped } from './folder-order.js'
+import { getPref, setPref } from './prefs.js'
+import { formatRange, previewLine } from './list-format.js'
+import { RowText } from './RowText.jsx'
+
+const api = window.shadowMail
+export const ROW_HEIGHT = 40 // the default --row-h of theme.css (a density may change it: useRowHeight)
+
+/** The list row's height from the --row-h token, read again when the density (<html data-density>) changes. */
+function rowHeightNow() {
+  const v = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--row-h'))
+  return Number.isFinite(v) && v > 0 ? v : ROW_HEIGHT
+}
+function useRowHeight() {
+  const [h, setH] = useState(rowHeightNow)
+  useEffect(() => {
+    if (typeof MutationObserver === 'undefined') return undefined // jsdom without it: the height stays
+    const mo = new MutationObserver(() => setH(rowHeightNow()))
+    mo.observe(document.documentElement, { attributes: true, attributeFilter: ['data-density', 'data-theme'] })
+    return () => mo.disconnect()
+  }, [])
+  return h
+}
+const PAGE = 200
+const OVERSCAN = 15
+const DEFAULT_DIR = { date: 'desc', from: 'asc', subject: 'asc' }
+// since 0.10.1 the messages opened or acted on in a filtered view stay listed until the filter, the
+// folder or the order changes, or Refresh; at most this many (the oldest goes)
+const MAX_KEEP = 500
+
+/** The order's menu items: the list's More menu and the folder view's Rendezés chip (one state). */
+function sortMenuItems(sort, dir, onSort) {
+  return [
+    ...['date', 'from', 'subject'].map(col => ({ key: col, label: t.sortMenu[col], checked: sort === col, onSelect: () => onSort(col) })),
+    { separator: true },
+    { key: 'reverse', label: t.sortMenu.reverse, checked: dir !== DEFAULT_DIR[sort], onSelect: () => onSort(sort, true) },
+  ]
+}
+
+const timeFmt = new Intl.DateTimeFormat(locale, { hour: '2-digit', minute: '2-digit' })
+
+const hasFlag = (flags, flag) => (flags || '').split(' ').includes(flag)
+
+// the change an action makes to the flags, shown at once (the main process confirms or it is dropped)
+const FLAG_CHANGE = {
+  read: { add: ['\\Seen'], remove: [] },
+  unread: { add: [], remove: ['\\Seen'] },
+  star: { add: ['\\Flagged'], remove: [] },
+  unstar: { add: [], remove: ['\\Flagged'] },
+}
+function changedFlags(flags, change) {
+  const set = new Set((flags || '').split(' ').filter(Boolean))
+  for (const f of change.add) set.add(f)
+  for (const f of change.remove) set.delete(f)
+  return [...set].join(' ')
+}
+const DRAG_TYPE = 'application/x-shadowmail-ids'
+// the manual order's own drags: never a message move, never a hierarchy change
+const FOLDER_DRAG_TYPE = 'application/x-shadowmail-folder'
+const ACCOUNT_DRAG_TYPE = 'application/x-shadowmail-account'
+
+function roleFolder(folders, wanted) {
+  for (const [p, role] of assignRoles(folders)) if (role === wanted) return p
+  return null
+}
+
+/** The Trash of an account's folder list, or null. */
+export function trashOf(folders) {
+  return roleFolder(folders, 'trash')
+}
+
+/** The Archive of an account's folder list (by SPECIAL-USE or name), or null. */
+export function archiveOf(folders) {
+  return roleFolder(folders, 'archive')
+}
+
+const stop = e => e.stopPropagation()
+
+function folderLabel(node) {
+  return node.role ? t.folderRoles[node.role] : node.name
+}
+
+/**
+ * The accounts and their folders: an account head that folds its folders away, the
+ * "+" (new top-level folder), and per folder its role icon, name and unread count. Folded to icons
+ * (`collapsed`), the names stay in the DOM for the accessible name and show as tooltips.
+ *
+ * The manual order: an account head is dragged among the account heads, a folder among its own displayed siblings
+ * (a line marks the place; another parent shows no line and takes no drop: the hierarchy never changes), each with
+ * its own drag type, so a folder dropped on a folder moves no message and a message drag is as before. Alt+Up /
+ * Alt+Down on a folder or an account head steps it. onReorderFolders({ accountId, parentKey, paths, focus }),
+ * onReorderAccounts(ids, focusId); the menus get the folder's / account's list to know their edges.
+ */
+export function FolderTree({ accounts, selected, onSelect, onDropMessages, onFolderMenu, onNewFolder, onAccountMenu = () => {}, onReorderFolders = () => {}, onReorderAccounts = () => {}, collapsed = false }) {
+  // the drag in progress (dragover cannot read the data, only its types): { kind: 'folder', accountId, path } or
+  // { kind: 'account', id }; the line: { key, after }
+  const dragRef = useRef(null)
+  const [mark, setMark] = useState(null)
+  const accountIds = accounts.map(a => a.id)
+  const endDrag = () => {
+    dragRef.current = null
+    setMark(null)
+  }
+  // the line shows only while the dragover under the pointer is accepted: a target accepts in its own handler
+  // (preventDefault), before the event reaches the document; anything else (an account head for a folder, the sidebar's
+  // background, a message row) clears it
+  const markRef = useRef(null)
+  markRef.current = mark
+  useEffect(() => {
+    const over = e => {
+      if (dragRef.current && markRef.current && !e.defaultPrevented) setMark(null)
+    }
+    document.addEventListener('dragover', over)
+    return () => document.removeEventListener('dragover', over)
+  }, [])
+  // a damaged stored value (not a list) must not take the mail view down
+  const [folded, setFolded] = useState(() => {
+    const v = getPref('foldedAccounts', [])
+    return new Set(Array.isArray(v) ? v.filter(x => typeof x === 'number' || typeof x === 'string') : [])
+  })
+  const toggleAccount = id =>
+    setFolded(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      setPref('foldedAccounts', [...next])
+      return next
+    })
+  if (!accounts.length) return <p className="hint pad">{t.noMailAccounts}</p>
+  return (
+    <nav className={`folder-tree${collapsed ? ' collapsed' : ''}`} aria-label={t.foldersHeading}>
+      {accounts.map(a => {
+        const tree = buildFolderTree(a.folders)
+        const items = flattenTree(tree)
+        const lists = siblingLists(tree)
+        const isFolded = folded.has(a.id) && !collapsed
+        const accountKey = `a:${a.id}`
+        const stepAccount = delta => {
+          const ids = stepped(accountIds, a.id, delta)
+          if (ids) onReorderAccounts(ids, a.id)
+        }
+        return (
+          <section key={a.id} className="account" data-account={a.id}>
+            <div
+              className={`account-head${mark && mark.key === accountKey ? (mark.after ? ' drop-after' : ' drop-before') : ''}`}
+              draggable
+              onDragStart={e => {
+                dragRef.current = { kind: 'account', id: a.id }
+                e.dataTransfer.setData(ACCOUNT_DRAG_TYPE, String(a.id))
+                e.dataTransfer.effectAllowed = 'move'
+              }}
+              onDragEnd={endDrag}
+              onDragOver={e => {
+                const d = dragRef.current
+                if (!d || d.kind !== 'account' || d.id === a.id) return
+                e.preventDefault()
+                e.dataTransfer.dropEffect = 'move'
+                const after = dropAfter(e, e.currentTarget)
+                if (!mark || mark.key !== accountKey || mark.after !== after) setMark({ key: accountKey, after })
+              }}
+              onDrop={e => {
+                const d = dragRef.current
+                if (!d || d.kind !== 'account' || !e.dataTransfer.types.includes(ACCOUNT_DRAG_TYPE)) return
+                e.preventDefault()
+                const ids = dropped(accountIds, d.id, a.id, dropAfter(e, e.currentTarget))
+                endDrag()
+                if (ids) onReorderAccounts(ids, d.id)
+              }}
+              onContextMenu={e => {
+                e.preventDefault()
+                onAccountMenu({ x: e.clientX, y: e.clientY, accountId: a.id, label: a.name, ids: accountIds })
+              }}
+            >
+              <h2 className="account-name">
+                <button
+                  type="button"
+                  className="account-toggle"
+                  aria-expanded={!isFolded}
+                  title={`${a.email}\n${isFolded ? t.accountFoldersShow(a.name) : t.accountFoldersHide(a.name)}`}
+                  onClick={() => toggleAccount(a.id)}
+                  onKeyDown={e => {
+                    if (!e.altKey || e.ctrlKey || e.metaKey || e.shiftKey || (e.key !== 'ArrowUp' && e.key !== 'ArrowDown')) return
+                    e.preventDefault()
+                    stepAccount(e.key === 'ArrowUp' ? -1 : 1)
+                  }}
+                >
+                  <Icon name={isFolded ? 'chevronRight' : 'chevronDown'} />
+                  <span className="account-label">{a.name}</span>
+                </button>
+              </h2>
+              <IconButton icon="plus" size="s" className="new-folder" label={t.newFolderTitle(a.name)} onClick={() => onNewFolder(a.id)} />
+            </div>
+            {!isFolded && !items.length && <p className="hint pad">{t.noFolders}</p>}
+            {!isFolded && (
+              <ul>
+                {items.map(({ node, depth }) => {
+                  const isSel = selected && selected.accountId === a.id && selected.folder === node.path
+                  const label = folderLabel(node)
+                  const depthStyle = { '--depth': collapsed ? 0 : depth }
+                  const list = lists.get(node.path)
+                  const key = `f:${a.id}:${node.path}`
+                  // a folder drag over this folder: only from the same displayed sibling list
+                  const sibling = d => d && d.kind === 'folder' && d.accountId === a.id && d.path !== node.path && list.paths.includes(d.path)
+                  return (
+                    <li key={node.path} className={mark && mark.key === key ? (mark.after ? 'drop-after' : 'drop-before') : undefined}>
+                      {node.selectable ? (
+                        <button
+                          type="button"
+                          className={`folder${isSel ? ' selected' : ''}${node.unread ? ' has-unread' : ''}`}
+                          style={depthStyle}
+                          aria-current={isSel ? 'true' : undefined}
+                          title={collapsed ? `${label}${node.unread ? ` (${t.unreadCount(node.unread)})` : ''}` : node.path}
+                          data-path={node.path}
+                          draggable
+                          onClick={() => onSelect({ accountId: a.id, folder: node.path })}
+                          onContextMenu={e => {
+                            e.preventDefault()
+                            onFolderMenu({ x: e.clientX, y: e.clientY, accountId: a.id, path: node.path, label, role: node.role, count: node.count, parentKey: list.parentKey, siblings: list.paths })
+                          }}
+                          onKeyDown={e => {
+                            if (!e.altKey || e.ctrlKey || e.metaKey || e.shiftKey || (e.key !== 'ArrowUp' && e.key !== 'ArrowDown')) return
+                            e.preventDefault()
+                            const paths = stepped(list.paths, node.path, e.key === 'ArrowUp' ? -1 : 1)
+                            if (paths) onReorderFolders({ accountId: a.id, parentKey: list.parentKey, paths, focus: node.path })
+                          }}
+                          onDragStart={e => {
+                            dragRef.current = { kind: 'folder', accountId: a.id, path: node.path }
+                            e.dataTransfer.setData(FOLDER_DRAG_TYPE, node.path)
+                            e.dataTransfer.effectAllowed = 'move'
+                          }}
+                          onDragEnd={endDrag}
+                          onDragOver={e => {
+                            const d = dragRef.current
+                            if (d && d.kind === 'folder') {
+                              // another parent (or itself): no line, no drop
+                              if (!sibling(d)) {
+                                if (mark) setMark(null)
+                                return
+                              }
+                              e.preventDefault()
+                              e.dataTransfer.dropEffect = 'move'
+                              const after = dropAfter(e, e.currentTarget)
+                              if (!mark || mark.key !== key || mark.after !== after) setMark({ key, after })
+                              return
+                            }
+                            // messages: only into another folder of the same account
+                            if (selected && selected.accountId === a.id && selected.folder !== node.path && e.dataTransfer.types.includes(DRAG_TYPE)) {
+                              e.preventDefault()
+                              e.dataTransfer.dropEffect = 'move'
+                            }
+                          }}
+                          onDrop={e => {
+                            const d = dragRef.current
+                            if (d && d.kind === 'folder') {
+                              e.preventDefault()
+                              const paths = sibling(d) && e.dataTransfer.types.includes(FOLDER_DRAG_TYPE) ? dropped(list.paths, d.path, node.path, dropAfter(e, e.currentTarget)) : null
+                              endDrag()
+                              if (paths) onReorderFolders({ accountId: a.id, parentKey: list.parentKey, paths, focus: d.path })
+                              return
+                            }
+                            const raw = e.dataTransfer.getData(DRAG_TYPE)
+                            if (!raw) return
+                            e.preventDefault()
+                            onDropMessages(JSON.parse(raw), node.path)
+                          }}
+                        >
+                          <Icon name={folderIcon(node.role)} size="m" />
+                          <span className="folder-label">{label}</span>
+                          {node.unread > 0 && (
+                            <span className="unread-badge" aria-label={t.unreadCount(node.unread)}>{node.unread}</span>
+                          )}
+                        </button>
+                      ) : (
+                        <span className="folder placeholder" style={depthStyle} title={collapsed ? label : undefined}>
+                          <Icon name="folder" size="m" />
+                          <span className="folder-label">{label}</span>
+                        </span>
+                      )}
+                    </li>
+                  )
+                })}
+              </ul>
+            )}
+          </section>
+        )
+      })}
+    </nav>
+  )
+}
+
+/**
+ * One list row, memoized: it re-renders only when its own message, flags, selection,
+ * open or hover state changes. The hover actions exist only on the row under the mouse.
+ */
+const MessageRow = memo(function MessageRow({ m, index, top, flags, selected, open, leaving, archive, hovered, h }) {
+  const unread = !hasFlag(flags, '\\Seen')
+  const flagged = hasFlag(flags, '\\Flagged')
+  const preview = previewLine(m.preview)
+  return (
+    <div
+      role="row"
+      aria-rowindex={index + 1}
+      aria-selected={selected}
+      data-id={m.id}
+      className={`msg-row${unread ? ' unread' : ''}${selected ? ' selected' : ''}${open ? ' open' : ''}${leaving ? ' leaving' : ''}`}
+      style={{ top }}
+      draggable
+      onMouseEnter={() => h.hover(m.id)}
+      onMouseLeave={() => h.hover(id => (id === m.id ? null : id))}
+      onDragStart={e => {
+        const ids = h.selection.has(m.id) ? [...h.selection] : [m.id]
+        e.dataTransfer.setData(DRAG_TYPE, JSON.stringify(ids))
+        e.dataTransfer.effectAllowed = 'move'
+      }}
+      onClick={e => h.click(e, m.id)}
+      onContextMenu={e => {
+        e.preventDefault()
+        const isSel = h.selection.has(m.id)
+        const ids = isSel ? [...h.selection] : [m.id]
+        if (!isSel) h.onSelection(new Set([m.id]))
+        h.onContextMenu({ x: e.clientX, y: e.clientY, ids, flagged })
+      }}
+    >
+      <div role="gridcell" className="col-check" onClick={stop}>
+        <Checkbox label={t.selectRow} hideLabel checked={selected} onChange={() => h.toggle(m.id)} />
+      </div>
+      <div role="gridcell" className="col-star" onClick={stop}>
+        <IconButton
+          icon="star"
+          size="s"
+          filled={flagged}
+          className={`star-toggle${flagged ? ' star-on' : ''}`}
+          label={t.starToggle}
+          pressed={flagged}
+          onClick={() => h.action(flagged ? 'unstar' : 'star', [m.id])}
+        />
+      </div>
+      <RowText m={m} preview={preview} />
+      {hovered && !leaving && (
+        // mouse shortcuts of the toolbar's actions: hidden from assistive tech, the toolbar has them
+        <div className="row-quick" aria-hidden="true" onClick={stop}>
+          {archive && <IconButton tabIndex={-1} icon="archive" size="s" label={t.actions.archive} onClick={() => h.action('move', [m.id], { target: archive })} />}
+          <IconButton tabIndex={-1} icon="trash" size="s" label={t.actions.delete} onClick={() => h.action('delete', [m.id])} />
+          <IconButton
+            tabIndex={-1}
+            icon={unread ? 'markRead' : 'markUnread'}
+            size="s"
+            label={unread ? t.actions.read : t.actions.unread}
+            onClick={() => h.action(unread ? 'read' : 'unread', [m.id])}
+          />
+        </div>
+      )}
+    </div>
+  )
+})
+
+/**
+ * The list header: the select-all box with its menu, Refresh (always: a click on a
+ * row selects it), "Szűrők törlése" while a filter is on, then without a selection More
+ * (the order), with one the icon actions (Archive, Delete, Read/Unread, Move, Star) and the selected
+ * count; on the right the visible range ("(szűrve, összesen N)" when filtered).
+ */
+function ListHeader({ ctx }) {
+  const { selection, total, folderTotal, filtered, range, folders, folder, archive, sortItems, onSelectAll, onSelectNone, onSelectSeen, onAction, onRefresh, onClearFilters, selectedInfo } = ctx
+  const n = selection.size
+  const ids = [...selection]
+  const all = total > 0 && n === total
+  const targets = useMemo(() => {
+    const roles = assignRoles(folders)
+    return folders
+      .filter(f => f.path !== folder)
+      .map(f => ({ path: f.path, role: roles.get(f.path) || null }))
+  }, [folders, folder])
+  const selectItems = [
+    { key: 'all', label: t.selectMenuItems.all, onSelect: onSelectAll },
+    { key: 'none', label: t.selectMenuItems.none, onSelect: onSelectNone },
+    { key: 'read', label: t.selectMenuItems.read, onSelect: () => onSelectSeen(true) },
+    { key: 'unread', label: t.selectMenuItems.unread, onSelect: () => onSelectSeen(false) },
+  ]
+  return (
+    <div className="list-header">
+      <div className="list-select">
+        <Checkbox
+          label={t.selectAll}
+          hideLabel
+          className="select-all"
+          checked={all}
+          indeterminate={n > 0 && !all}
+          onChange={() => (n ? onSelectNone() : onSelectAll())}
+        />
+        <MenuButton icon="chevronDown" label={t.selectMenu} items={selectItems} className="select-menu" />
+      </div>
+      {/* Refresh stays: a click on a row selects it too, so a selection is the usual state */}
+      <IconButton icon="refresh" className="list-refresh" label={t.refresh} onClick={onRefresh} />
+      {filtered && <IconButton icon="filterClear" className="clear-filters" label={t.clearFilters} onClick={onClearFilters} />}
+      {n === 0 ? (
+        <div className="list-tools" role="toolbar" aria-label={t.listToolsLabel}>
+          <MenuButton icon="more" label={t.moreMenu} items={sortItems} />
+        </div>
+      ) : (
+        <div className="action-bar" role="toolbar" aria-label={t.actionsLabel}>
+          {archive && archive !== folder && <IconButton icon="archive" label={t.actions.archive} onClick={() => onAction('move', ids, { target: archive })} />}
+          <IconButton icon="trash" label={t.actions.delete} onClick={() => onAction('delete', ids)} />
+          {selectedInfo.anyUnread ? (
+            <IconButton icon="markRead" label={t.actions.read} onClick={() => onAction('read', ids)} />
+          ) : (
+            <IconButton icon="markUnread" label={t.actions.unread} onClick={() => onAction('unread', ids)} />
+          )}
+          <MenuButton
+            icon="move"
+            label={t.actions.move}
+            items={targets.map(f => ({ key: f.path, label: f.role ? `${t.folderRoles[f.role]} (${f.path})` : f.path, icon: folderIcon(f.role), onSelect: () => onAction('move', ids, { target: f.path }) }))}
+          />
+          {selectedInfo.allFlagged ? (
+            <IconButton icon="star" filled className="star-on" label={t.actions.unstar} onClick={() => onAction('unstar', ids)} />
+          ) : (
+            <IconButton icon="star" label={t.actions.star} onClick={() => onAction('star', ids)} />
+          )}
+          <span className="selection-count">{t.selectedCount(n)}</span>
+        </div>
+      )}
+      <span className="list-count" data-total={total ?? ''} data-folder-total={folderTotal ?? ''} title={total ? t.listCount(total) : undefined}>
+        {total === null ? '' : formatRange(range.first, range.last, total) + (filtered && folderTotal !== null ? t.listFiltered(folderTotal) : '')}
+      </span>
+    </div>
+  )
+}
+
+/**
+ * The virtual list. `version` changes when the main process reports a change in this folder: the
+ * visible pages are re-read in place (no jump, no flash), the others when they come into view.
+ */
+function MessageList({ accountId, folder, folders, version, openId, onOpen, selection, onSelection, overlay, onAction, onContextMenu, sort, dir, onSort, filter, keepRef, onRefresh, onClearFilters }) {
+  const [total, setTotal] = useState(null)
+  const [folderTotal, setFolderTotal] = useState(null)
+  const [loadError, setLoadError] = useState(null) // a refused list request: said, not an endless "busy"
+  const [scrollTop, setScrollTop] = useState(0)
+  const [height, setHeight] = useState(0)
+  const [, setTick] = useState(0)
+  const pages = useRef(new Map()) // page index -> { gen, rows }
+  const loading = useRef(new Set())
+  const gen = useRef(0)
+  const viewport = useRef(null)
+  const anchor = useRef(null)
+  const archive = useMemo(() => archiveOf(folders), [folders])
+  const [hoverId, setHoverId] = useState(null) // the row under the mouse gets the quick actions
+
+  // the folder view's filter; the list, its count and every id use the same one, with the
+  // ids kept in view (read at request time: keeping one does not reset the list)
+  const filterKey = JSON.stringify(filter)
+  const filtered = filterKey !== '{}'
+  const request = () => (filtered ? { filter: keepRef.current.length ? { ...filter, keepIds: keepRef.current } : filter } : {})
+
+  // every id of the folder in the list's order (Shift+click over unloaded pages, Ctrl+A); seen: true/false filters
+  // a late answer after a folder (or order, or filter) change is dropped: it would select the old view's ids
+  const viewKey = `${accountId}|${folder}|${sort}|${dir}|${filterKey}`
+  const viewKeyRef = useRef(viewKey)
+  viewKeyRef.current = viewKey
+  const allIds = async (seen = null) => {
+    const asked = viewKey
+    const askedKeep = keepRef.current // a Refresh (or an action) in between changes the listed set: drop the answer
+    const res = await api.mail.ids({ accountId, folder, sort, dir, ...(seen === null ? {} : { seen }), ...request() })
+    if (asked !== viewKeyRef.current || askedKeep !== keepRef.current) return null
+    return res.ok ? res.ids : []
+  }
+
+  const toggleOne = id => {
+    const next = new Set(selection)
+    if (next.has(id)) next.delete(id)
+    else next.add(id)
+    anchor.current = id
+    onSelection(next)
+  }
+
+  const clickRow = async (e, id) => {
+    if (e.shiftKey && anchor.current !== null) {
+      const ids = await allIds()
+      if (!ids) return
+      const a = ids.indexOf(anchor.current)
+      const b = ids.indexOf(id)
+      if (a >= 0 && b >= 0) onSelection(new Set(ids.slice(Math.min(a, b), Math.max(a, b) + 1)))
+      return
+    }
+    if (e.ctrlKey || e.metaKey) {
+      toggleOne(id)
+      return
+    }
+    // a plain click opens the message and does NOT select it; it is the Shift anchor
+    anchor.current = id
+    onOpen(id)
+  }
+
+  const keyDown = async e => {
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'a') {
+      e.preventDefault()
+      const ids = await allIds()
+      if (ids) onSelection(new Set(ids))
+    }
+    // Delete: the mail view's key handler (the selection, or the open message)
+  }
+
+  const loadPage = useCallback(
+    p => {
+      const myGen = gen.current
+      const key = `${myGen}:${p}`
+      if (loading.current.has(key)) return
+      loading.current.add(key)
+      api.mail.list({ accountId, folder, sort, dir, offset: p * PAGE, limit: PAGE, ...request() }).then(res => {
+        loading.current.delete(key)
+        if (myGen !== gen.current) return
+        if (!res.ok) {
+          setLoadError(res.error)
+          return
+        }
+        setLoadError(null)
+        pages.current.set(p, { gen: myGen, rows: res.rows })
+        setTotal(res.total)
+        setFolderTotal(res.folderTotal)
+        setTick(t => t + 1)
+      })
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [accountId, folder, sort, dir, filterKey],
+  )
+
+  // another folder, ordering or filter: start from the top with an empty cache
+  useLayoutEffect(() => {
+    gen.current++
+    pages.current = new Map()
+    loading.current = new Set()
+    setTotal(null)
+    setFolderTotal(null)
+    setLoadError(null)
+    if (viewport.current) viewport.current.scrollTop = 0
+    setScrollTop(0)
+  }, [accountId, folder, sort, dir, filterKey])
+
+  // something changed on the server: the cached pages are stale (still shown until replaced)
+  useEffect(() => {
+    if (version) gen.current++
+    setTick(t => t + 1)
+  }, [version])
+
+  // in a filtered view a change (Refresh, an action, a sync) can drop selected
+  // messages from the list (a kept id let go, more than MAX_KEEP acted on): the selection is narrowed
+  // to the listed set, so a Delete never takes a message the user no longer sees
+  const selectionRef = useRef(selection)
+  selectionRef.current = selection
+  useEffect(() => {
+    if (!version || !filtered || !selectionRef.current.size) return
+    allIds().then(ids => {
+      if (!ids) return
+      const listed = new Set(ids)
+      onSelection(prev => {
+        const next = new Set([...prev].filter(id => listed.has(id)))
+        return next.size === prev.size ? prev : next
+      })
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [version])
+
+  useLayoutEffect(() => {
+    const el = viewport.current
+    if (!el) return
+    const ro = new ResizeObserver(() => setHeight(el.clientHeight))
+    ro.observe(el)
+    setHeight(el.clientHeight)
+    return () => ro.disconnect()
+  }, [])
+
+  const rowH = useRowHeight()
+  const first = Math.max(0, Math.floor(scrollTop / rowH) - OVERSCAN)
+  const count = total ?? 0
+  const last = Math.min(count, Math.ceil((scrollTop + height) / rowH) + OVERSCAN)
+  const range = {
+    first: Math.min(count, Math.floor(scrollTop / rowH) + 1),
+    last: Math.min(count, Math.max(1, Math.floor((scrollTop + height) / rowH))),
+  }
+
+  // fetch every page the visible window touches that is missing or stale
+  useEffect(() => {
+    const firstPage = Math.floor(first / PAGE)
+    const lastPage = total === null ? 0 : Math.floor(Math.max(first, last - 1) / PAGE)
+    for (let p = firstPage; p <= lastPage; p++) {
+      const entry = pages.current.get(p)
+      if (!entry || entry.gen !== gen.current) loadPage(p)
+    }
+  })
+
+  const flagsOf = m => {
+    const ov = overlay.get(m.id)
+    return ov && ov.change ? changedFlags(m.flags, ov.change) : m.flags
+  }
+
+  // the toolbar's Read/Unread and Star choice: from the loaded rows of the selection
+  let anyUnread = false
+  let allFlagged = selection.size > 0
+  let seenSelected = 0
+  for (const entry of pages.current.values()) {
+    for (const m of entry.rows) {
+      if (!selection.has(m.id)) continue
+      seenSelected++
+      const f = flagsOf(m)
+      if (!hasFlag(f, '\\Seen')) anyUnread = true
+      if (!hasFlag(f, '\\Flagged')) allFlagged = false
+    }
+  }
+  if (seenSelected < selection.size) {
+    // part of the selection is not loaded (Ctrl+A on a big folder): offer "read" and "star"
+    if (!seenSelected) anyUnread = true
+    allFlagged = false
+  }
+
+  // the handlers the rows call: one stable object (its functions see this render's state), so a
+  // memoized row re-renders only when its own data changes, not on every scroll frame
+  const h = useRef({}).current
+  h.click = clickRow
+  h.toggle = toggleOne
+  h.action = onAction
+  h.selection = selection
+  h.onSelection = onSelection
+  h.onContextMenu = onContextMenu
+  h.hover = setHoverId
+
+  const rows = []
+  for (let i = first; i < last; i++) {
+    const entry = pages.current.get(Math.floor(i / PAGE))
+    const m = entry && entry.rows[i % PAGE]
+    const top = i * rowH
+    if (!m) {
+      rows.push(<div key={`empty-${i}`} role="row" aria-rowindex={i + 1} className="msg-row loading" style={{ top }} />)
+      continue
+    }
+    const ov = overlay.get(m.id)
+    rows.push(
+      <MessageRow
+        key={m.id}
+        m={m}
+        index={i}
+        top={top}
+        flags={flagsOf(m)}
+        selected={selection.has(m.id)}
+        open={openId === m.id}
+        leaving={Boolean(ov && ov.leaving)}
+        archive={archive && archive !== folder ? archive : null}
+        hovered={hoverId === m.id}
+        h={h}
+      />,
+    )
+  }
+
+  const ctx = {
+    selection,
+    total,
+    folderTotal,
+    filtered,
+    range,
+    folders,
+    folder,
+    archive,
+    sortItems: sortMenuItems(sort, dir, onSort),
+    onAction,
+    onRefresh,
+    onClearFilters,
+    selectedInfo: { anyUnread, allFlagged },
+    onSelectAll: async () => {
+      const ids = await allIds()
+      if (ids) onSelection(new Set(ids))
+    },
+    onSelectNone: () => onSelection(new Set()),
+    onSelectSeen: async seen => {
+      const ids = await allIds(seen)
+      if (ids) onSelection(new Set(ids))
+    },
+  }
+
+  return (
+    <section className="message-list">
+      <ListHeader ctx={ctx} />
+      <div
+        className="msg-viewport"
+        role="grid"
+        aria-label={folder}
+        aria-rowcount={count}
+        aria-busy={total === null && !loadError}
+        ref={viewport}
+        tabIndex={0}
+        onKeyDown={keyDown}
+        onScroll={e => setScrollTop(e.currentTarget.scrollTop)}
+      >
+        <div className="msg-canvas" style={{ height: count * rowH }}>
+          {rows}
+        </div>
+        {loadError && (
+          <p className="error pad" role="alert">
+            {t.listLoadError(loadError)}
+          </p>
+        )}
+        {total === 0 && !filtered && <p className="hint pad">{t.listEmpty}</p>}
+        {total === 0 && filtered && (
+          <div className="list-filtered-empty pad">
+            <p className="hint">{t.listFilteredEmpty}</p>
+            <Button variant="outlined" icon="filterClear" onClick={onClearFilters}>{t.clearFilters}</Button>
+          </div>
+        )}
+      </div>
+    </section>
+  )
+}
+
+/** The row's context menu (the shared Menu, keyboard included). */
+function ContextMenu({ menu, onAction, onClose }) {
+  const items = [
+    { key: 'read', label: t.actions.read, icon: 'markRead', onSelect: () => onAction('read', menu.ids) },
+    { key: 'unread', label: t.actions.unread, icon: 'markUnread', onSelect: () => onAction('unread', menu.ids) },
+    menu.flagged
+      ? { key: 'unstar', label: t.actions.unstar, icon: 'star', onSelect: () => onAction('unstar', menu.ids) }
+      : { key: 'star', label: t.actions.star, icon: 'star', onSelect: () => onAction('star', menu.ids) },
+    { separator: true },
+    { key: 'delete', label: t.actions.delete, icon: 'trash', danger: true, onSelect: () => onAction('delete', menu.ids) },
+  ]
+  return <Menu items={items} at={{ x: menu.x, y: menu.y }} className="context-menu" label={t.actionsLabel} onClose={onClose} />
+}
+
+/** The folder's context menu (the shared Menu). Role folders: no rename, no delete. Up / Down: off at the list's edge. */
+function FolderMenu({ menu, onPick, onClose }) {
+  const locked = Boolean(menu.role)
+  const items = [
+    { key: 'create', label: t.folderMenu.newSub, icon: 'plus', onSelect: () => onPick('create', menu) },
+    { key: 'rename', label: t.folderMenu.rename, icon: 'compose', disabled: locked, title: locked ? t.folderProtected : undefined, onSelect: () => onPick('rename', menu) },
+    { key: 'moveUp', label: t.folderMenu.moveUp, icon: 'moveUp', disabled: !stepped(menu.siblings, menu.path, -1), onSelect: () => onPick('moveUp', menu) },
+    { key: 'moveDown', label: t.folderMenu.moveDown, icon: 'moveDown', disabled: !stepped(menu.siblings, menu.path, 1), onSelect: () => onPick('moveDown', menu) },
+    { key: 'delete', label: t.folderMenu.delete, icon: 'trash', danger: true, disabled: locked, title: locked ? t.folderProtected : undefined, onSelect: () => onPick('delete', menu) },
+  ]
+  // the pick itself closes the menu (pickFolderAction); a closing click elsewhere only closes it
+  return <Menu items={items} at={{ x: menu.x, y: menu.y }} className="context-menu" label={menu.label} onClose={reason => reason !== 'select' && onClose()} />
+}
+
+/** The account head's context menu: Up / Down among the accounts (off at the edge), the folders back to A-Z. */
+function AccountMenu({ menu, onPick, onClose }) {
+  const items = [
+    { key: 'moveUp', label: t.accountMenu.moveUp, icon: 'moveUp', disabled: !stepped(menu.ids, menu.accountId, -1), onSelect: () => onPick('moveUp', menu) },
+    { key: 'moveDown', label: t.accountMenu.moveDown, icon: 'moveDown', disabled: !stepped(menu.ids, menu.accountId, 1), onSelect: () => onPick('moveDown', menu) },
+    { key: 'sortFolders', label: t.accountMenu.sortFolders, icon: 'sortAlpha', onSelect: () => onPick('sortFolders', menu) },
+  ]
+  return <Menu items={items} at={{ x: menu.x, y: menu.y }} className="context-menu account-menu" label={menu.label} onClose={reason => reason !== 'select' && onClose()} />
+}
+
+/** In-app name prompt (window.prompt is a native window; it is also not available in Electron): a Modal. */
+function NameDialog({ dialog, onOk, onCancel }) {
+  const [value, setValue] = useState(dialog.initial || '')
+  const input = useRef(null)
+  useEffect(() => {
+    if (input.current) {
+      input.current.focus()
+      input.current.select()
+    }
+  }, [])
+  return (
+    <Modal
+      title={dialog.title}
+      onClose={onCancel}
+      onSubmit={() => value.trim() && onOk(value)}
+      actions={[
+        <Button key="cancel" variant="text" onClick={onCancel}>{t.confirmCancel}</Button>,
+        <Button key="ok" type="submit" variant="primary" disabled={!value.trim()}>{dialog.okLabel}</Button>,
+      ]}
+    >
+      <label className="field">
+        <span>{t.folderNameLabel}</span>
+        <input ref={input} type="text" value={value} onChange={e => setValue(e.target.value)} spellCheck={false} maxLength={200} />
+      </label>
+      {dialog.error && <p className="error" role="alert">{dialog.error}</p>}
+    </Modal>
+  )
+}
+
+/** Delete confirmations (a Modal): Esc = Mégse, Enter = the red button (it has the focus). */
+function ConfirmDialog({ confirm, onYes, onNo }) {
+  return (
+    <Modal
+      title={confirm.title || t.confirmDeleteTitle}
+      role="alertdialog"
+      onClose={onNo}
+      actions={[
+        <Button key="no" variant="text" onClick={onNo}>{t.confirmCancel}</Button>,
+        <Button key="yes" variant="danger" data-autofocus onClick={onYes}>{confirm.yesLabel || t.confirmDeleteYes}</Button>,
+      ]}
+    >
+      <p>{confirm.text || (confirm.inTrash ? t.confirmDeleteTrash(confirm.ids.length) : t.confirmDeleteNoTrash(confirm.ids.length))}</p>
+    </Modal>
+  )
+}
+
+function statusText(s) {
+  if (s.running) {
+    if (s.phase === 'metadata') return t.syncPhases.metadata(s.folder, s.progress)
+    if (s.phase === 'bodies') return t.syncPhases.bodies(s.progress, s.requeued)
+    return t.syncPhases.connecting
+  }
+  if (s.errorCode) return t.syncError(s.errorCode)
+  if (s.idleError && s.lastFinished) return t.syncError(s.idleError) // the IDLE connection dropped, retrying
+  return s.lastFinished ? t.syncedAt(timeFmt.format(new Date(s.lastFinished))) : t.syncNever
+}
+
+function StatusBar({ accounts }) {
+  if (!accounts.length) return <footer className="status-bar" />
+  return (
+    <footer className="status-bar" role="status" aria-live="polite">
+      {accounts.map(s => (
+        <span key={s.accountId} className={`sync-status${s.errorCode || s.idleError ? ' error' : ''}`} data-account={s.accountId}>
+          <strong>{s.name}</strong>: {statusText(s)}
+          {s.live && !s.running && !s.errorCode && <span className="live" title={t.syncLive}> ●</span>}
+          {s.stopped && <span className="stopped"> {t.syncStopped}</span>}
+        </span>
+      ))}
+    </footer>
+  )
+}
+
+export function Mail({ collapsed = false, readerPane = 'none', searchSlot = null, claudeRequest = null, onClaudeTaken = () => {} }) {
+  const [accounts, setAccounts] = useState([])
+  const [selected, setSelected] = useState(null)
+  const [status, setStatus] = useState([])
+  const [version, setVersion] = useState(0)
+  const [openId, setOpenId] = useState(null)
+  const [openInfo, setOpenInfo] = useState(null) // the open message's account and folder (from the reader)
+  const [flagEvent, setFlagEvent] = useState(null) // the last flag change (or its failure), for the reader's star
+  // where the message opens: 'none' (in the list's place), 'right' or 'bottom'; the App holds it (the header's quick
+  // switch changes it while the view stays mounted, so the open message, the search and the selection stay)
+  const fullReader = readerPane === 'none'
+  // the panes the dividers measure; the limits: sidebar 180-480, list (right) >= 280 with the reader >= 360,
+  // list (bottom) >= 120 with the reader >= 160; the sidebar leaves the mail area its minimum (both panes when right)
+  const bodyRef = useRef(null)
+  const asideRef = useRef(null)
+  const panesRef = useRef(null)
+  const listAreaRef = useRef(null)
+  const sidebarMeasure = useCallback(() => asideRef.current?.getBoundingClientRect().width ?? 0, [])
+  // the sidebar may take what the panes have over their minimum (measured, so the mail area's own edges count too)
+  const sidebarMax = useCallback(
+    () => Math.min(480, (asideRef.current?.getBoundingClientRect().width ?? 0) + (panesRef.current?.clientWidth ?? 0) - (readerPane === 'right' ? 280 + 360 : 280)),
+    [readerPane],
+  )
+  const listMeasure = useCallback(() => listAreaRef.current?.getBoundingClientRect().width ?? 0, [])
+  const listMax = useCallback(() => (panesRef.current?.clientWidth ?? 0) - 360, [])
+  const listhMeasure = useCallback(() => listAreaRef.current?.getBoundingClientRect().height ?? 0, [])
+  const listhMax = useCallback(() => (panesRef.current?.clientHeight ?? 0) - 160, [])
+  const [searchText, setSearchText] = useState('')
+  const [filters, setFilters] = useState(EMPTY_FILTERS)
+  const [filtersOpen, setFiltersOpen] = useState(false)
+  const searching = searchActive(searchText, filters)
+  // since 0.10.1 the chips filter the folder view too; the filter stays on a
+  // folder change and the chip row cannot be closed while it is on
+  const listFilter = useMemo(() => toListFilter(filters), [filters])
+  const listFilterKey = JSON.stringify(listFilter)
+  const filterOn = listFilterOn(filters)
+  // the list's order, one state for the More menu and the Rendezés chip
+  const [listSort, setListSort] = useState({ sort: 'date', dir: 'desc' })
+  const onSort = (column, reverse = false) =>
+    setListSort(cur => (reverse || column === cur.sort ? { ...cur, dir: cur.dir === 'asc' ? 'desc' : 'asc' } : { sort: column, dir: DEFAULT_DIR[column] }))
+  // ids kept in a filtered view (a ref: keeping one must not reload or scroll the list)
+  const keepRef = useRef([])
+  const filterOnRef = useRef(filterOn)
+  filterOnRef.current = filterOn
+  const searchingRef = useRef(searching)
+  searchingRef.current = searching
+  const keep = ids => {
+    // only the folder view keeps (a search hit acted on is not the folder's row)
+    if (!filterOnRef.current || searchingRef.current) return
+    // one action over MAX_KEEP ids keeps its first ones (the top of the list), the selection is then
+    // narrowed to what is listed (MessageList, #2)
+    const incoming = [...new Set(ids)].slice(0, MAX_KEEP)
+    const fresh = new Set(incoming)
+    keepRef.current = [...keepRef.current.filter(id => !fresh.has(id)), ...incoming].slice(-MAX_KEEP)
+  }
+  // message actions
+  const [selection, setSelection] = useState(() => new Set())
+  const [overlay, setOverlay] = useState(() => new Map()) // id -> { change } | { leaving: true }
+  const [menu, setMenu] = useState(null)
+  const [confirm, setConfirm] = useState(null)
+  const [actionError, setActionError] = useState(null)
+  // folder management
+  const [folderMenu, setFolderMenu] = useState(null)
+  const [accountMenu, setAccountMenu] = useState(null)
+  const [nameDialog, setNameDialog] = useState(null)
+  const [folderError, setFolderError] = useState(null)
+  const selectedRef = useRef(null)
+  selectedRef.current = selected
+
+  // a new folder, filter or order drops the kept ids; a new filter also drops the selection (it could
+  // hold messages the filtered list no longer shows: a Delete must take only what is on screen)
+  const viewKey = JSON.stringify([selected, listFilterKey, listSort])
+  const lastView = useRef(viewKey)
+  if (lastView.current !== viewKey) {
+    lastView.current = viewKey
+    keepRef.current = []
+  }
+  const lastFilter = useRef(listFilterKey)
+  useEffect(() => {
+    if (lastFilter.current === listFilterKey) return
+    lastFilter.current = listFilterKey
+    setSelection(new Set())
+  }, [listFilterKey])
+
+  // the folder tree and the account / folder chips open a folder the same way
+  const navigate = sel => {
+    setSelected(sel)
+    setOpenId(null)
+    setSelection(new Set())
+  }
+  const openMessage = id => {
+    keep([id])
+    setOpenId(id)
+  }
+  // Claude's open_message: leave a search, go to the message's account and folder, then open it as a
+  // click would (keep it in the list, the reader marks it read). The open waits in pendingOpen until the view is
+  // there: leaving the search closes the open message (the searchKey effect below), so it is applied after that one.
+  const pendingOpen = useRef(null)
+  // Claude's show_search: its conditions replace the search box and the chips (the folder filters
+  // too: the hits are what Claude asked for), and the search runs as if the user had typed it. One request at a time, the
+  // latest (App: claudeRequest): a pending open_message is dropped by a later search, a search left by a later open.
+  useEffect(() => {
+    const r = claudeRequest
+    if (!r) return
+    if (r.type === 'search') {
+      pendingOpen.current = null
+      setSearchText(r.conditions.text || '')
+      setFilters(fromConditions(r.conditions))
+      setFiltersOpen(true)
+    } else {
+      pendingOpen.current = r
+      setSearchText('')
+      setFilters(leftSearch)
+      setFiltersOpen(false)
+      setSelected({ accountId: r.accountId, folder: r.folder })
+    }
+    setSelection(new Set())
+    onClaudeTaken(r)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [claudeRequest])
+  const refresh = () => {
+    keepRef.current = []
+    setVersion(v => v + 1)
+    api.mail.sync(null)
+  }
+
+  const loadFolders = useCallback(async () => {
+    const res = await api.mail.folders()
+    if (!res.ok) return
+    setAccounts(res.accounts)
+    // first time: the first account's INBOX (not when Claude's open_message waits to open its own folder: on a freshly
+    // mounted view this default came after it and took its place)
+    if (!selectedRef.current && !pendingOpen.current) {
+      const a = res.accounts.find(x => x.folders.length)
+      if (a) {
+        const inbox = a.folders.find(f => f.path.toUpperCase() === 'INBOX') || a.folders[0]
+        setSelected({ accountId: a.id, folder: inbox.path })
+      }
+    }
+  }, [])
+
+  useEffect(() => {
+    loadFolders()
+    api.mail.status().then(res => res.ok && setStatus(res.accounts))
+    return api.onStatus(payload => {
+      if (payload.kind === 'sync') setStatus(payload.accounts)
+      if (payload.kind === 'mail' || payload.kind === 'reindex' || payload.kind === 'accounts') {
+        loadFolders()
+        const sel = selectedRef.current
+        if (payload.kind === 'mail' && sel && payload.changes.some(c => c.accountId === sel.accountId && c.folders.includes(sel.folder))) {
+          setVersion(v => v + 1)
+        }
+      }
+    })
+  }, [loadFolders])
+
+  // a deleted account or a vanished folder: drop the selection
+  const exists = useMemo(
+    () => selected && accounts.some(a => a.id === selected.accountId && a.folders.some(f => f.path === selected.folder)),
+    [accounts, selected],
+  )
+  const account = exists ? accounts.find(a => a.id === selected.accountId) : null
+
+  const dropOverlay = ids =>
+    setOverlay(prev => {
+      const m = new Map(prev)
+      for (const id of ids) m.delete(id)
+      return m
+    })
+
+  /** Folders: create / rename (after the name dialog) and delete (after the confirmation). */
+  const folderOp = async (op, target, name) => {
+    setFolderError(null)
+    const res =
+      op === 'create'
+        ? await api.folders.create({ accountId: target.accountId, parent: target.path ?? null, name })
+        : op === 'rename'
+          ? await api.folders.rename({ accountId: target.accountId, path: target.path, name })
+          : await api.folders.remove({ accountId: target.accountId, path: target.path, confirmed: true })
+    if (!res.ok) return t.folderError(res.error)
+    await loadFolders()
+    const sel = selectedRef.current
+    if (op === 'rename' && sel && sel.accountId === target.accountId && sel.folder === target.path) setSelected({ accountId: sel.accountId, folder: res.path })
+    if (op === 'delete' && sel && sel.accountId === target.accountId && sel.folder === target.path) {
+      setSelected(null)
+      setOpenId(null)
+    }
+    if (op === 'create') setSelected({ accountId: target.accountId, folder: res.path })
+    return null
+  }
+
+  // the manual order (local, the main process checks the list against the same tree); the focus stays on the moved
+  // folder / account head (a keyed move takes the DOM node out and back, and the focus with it)
+  const focusFolder = (accountId, path) =>
+    setTimeout(() => document.querySelector(`.folder-tree section[data-account="${accountId}"] .folder[data-path="${CSS.escape(path)}"]`)?.focus(), 0)
+  const focusAccount = accountId => setTimeout(() => document.querySelector(`.folder-tree section[data-account="${accountId}"] .account-toggle`)?.focus(), 0)
+  const reorderFolders = async ({ accountId, parentKey, paths, focus }) => {
+    setFolderError(null)
+    const res = await api.folders.reorder({ accountId, parentKey, paths })
+    if (!res.ok) return setFolderError(t.folderError(res.error))
+    await loadFolders()
+    if (focus) focusFolder(accountId, focus)
+  }
+  const reorderAccounts = async (ids, focusId) => {
+    setFolderError(null)
+    const res = await api.accounts.reorder(ids)
+    if (!res.ok) return setFolderError(t.folderError(res.error))
+    await loadFolders()
+    if (focusId) focusAccount(focusId)
+  }
+  const pickAccountAction = async (op, m) => {
+    setAccountMenu(null)
+    if (op === 'sortFolders') {
+      setFolderError(null)
+      const res = await api.folders.resetOrder({ accountId: m.accountId })
+      if (!res.ok) setFolderError(t.folderError(res.error))
+      else await loadFolders()
+      focusAccount(m.accountId)
+      return
+    }
+    const ids = stepped(m.ids, m.accountId, op === 'moveUp' ? -1 : 1)
+    if (ids) await reorderAccounts(ids, m.accountId)
+  }
+
+  const pickFolderAction = async (op, m) => {
+    setFolderMenu(null)
+    if (op === 'moveUp' || op === 'moveDown') {
+      const paths = stepped(m.siblings, m.path, op === 'moveUp' ? -1 : 1)
+      if (paths) await reorderFolders({ accountId: m.accountId, parentKey: m.parentKey, paths, focus: m.path })
+      return
+    }
+    if (op === 'create') setNameDialog({ op, target: m, title: t.newSubfolderTitle(m.label), okLabel: t.folderCreate })
+    else if (op === 'rename') setNameDialog({ op, target: m, title: t.renameFolderTitle(m.label), okLabel: t.folderRename, initial: m.label })
+    else {
+      // the tree's counts may be up to one status interval old: ask for the current one
+      const res = await api.mail.folders()
+      const fresh = res.ok && res.accounts.find(a => a.id === m.accountId)?.folders.find(f => f.path === m.path)
+      const count = fresh ? fresh.count : m.count || 0
+      setConfirm({
+        folder: m,
+        title: t.deleteFolderTitle,
+        text: t.confirmFolderDelete(m.label, count),
+        yesLabel: t.folderDelete,
+      })
+    }
+  }
+
+  /**
+   * Runs an action on ids (the selection, the context menu, Del, a drop). The change shows at once;
+   * it is dropped again on an error (with a message), or replaced by the refreshed list on success.
+   * A final delete (inside the Trash, or an account without one) asks first.
+   */
+  const runActionRef = useRef(null)
+  // ids with an action on the way (until the refreshed list replaces them): a second click (a double
+  // click on the row's trash icon) does nothing
+  const busyIds = useRef(new Set())
+  const runAction = async (action, allIds, { target = null, permanent = false, accountId = null, folder = null } = {}) => {
+    // the reader passes the open message's own account and folder (a search hit may be elsewhere)
+    const acc = accountId ? accounts.find(a => a.id === accountId) : account
+    const inFolder = folder ?? (selected && selected.folder)
+    const ids = allIds.filter(id => !busyIds.current.has(id))
+    if (!ids.length || !acc) return
+    setMenu(null)
+    if (action === 'delete' && !permanent) {
+      const trash = trashOf(acc.folders)
+      if (!trash || trash === inFolder) {
+        setConfirm({ ids, inTrash: Boolean(trash), ctx: { accountId: acc.id, folder: inFolder } })
+        return
+      }
+    }
+    setActionError(null)
+    keep(ids) // a row changed in a filtered view stays until the view changes
+    const change = FLAG_CHANGE[action]
+    for (const id of ids) busyIds.current.add(id)
+    const release = () => {
+      for (const id of ids) busyIds.current.delete(id)
+    }
+    setOverlay(prev => {
+      const m = new Map(prev)
+      for (const id of ids) m.set(id, change ? { change } : { leaving: true })
+      return m
+    })
+    const res = await api.mail.action({ ids, action, target: target || undefined, permanent: permanent || undefined })
+    if (!res.ok) {
+      release()
+      dropOverlay(ids)
+      if (change) setFlagEvent({ ids, change, failed: true, n: Date.now() })
+      // the main process says whether the message is in the Trash (the list may still show the old folder)
+      if (res.error === 'confirm_needed') setConfirm({ ids, inTrash: res.inTrash ?? false, ctx: { accountId: acc.id, folder: inFolder } })
+      else setActionError(t.actionError(action, res.error))
+      return
+    }
+    if (!change) {
+      // only the moved / deleted ones leave the selection (a row's hover action keeps the rest)
+      setSelection(prev => new Set([...prev].filter(id => !ids.includes(id))))
+      setOpenId(cur => (ids.includes(cur) ? null : cur)) // the one open NOW (a slow delete may outlive a click)
+    }
+    // a flag change may be repeated at once (it is idempotent); a moved / deleted row stays busy until
+    // the refreshed list no longer has it
+    if (change) {
+      release()
+      setFlagEvent({ ids, change, n: Date.now() }) // the reader follows a star set on the list
+    }
+    setVersion(v => v + 1)
+    loadFolders() // counts in the tree at once, not only with the next status event
+    // the refreshed pages replace the overlay; keep it a moment so the old state never flashes back
+    setTimeout(() => {
+      dropOverlay(ids)
+      release()
+    }, 400)
+  }
+  runActionRef.current = runAction
+
+  // a new search (or filter) closes the open message: the hits are what the user asked for now
+  const searchKey = JSON.stringify([searchText, filters])
+  const lastSearch = useRef(searchKey)
+  useEffect(() => {
+    if (lastSearch.current !== searchKey) {
+      lastSearch.current = searchKey
+      setOpenId(null)
+    }
+  }, [searchKey])
+  // Claude's pending open, once the view is the message's folder without a search (after the effect above). "Without a
+  // search" is the state the request asked for: an empty box AND the filters already as leftSearch leaves them; a search
+  // of a sender only (an empty box) would otherwise open the message here and the search change of the next render would
+  // close it
+  useEffect(() => {
+    const p = pendingOpen.current
+    if (!p || searchText !== '' || JSON.stringify(filters) !== JSON.stringify(leftSearch(filters))) return
+    if (!selected || selected.accountId !== p.accountId || selected.folder !== p.folder) return
+    pendingOpen.current = null
+    keep([p.messageId])
+    setOpenId(p.messageId)
+  })
+
+  const backToList = () => {
+    setOpenId(null)
+    // back on the list where it was (scroll position and selection are kept, the list was only hidden)
+    setTimeout(() => document.querySelector('.msg-viewport, .result-list')?.focus(), 0)
+  }
+
+  // keys: Esc / Backspace back to the list (message in the list's place); Delete deletes the
+  // selection, or the open message when nothing is selected. Not inside a field or a dialog.
+  const keyState = useRef(null)
+  keyState.current = { openId, openInfo, selection, fullReader, searching, blocked: Boolean(menu || confirm || nameDialog || folderMenu || accountMenu) }
+  useEffect(() => {
+    const onKey = e => {
+      const k = keyState.current
+      const t = e.target
+      if (e.defaultPrevented || k.blocked || e.ctrlKey || e.altKey || e.metaKey) return
+      // a text field keeps its keys; a checkbox (the row's, after a click on it) does not
+      const typing = t && (t.isContentEditable || /^(TEXTAREA|SELECT)$/.test(t.tagName) || (t.tagName === 'INPUT' && !/^(checkbox|radio)$/i.test(t.type)))
+      if (typing || (t && t.closest && t.closest('[role="dialog"], [role="alertdialog"], [role="menu"]'))) return
+      if ((e.key === 'Escape' || e.key === 'Backspace') && k.fullReader && k.openId) {
+        e.preventDefault()
+        backToList()
+      } else if (e.key === 'Delete') {
+        // the message the user SEES goes: the folder's selection
+        // only while it is on screen (no search, and no message open in the list's place); otherwise the
+        // open message, and only once the reader knows its account and folder
+        const selectionVisible = k.selection.size > 0 && !k.searching && !(k.fullReader && k.openId)
+        if (selectionVisible) {
+          e.preventDefault()
+          runActionRef.current('delete', [...k.selection])
+        } else if (k.openId && k.openInfo && k.openInfo.id === k.openId) {
+          e.preventDefault()
+          runActionRef.current('delete', [k.openId], { accountId: k.openInfo.accountId, folder: k.openInfo.folder })
+        }
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
+
+  const searchBox = (
+    <SearchBox
+      text={searchText}
+      onText={setSearchText}
+      filtersOpen={filtersOpen}
+      filtersLocked={filterOn}
+      onFiltersOpen={setFiltersOpen}
+      onEscape={() => {
+        setSearchText('')
+        setFilters(leftSearch) // the folder filters stay
+        setFiltersOpen(false)
+        setOpenId(null)
+      }}
+    />
+  )
+
+  return (
+    <div className="mail">
+      {searchSlot ? createPortal(searchBox, searchSlot) : searchBox}
+      <div className="mail-body" ref={bodyRef}>
+        <aside className={`sidebar${collapsed ? ' collapsed' : ''}`} ref={asideRef}>
+          <div className="sidebar-tools">
+            <Button variant="tonal" icon="compose" className="compose-button" title={collapsed ? t.newMessage : undefined} onClick={() => api.compose.open()}>
+              <span className="compose-label">{t.newMessage}</span>
+            </Button>
+          </div>
+          <FolderTree
+            collapsed={collapsed}
+            accounts={accounts}
+            selected={selected}
+            onSelect={navigate}
+            onDropMessages={(ids, path) => runAction('move', ids, { target: path })}
+            onFolderMenu={setFolderMenu}
+            onAccountMenu={setAccountMenu}
+            onReorderFolders={reorderFolders}
+            onReorderAccounts={reorderAccounts}
+            onNewFolder={accountId =>
+              setNameDialog({ op: 'create', target: { accountId, path: null }, title: t.newFolderTitle(accounts.find(a => a.id === accountId)?.name || ''), okLabel: t.folderCreate })
+            }
+          />
+          {folderError && (
+            <p className="error pad" role="alert">
+              {folderError}
+            </p>
+          )}
+        </aside>
+        {/* no divider on a folded sidebar; its saved width stays for the next unfold */}
+        {!collapsed && <Splitter name="sidebar" cssVar="--sidebar-w" label={t.splitters.sidebar} min={180} max={sidebarMax} measure={sidebarMeasure} observe={bodyRef} />}
+        <div className="mail-main">
+          {actionError && (
+            <Banner kind="error" className="action-error" onClose={() => setActionError(null)} closeLabel={t.close}>
+              {actionError}
+            </Banner>
+          )}
+          <div className={`mail-panes pane-${readerPane}${openId && (exists || searching) ? ' reading' : ''}`} ref={panesRef}>
+          <div className="list-area" ref={listAreaRef}>
+          {(searching || filtersOpen || filterOn) && (
+            <SearchChips
+              accounts={accounts}
+              filters={filters}
+              onChange={setFilters}
+              searching={searching}
+              view={exists ? selected : null}
+              onNavigate={navigate}
+              listSort={listSort}
+              sortItems={sortMenuItems(listSort.sort, listSort.dir, onSort)}
+            />
+          )}
+          {searching ? (
+            <SearchResults request={toRequest(searchText, filters)} accounts={accounts} selectedId={openId} onOpen={setOpenId} />
+          ) : exists ? (
+            <div className="list-pane">
+              <MessageList
+                accountId={selected.accountId}
+                folder={selected.folder}
+                folders={account.folders}
+                version={version}
+                openId={openId}
+                onOpen={openMessage}
+                selection={selection}
+                onSelection={setSelection}
+                overlay={overlay}
+                onAction={runAction}
+                onContextMenu={setMenu}
+                sort={listSort.sort}
+                dir={listSort.dir}
+                onSort={onSort}
+                filter={listFilter}
+                keepRef={keepRef}
+                onRefresh={refresh}
+                onClearFilters={() => setFilters(f => clearedFilters(f))}
+              />
+            </div>
+          ) : (
+            <section className="message-list">
+              <p className="hint pad">{accounts.length ? t.chooseFolder : ''}</p>
+            </section>
+          )}
+          </div>
+          {/* the list | reader divider (the search results use the same panes), only while a message is shown */}
+          {readerPane === 'right' && openId && (exists || searching) && (
+            <Splitter name="list" cssVar="--list-w" label={t.splitters.list} min={280} max={listMax} measure={listMeasure} observe={panesRef} />
+          )}
+          {readerPane === 'bottom' && openId && (exists || searching) && (
+            <Splitter name="listh" cssVar="--list-h" orientation="horizontal" label={t.splitters.listh} min={120} max={listhMax} measure={listhMeasure} observe={panesRef} />
+          )}
+          <Reader
+            messageId={exists || searching ? openId : null}
+            onOpen={openMessage}
+            onBack={fullReader ? backToList : null}
+            onAction={runAction}
+            onLoaded={m => setOpenInfo(m ? { id: m.id, accountId: m.accountId, folder: m.folder } : null)}
+            flagEvent={flagEvent}
+            accounts={accounts}
+          />
+          </div>
+        </div>
+      </div>
+      <StatusBar accounts={status} />
+      {menu && (
+        <ContextMenu
+          menu={menu}
+          onAction={runAction}
+          onClose={() => {
+            setMenu(null)
+            // the focus back on the list (it went into the menu; the rows themselves are not focusable)
+            setTimeout(() => document.querySelector('.msg-viewport')?.focus(), 0)
+          }}
+        />
+      )}
+      {folderMenu && (
+        <FolderMenu
+          menu={folderMenu}
+          onPick={pickFolderAction}
+          onClose={() => {
+            const m = folderMenu
+            setFolderMenu(null)
+            setTimeout(() => document.querySelector(`.folder-tree section[data-account="${m.accountId}"] .folder[data-path="${CSS.escape(m.path)}"]`)?.focus(), 0)
+          }}
+        />
+      )}
+      {accountMenu && (
+        <AccountMenu
+          menu={accountMenu}
+          onPick={pickAccountAction}
+          onClose={() => {
+            const m = accountMenu
+            setAccountMenu(null)
+            focusAccount(m.accountId)
+          }}
+        />
+      )}
+      {nameDialog && (
+        <NameDialog
+          dialog={nameDialog}
+          onOk={async name => {
+            const err = await folderOp(nameDialog.op, nameDialog.target, name)
+            if (err) setNameDialog(d => d && { ...d, error: err })
+            else setNameDialog(null)
+          }}
+          onCancel={() => setNameDialog(null)}
+        />
+      )}
+      {confirm && (
+        <ConfirmDialog
+          confirm={confirm}
+          onYes={async () => {
+            const c = confirm
+            setConfirm(null)
+            if (c.folder) {
+              const err = await folderOp('delete', c.folder)
+              if (err) setFolderError(err)
+            } else runAction('delete', c.ids, { permanent: true, ...(c.ctx || {}) })
+          }}
+          onNo={() => setConfirm(null)}
+        />
+      )}
+    </div>
+  )
+}

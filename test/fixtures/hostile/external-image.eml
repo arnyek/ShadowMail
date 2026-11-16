@@ -1,0 +1,12 @@
+From: Hostile Sender <hostile@sender.invalid>
+To: Teszt <teszt@example.invalid>
+Subject: Hostile: external image
+Date: Tue, 10 Nov 2026 10:00:00 +0100
+Message-ID: <hostile-external-image@hostile.invalid>
+MIME-Version: 1.0
+Content-Type: text/html; charset=utf-8
+Content-Transfer-Encoding: 8bit
+
+<p>külső kép teszt</p>
+<img id="ext" src="https://images.hostile.invalid/photo.jpg" alt="külső kép">
+<img src="//images2.hostile.invalid/photo2.jpg" alt="protokoll-relatív kép">

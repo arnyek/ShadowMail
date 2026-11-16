@@ -1,0 +1,12 @@
+From: Hostile Sender <hostile@sender.invalid>
+To: Teszt <teszt@example.invalid>
+Subject: Hostile: svg and mathml
+Date: Tue, 10 Nov 2026 10:00:00 +0100
+Message-ID: <hostile-svg-script@hostile.invalid>
+MIME-Version: 1.0
+Content-Type: text/html; charset=utf-8
+Content-Transfer-Encoding: 8bit
+
+<svg><script>document.body.setAttribute("data-pwned","svg")</script><image href="https://svg.hostile.invalid/i.png"/><a xlink:href="javascript:alert(1)"><text>x</text></a></svg>
+<math><mtext><table><mglyph><style><img src=x onerror="document.body.setAttribute('data-pwned','mxss')"></style></mglyph></table></mtext></math>
+<p>svg teszt</p>

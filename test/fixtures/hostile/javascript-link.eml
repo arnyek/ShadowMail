@@ -1,0 +1,13 @@
+From: Hostile Sender <hostile@sender.invalid>
+To: Teszt <teszt@example.invalid>
+Subject: Hostile: javascript link
+Date: Tue, 10 Nov 2026 10:00:00 +0100
+Message-ID: <hostile-javascript-link@hostile.invalid>
+MIME-Version: 1.0
+Content-Type: text/html; charset=utf-8
+Content-Transfer-Encoding: 8bit
+
+<p><a id="js" href="javascript:document.body.setAttribute('data-pwned','jslink')">javascript link</a></p>
+<p><a id="file" href="file:///C:/Windows/System32/calc.exe">file link</a></p>
+<p><a id="web" href="https://www.example.com/">web link</a></p>
+<p><a id="data" href="data:text/html,&lt;script&gt;alert(1)&lt;/script&gt;">data link</a></p>

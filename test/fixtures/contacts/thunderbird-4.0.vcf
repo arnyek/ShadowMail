@@ -1,0 +1,19 @@
+BEGIN:VCARD
+VERSION:4.0
+PRODID:-//Thunderbird.net/NONSGML Thunderbird//EN
+FN:Árvíztűrő Tükörfúrógép
+N:Árvíztűrő;Tükörfúrógép;;;
+EMAIL;PREF=1:arviz@example.hu
+EMAIL;TYPE=work:tukor@ceg.example.hu
+TEL;TYPE=cell;VALUE=TEXT:+36 30 123 4567
+TEL;TYPE=work;VALUE=uri:tel:+36-1-234-5678
+ADR;TYPE=home:;;Fő utca 1.;Budapest;;1011;Magyarország
+ORG:Példa Kft.
+TITLE:Ügyvezető
+NOTE:Megjegyzés\, vesszővel\; pontosvesszővel
+BDAY;VALUE=DATE:19800517
+URL;VALUE=URL:https://www.example.hu/
+PHOTO;VALUE=uri:http://tracker.example.invalid/p.jpg
+LOGO;VALUE=uri:https://tracker.example.invalid/logo.png
+UID:urn:uuid:5f2b1c3e-0000-4000-8000-000000000001
+END:VCARD

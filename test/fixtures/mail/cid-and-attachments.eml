@@ -1,0 +1,51 @@
+From: =?utf-8?q?Kov=C3=A1cs_=C3=81rp=C3=A1d?= <arpad@sender.invalid>
+To: Teszt <teszt@example.invalid>, =?utf-8?q?M=C3=A1sik_C=C3=ADmzett?= <masik@example.invalid>
+Cc: Harmadik <harmadik@example.invalid>
+Subject: =?utf-8?q?Bead=C3=A1s_k=C3=A9ppel_=C3=A9s_mell=C3=A9kletekkel?=
+Date: Mon, 09 Nov 2026 14:30:00 +0100
+Message-ID: <cid-and-attachments@sender.invalid>
+MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="MIX"
+
+--MIX
+Content-Type: multipart/related; boundary="REL"
+
+--REL
+Content-Type: text/html; charset=utf-8
+Content-Transfer-Encoding: 8bit
+
+<p>Szia! Itt a <b>beágyazott</b> logó: <img id="cidimg" src="cid:logo@sender.invalid" alt="logó" width="40" height="40"></p>
+<p>És egy külső kép: <img id="extimg" src="http://127.0.0.1:47811/kep.png" alt="külső"></p>
+<p><a id="weblink" href="https://www.example.com/oldal">Weboldal</a></p>
+--REL
+Content-Type: image/png
+Content-ID: <logo@sender.invalid>
+Content-Disposition: inline; filename=logo.png
+Content-Transfer-Encoding: base64
+
+iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAIAAABLbSncAAAAEUlEQVR4nGM4ISeHFTEMLQkAkL9B
+AbKfPiIAAAAASUVORK5CYII=
+--REL--
+--MIX
+Content-Type: application/pdf; name="szamla.pdf"
+Content-Disposition: attachment; filename="szamla.pdf"
+Content-Transfer-Encoding: base64
+
+JVBERi0xLjQKMSAwIG9iajw8L1R5cGUvQ2F0YWxvZy9QYWdlcyAyIDAgUj4+ZW5kb2JqIDIgMCBv
+Ymo8PC9UeXBlL1BhZ2VzL0tpZHNbMyAwIFJdL0NvdW50IDE+PmVuZG9iaiAzIDAgb2JqPDwvVHlw
+ZS9QYWdlL1BhcmVudCAyIDAgUi9NZWRpYUJveFswIDAgMjAwIDIwMF0+PmVuZG9iagp0cmFpbGVy
+PDwvUm9vdCAxIDAgUj4+CiUlRU9GCg==
+--MIX
+Content-Type: application/octet-stream; name="telepito.exe"
+Content-Disposition: attachment; filename="telepito.exe"
+Content-Transfer-Encoding: base64
+
+TVoAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+AAAAAAAAAFNoYWRvd01haWwgdGVzdCBmaWxlLCBub3QgYSByZWFsIHByb2dyYW0=
+--MIX
+Content-Type: text/html; charset=utf-8; name="szamla.pdf.html"
+Content-Disposition: attachment; filename="szamla.pdf.html"
+Content-Transfer-Encoding: base64
+
+PGh0bWw+PGJvZHk+PHNjcmlwdD5hbGVydCgibWVsbGVrbGV0Iik8L3NjcmlwdD5IVE1MIG1lbGzDqWtsZXQ8L2JvZHk+PC9odG1sPg==
+--MIX--

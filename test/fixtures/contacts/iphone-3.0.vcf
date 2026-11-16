@@ -1,0 +1,26 @@
+BEGIN:VCARD
+VERSION:3.0
+PRODID:-//Apple Inc.//iPhone OS 17.0//EN
+N:Árvíztűrő;Tükörfúrógép;;;
+FN:Árvíztűrő Tükörfúrógép
+ORG:Példa Kft.;Fejlesztés
+TITLE:Mérnök
+EMAIL;type=INTERNET;type=HOME;type=pref:arviz@example.hu
+EMAIL;type=INTERNET;type=WORK:tukor@ceg.example.hu
+TEL;type=CELL;type=VOICE;type=pref:+36 30 123 4567
+TEL;type=WORK;type=VOICE:+36 1 234 5678
+item1.ADR;type=HOME;type=pref:;;Fő utca 1.;Budapest;;1011;Magyarország
+item1.X-ABADR:hu
+BDAY;value=date:1980-05-17
+PHOTO;ENCODING=b;TYPE=JPEG:AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8gISIjJCUmJygpKiss
+ AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8gISIjJCUmJygpKissLS4vMDEyMzQ1Nj
+ c4OTo7PD0+P0BBQkNERUZHSElKS0xNTk9QUVJTVFVWV1hZWltcXV5fYGFiY2RlZmdoaWprbG1u
+ b3BxcnN0dXZ3eHl6e3x9fn+AgYKDhIWGh4iJiouMjY6PkJGSk5SVlpeYmZqbnJ2en6ChoqOkpa
+ anqKmqq6ytrq+wsbKztLW2t7i5uru8vb6/wMHCw8TFxsfIycrLzM3Oz9DR0tPU1dbX2Nna29zd
+ 3t/g4eLj5OXm5+jp6uvs7e7v8PHy8/T19vf4+fr7/P3+/wABAgMEBQYHCAkKCwwNDg8QERITFB
+ UWFxgZGhscHR4fICEiIyQlJicoKSorLC0uLzAxMjM0NTY3ODk6Ozw9Pj9AQUJDREVGR0hJSktM
+ TU5PUFFSU1RVVldYWVpbXF1eX2BhYmNkZWZnaGlqa2xtbm9wcXJzdHV2d3h5ent8fX5/gIGCg4
+ SFhoeIiYqLjI2Oj5CRkpOUlZaXmJmam5ydnp+goaKjpKWmp6ipqqusra6vsLGys7S1tre4ubq7
+ vL2+v8DBwsPExcbHyMnKy8zNzs/Q0dLT1NXW19jZ2tvc3d7f4OHi4+Tl5ufo6err7O3u7/Dx8v
+ P09fb3+Pn6+/z9/v8=
+END:VCARD

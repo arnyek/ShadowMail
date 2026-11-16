@@ -1,0 +1,14 @@
+From: Hostile Sender <hostile@sender.invalid>
+To: Teszt <teszt@example.invalid>
+Subject: Hostile: meta refresh
+Date: Tue, 10 Nov 2026 10:00:00 +0100
+Message-ID: <hostile-meta-refresh@hostile.invalid>
+MIME-Version: 1.0
+Content-Type: text/html; charset=utf-8
+Content-Transfer-Encoding: 8bit
+
+<meta http-equiv="refresh" content="0;url=https://refresh.hostile.invalid/">
+<meta http-equiv="Content-Security-Policy" content="default-src *">
+<base href="https://base.hostile.invalid/">
+<p><a href="relative.html">relative link</a></p>
+<p>meta refresh teszt</p>

@@ -1,0 +1,12 @@
+From: Hostile Sender <hostile@sender.invalid>
+To: Teszt <teszt@example.invalid>
+Subject: Hostile: CSS url()
+Date: Tue, 10 Nov 2026 10:00:00 +0100
+Message-ID: <hostile-css-url@hostile.invalid>
+MIME-Version: 1.0
+Content-Type: text/html; charset=utf-8
+Content-Transfer-Encoding: 8bit
+
+<style>body{background:url("https://css-style.hostile.invalid/bg.png")} @font-face{font-family:x;src:url(https://css-font.hostile.invalid/f.woff)} p{font-family:x}</style>
+<p style="background-image:url('https://css-inline.hostile.invalid/bg.png')">CSS url teszt</p>
+<div style="background:url(//css-protocol-relative.hostile.invalid/p.png)">x</div>

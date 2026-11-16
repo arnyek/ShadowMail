@@ -1,0 +1,279 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
+/*
+ * ShadowMail design tokens.
+ * Every color and size of the renderer comes from here: the component CSS (app.css, ui/ui.css)
+ * has no raw hex color. :root is the default theme; another theme (themes.js) overrides tokens on [data-theme="<id>"],
+ * a density the size tokens on [data-density="<id>"]. The text/background pairs of EVERY theme are checked by
+ * test/theme-contrast.test.js (WCAG AA 4.5:1, icons 3:1).
+ */
+:root {
+  color-scheme: light;
+  /* surfaces */
+  --c-bg: #ffffff;
+  --c-surface: #f6f8fc;
+  --c-surface-2: #eaf1fb;
+  --c-hover: #f1f3f4;
+  --c-border: #e3e6ea;
+  --c-border-strong: #c4c9d0;
+  --c-backdrop: rgba(32, 33, 36, 0.4);
+  /* behind a message's own HTML (the reader's frame): light in every theme, the message keeps its own colors */
+  --c-mail-bg: #ffffff;
+
+  /* text and icons */
+  --c-text: #1f1f1f;
+  --c-text-2: #5f6368;
+  --c-text-disabled: #9aa0a6;
+  --c-on-accent: #ffffff;
+
+  /* accent */
+  --c-accent: #2563eb;
+  --c-accent-hover: #1d4ed8;
+  --c-accent-soft: rgba(37, 99, 235, 0.12);
+  --c-accent-soft-hover: rgba(37, 99, 235, 0.2);
+
+  /* states */
+  --c-danger: #c5221f;
+  --c-danger-hover: #a50e0e;
+  --c-danger-bg: #fce8e6;
+  --c-warning-bg: #fef7e0;
+  --c-warning-text: #7a4b00;
+  --c-warning-border: #f0c36d;
+  --c-info-bg: #eaf1fb;
+  --c-success: #137333;
+  --c-star: #b06000;
+  --c-highlight: #fff3b0;
+
+  /* sender monograms (Avatar), white text on each */
+  --c-avatar-1: #1a73e8;
+  --c-avatar-2: #188038;
+  --c-avatar-3: #c5221f;
+  --c-avatar-4: #9334e6;
+  --c-avatar-5: #b06000;
+  --c-avatar-6: #007b83;
+  --c-avatar-7: #d01884;
+  --c-avatar-8: #5f6368;
+
+  /* shape */
+  --radius-s: 4px;
+  --radius-m: 8px;
+  --radius-l: 16px;
+  --radius-pill: 999px;
+
+  /* spacing */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+
+  /* sizes */
+  --row-h: 40px;
+  --control-h: 36px;
+  --field-h: 40px;
+  --search-h: 48px;
+  --icon-btn: 40px;
+  --icon-s: 18px;
+  --icon-m: 20px;
+  --icon-stroke: 1.75;
+  --header-h: 64px;
+  /* density: the sizes a compact theme overrides on [data-density="compact"] (the normal values are these) */
+  --folder-h: 32px; /* a folder row of the sidebar */
+  --list-header-h: 48px; /* the bar above the message list */
+  --toolbar-h: 48px; /* the reader's toolbar */
+  --row-btn: 32px; /* the star and the quick buttons in a list row */
+  --col-check: 40px; /* the list row's columns: checkbox, star, sender, attachment, date */
+  --col-star: 32px;
+  --col-from: 220px;
+  --col-attach: 24px;
+  --col-date: 100px; /* the widest list date ("2008. 01. 28.") + 4 px */
+  --sidebar-w: 256px;
+  --sidebar-w-collapsed: 72px;
+  --focus-ring: 2px;
+
+  --shadow-1: 0 1px 2px rgba(60, 64, 67, 0.3), 0 1px 3px 1px rgba(60, 64, 67, 0.15);
+  --shadow-2: 0 2px 6px 2px rgba(60, 64, 67, 0.15), 0 1px 2px rgba(60, 64, 67, 0.3);
+
+  /* typography (3.2) */
+  --font: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+  --font-mono: "Cascadia Mono", Consolas, ui-monospace, monospace;
+  --fs-xs: 12px;
+  --fs-s: 13px;
+  --fs-m: 14px;
+  --fs-l: 18px;
+  --fs-xl: 22px;
+  --fw-normal: 400;
+  --fw-strong: 600;
+  --lh: 1.4;
+}
+
+/* Dark: every color token (the message frame's --c-mail-bg stays light). On the dark accent, danger and monogram
+   colors the text is dark (--c-on-accent). */
+[data-theme="dark"] {
+  color-scheme: dark;
+  --c-bg: #1b1d21;
+  --c-surface: #23262b;
+  --c-surface-2: #2d3239;
+  --c-hover: #2a2e34;
+  --c-border: #3a3f46;
+  --c-border-strong: #59606a;
+  --c-backdrop: rgba(0, 0, 0, 0.6);
+
+  --c-text: #e8eaed;
+  --c-text-2: #a9b0b8;
+  --c-text-disabled: #6b7178;
+  --c-on-accent: #0b1a33;
+
+  --c-accent: #8ab4f8;
+  --c-accent-hover: #aecbfa;
+  --c-accent-soft: rgba(138, 180, 248, 0.16);
+  --c-accent-soft-hover: rgba(138, 180, 248, 0.26);
+
+  --c-danger: #f28b82;
+  --c-danger-hover: #f6aea9;
+  --c-danger-bg: #3c1f1e;
+  --c-warning-bg: #3a2f12;
+  --c-warning-text: #fdd663;
+  --c-warning-border: #8a6d1f;
+  --c-info-bg: #1f2a3c;
+  --c-success: #81c995;
+  --c-star: #fdd663;
+  --c-highlight: #5c4b00;
+
+  --c-avatar-1: #8ab4f8;
+  --c-avatar-2: #81c995;
+  --c-avatar-3: #f28b82;
+  --c-avatar-4: #c58af9;
+  --c-avatar-5: #fcad70;
+  --c-avatar-6: #78d9ec;
+  --c-avatar-7: #ff8bcb;
+  --c-avatar-8: #bdc1c6;
+
+  --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.6), 0 1px 3px 1px rgba(0, 0, 0, 0.35);
+  --shadow-2: 0 2px 6px 2px rgba(0, 0, 0, 0.35), 0 1px 2px rgba(0, 0, 0, 0.6);
+}
+
+/* Graphite: gray-blue surfaces between the light and the dark theme, light text everywhere (every color token, the
+   message frame's --c-mail-bg stays light). Its --c-bg and --c-surface lie between the two others in lightness. */
+[data-theme="graphite"] {
+  color-scheme: dark;
+  --c-bg: #333c49;
+  --c-surface: #3b4553;
+  --c-surface-2: #46515f;
+  --c-hover: #404a58;
+  --c-border: #4e5967;
+  --c-border-strong: #6b7685;
+  --c-backdrop: rgba(10, 14, 20, 0.6);
+
+  --c-text: #eef2f6;
+  --c-text-2: #c0c8d2;
+  --c-text-disabled: #7f8a97;
+  --c-on-accent: #0f1d33;
+
+  --c-accent: #a8caff;
+  --c-accent-hover: #bcd5ff;
+  --c-accent-soft: rgba(168, 202, 255, 0.18);
+  --c-accent-soft-hover: rgba(168, 202, 255, 0.28);
+
+  --c-danger: #ff9d94;
+  --c-danger-hover: #ffbdb7;
+  --c-danger-bg: #4a2f33;
+  --c-warning-bg: #4a3f22;
+  --c-warning-text: #ffe08a;
+  --c-warning-border: #9a7d2e;
+  --c-info-bg: #34445c;
+  --c-success: #93d9a6;
+  --c-star: #ffd866;
+  --c-highlight: #6b5a12;
+
+  --c-avatar-1: #a8caff;
+  --c-avatar-2: #93d9a6;
+  --c-avatar-3: #ff9d94;
+  --c-avatar-4: #d0a2fb;
+  --c-avatar-5: #fdbb85;
+  --c-avatar-6: #8fe0f0;
+  --c-avatar-7: #ff9fd4;
+  --c-avatar-8: #c8ccd1;
+
+  --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.5), 0 1px 3px 1px rgba(0, 0, 0, 0.3);
+  --shadow-2: 0 2px 6px 2px rgba(0, 0, 0, 0.3), 0 1px 2px rgba(0, 0, 0, 0.5);
+}
+
+/* Compact density (the classic styles): one-line rows of 30 px, smaller bars; every clickable target stays at least
+   24 px (--row-btn, --icon-btn, the row itself). */
+[data-density="compact"] {
+  --row-h: 30px;
+  --folder-h: 26px;
+  --list-header-h: 40px;
+  --toolbar-h: 40px;
+  --row-btn: 24px;
+  --col-check: 32px;
+  --col-star: 28px;
+  --col-from: 200px;
+  --col-date: 92px;
+  --header-h: 52px;
+  --search-h: 36px;
+  --icon-btn: 32px;
+  --control-h: 30px;
+  --field-h: 32px;
+}
+
+/* The two classic styles: ShadowMail's own drawing of the familiar desktop mail layout. Small corners, 13 px text. */
+[data-theme="classic-blue"],
+[data-theme="classic-light"] {
+  --radius-s: 2px;
+  --radius-m: 4px;
+  --radius-l: 4px;
+  --radius-pill: 4px;
+  --fs-s: 12px;
+  --fs-m: 13px;
+}
+
+/* Classic blue: light surfaces, a blue header band with white text and icons. */
+[data-theme="classic-blue"] {
+  --c-surface: #f3f6fa;
+  --c-surface-2: #dce8f7;
+  --c-hover: #eaf0f8;
+  --c-border: #d5dbe3;
+  --c-info-bg: #e3edf9;
+  --c-accent: #1a5fb4;
+  --c-accent-hover: #164e94;
+  --c-accent-soft: rgba(26, 95, 180, 0.12);
+  --c-accent-soft-hover: rgba(26, 95, 180, 0.2);
+  --c-avatar-1: #1a5fb4;
+}
+/* the header band: its own surface, text, hover and pressed colors; everything in it takes them */
+[data-theme="classic-blue"] .app-header {
+  --c-surface: #1a5fb4;
+  --c-hover: #164e94;
+  --c-surface-2: #0f4a8f;
+  --c-text: #ffffff;
+  --c-text-2: #dbe7f6;
+  --c-text-disabled: #9dbbe0;
+  --c-accent: #ffffff;
+}
+/* the search field in the band is a white field with the theme's own text colors */
+[data-theme="classic-blue"] .app-header .search-field {
+  --c-surface-2: #ffffff;
+  --c-bg: #ffffff;
+  --c-hover: #eaf0f8;
+  --c-text: #1f1f1f;
+  --c-text-2: #5f6368;
+  --c-text-disabled: #9aa0a6;
+  --c-accent: #1a5fb4;
+}
+
+/* Classic light: a gray toolbar-like header, a white list, fine dividers. */
+[data-theme="classic-light"] {
+  --c-surface: #f7f7f8;
+  --c-surface-2: #eaf1fb;
+  --c-hover: #f0f1f3;
+  --c-border: #dcdfe3;
+  --c-border-strong: #b9bfc7;
+}
+[data-theme="classic-light"] .app-header {
+  --c-surface: #e6e8eb;
+  --c-hover: #d6d9de;
+  --c-surface-2: #ffffff;
+  --c-text-2: #50555b;
+}
