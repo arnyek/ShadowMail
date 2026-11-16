@@ -9,6 +9,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { execFileSync } from 'node:child_process'
 import { createRequire } from 'node:module'
+import { fileURLToPath } from 'node:url'
 import { simpleParser } from 'mailparser'
 import { convert } from 'html-to-text'
 import { htmlTotalActive, htmlTotalInternals, exceedsNestingDepth, MAX_NESTING_DEPTH } from '../core/mime/html-total.js'
@@ -121,13 +122,11 @@ test('main thread and worker: text/plain + two HTML parts each under the cap, ov
   // the CommonJS copy is another instance, not hooked: nothing of the app may load mailparser that way
   const cjs = createRequire(import.meta.url)('mailparser')
   assert.notEqual(cjs.MailParser.prototype.getTextContent, htmlTotalInternals.hooked)
-  let users = ''
-  try {
-    users = execFileSync('git', ['grep', '-l', '-E', "require\\(['\"]mailparser|createRequire", '--', 'app', 'core'], { encoding: 'utf8' })
-  } catch (err) {
-    if (err.status !== 1) throw err // 1: no match
-  }
-  for (const f of users.split('\n').filter(Boolean)) assert.doesNotMatch(fs.readFileSync(f, 'utf8'), /require\(['"]mailparser/, `${f} loads mailparser as CommonJS`)
+  // every file under app/ and core/ that could load it (a walk, not git grep: the Windows build tests a git archive, no repo)
+  const root = fileURLToPath(new URL('..', import.meta.url))
+  const walk = dir => fs.readdirSync(dir, { withFileTypes: true }).flatMap(e => e.isDirectory() ? walk(path.join(dir, e.name)) : [path.join(dir, e.name)])
+  const users = ['app', 'core'].flatMap(d => walk(path.join(root, d))).filter(f => /require\(['"]mailparser|createRequire/.test(fs.readFileSync(f, 'utf8')))
+  for (const f of users) assert.doesNotMatch(fs.readFileSync(f, 'utf8'), /require\(['"]mailparser/, `${path.relative(root, f)} loads mailparser as CommonJS`)
 })
 
 test('if the hook cannot be put on (a frozen prototype): no error, the old way: per-part cap on the main thread, the worker preview by length', async () => {
