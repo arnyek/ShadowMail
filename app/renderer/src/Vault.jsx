@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import { t } from '../i18n/index.js'
-import { Banner, Button, IconButton } from './ui/index.js'
+import { Banner, Button, FormActions, FormRow, FormSection, IconButton } from './ui/index.js'
 
 const api = window.shadowMail
 const MIN = 10
@@ -33,7 +33,7 @@ function usePasswordForm(fields) {
  * A password field with the eye button: hidden by default; shown only while asked, and hidden
  * again when the field is cleared (after every call).
  */
-function PasswordField({ id, label, autoFocus, autoComplete = 'off', ...rest }) {
+function PasswordField({ id, label, width, hint, autoFocus, autoComplete = 'off', ...rest }) {
   const [shown, setShown] = useState(false)
   const input = useRef(null)
   useEffect(() => {
@@ -52,12 +52,14 @@ function PasswordField({ id, label, autoFocus, autoComplete = 'off', ...rest }) 
     return () => form.removeEventListener('submit', hide, true)
   }, [])
   return (
-    <div className="field password-field">
-      <label htmlFor={id}>{label}</label>
+    <div className={['text-field', 'password-field', width && `w-${width}`].filter(Boolean).join(' ')}>
+      <label className="text-field-label" htmlFor={id}>{label}</label>
       <span className="password-wrap">
-        <input ref={input} id={id} type={shown ? 'text' : 'password'} autoFocus={autoFocus} autoComplete={autoComplete} spellCheck={false} {...rest} />
+        <input ref={input} id={id} className="text-field-input" type={shown ? 'text' : 'password'} autoFocus={autoFocus} autoComplete={autoComplete} spellCheck={false}
+          aria-describedby={hint ? `${id}-hint` : undefined} {...rest} />
         <IconButton icon={shown ? 'hide' : 'show'} size="s" className="password-eye" label={shown ? t.passwordHide : t.passwordShow} pressed={shown} onClick={() => setShown(v => !v)} />
       </span>
+      {hint ? <span className="text-field-message hint" id={`${id}-hint`}>{hint}</span> : null}
     </div>
   )
 }
@@ -154,9 +156,9 @@ export function RecoveryCodeScreen({ code, onConfirmed }) {
       <p className="hint" id="recovery-clipboard-note">{t.recoveryClipboardNote}</p>
       {note && <p className="ok" role="status">{note}</p>}
       <Warn>{t.recoveryWarning}</Warn>
-      <label htmlFor="recovery-check" className="field">
-        <span>{t.recoveryCheck(n)}</span>
-        <input id="recovery-check" type="text" value={typed} onChange={e => (setTyped(e.target.value), setError(null))} autoComplete="off" spellCheck={false} />
+      <label htmlFor="recovery-check" className="text-field">
+        <span className="text-field-label">{t.recoveryCheck(n)}</span>
+        <input id="recovery-check" className="text-field-input" type="text" value={typed} onChange={e => (setTyped(e.target.value), setError(null))} autoComplete="off" spellCheck={false} />
       </label>
       {error && <p className="error" role="alert">{error}</p>}
       <Button type="submit" variant="primary" disabled={!ok}>{t.recoveryDone}</Button>
@@ -190,9 +192,9 @@ function VaultRecover({ onDone, onBack, onPending = () => {} }) {
     <form onSubmit={submit} className="vault">
       <h1>{t.vaultRecoverHeading}</h1>
       <p>{t.vaultRecoverIntro}</p>
-      <label htmlFor="vault-recover-code" className="field">
-        <span>{t.vaultRecoverCode}</span>
-        <input id="vault-recover-code" type="text" value={code} onChange={e => setCode(e.target.value)} autoComplete="off" spellCheck={false} autoFocus />
+      <label htmlFor="vault-recover-code" className="text-field">
+        <span className="text-field-label">{t.vaultRecoverCode}</span>
+        <input id="vault-recover-code" className="text-field-input" type="text" value={code} onChange={e => setCode(e.target.value)} autoComplete="off" spellCheck={false} autoFocus />
       </label>
       <PasswordField id="vault-recover-new" label={t.vaultNewPassword} autoComplete="new-password" {...f.bind('password')} />
       <PasswordField id="vault-recover-again" label={t.vaultNewPasswordAgain} autoComplete="new-password" {...f.bind('again')} />
@@ -233,9 +235,9 @@ function VaultReset({ onDone, onBack, finish = false, onPending = () => {} }) {
       <h1>{finish ? t.vaultFinishResetButton : t.vaultResetHeading}</h1>
       {finish && <Warn>{t.vaultResetPendingText}</Warn>}
       <Warn>{t.vaultResetWarning}</Warn>
-      <label htmlFor="vault-reset-word" className="field">
-        <span>{t.vaultResetConfirmLabel}</span>
-        <input id="vault-reset-word" type="text" value={word} onChange={e => setWord(e.target.value)} autoComplete="off" spellCheck={false} autoFocus />
+      <label htmlFor="vault-reset-word" className="text-field">
+        <span className="text-field-label">{t.vaultResetConfirmLabel}</span>
+        <input id="vault-reset-word" className="text-field-input" type="text" value={word} onChange={e => setWord(e.target.value)} autoComplete="off" spellCheck={false} autoFocus />
       </label>
       <PasswordField id="vault-reset-new" label={t.vaultNewPassword} autoComplete="new-password" {...f.bind('password')} />
       <PasswordField id="vault-reset-again" label={t.vaultNewPasswordAgain} autoComplete="new-password" {...f.bind('again')} />
@@ -338,15 +340,19 @@ export function VaultChange() {
     else f.setMessage(t.vaultError(res.error, res.info))
   }
   return (
-    <form onSubmit={submit} className="vault">
-      <h3>{t.vaultChangeHeading}</h3>
-      <PasswordField id="vault-old" label={t.vaultOldPassword} autoComplete="current-password" {...f.bind('old')} />
-      <PasswordField id="vault-change-new" label={t.vaultNewPassword} autoComplete="new-password" {...f.bind('password')} />
-      <PasswordField id="vault-change-again" label={t.vaultNewPasswordAgain} autoComplete="new-password" {...f.bind('again')} />
-      <p className="hint">{t.vaultMinLength(MIN)}</p>
-      {f.message && <p className="error" role="alert">{f.message}</p>}
-      {done && <p className="ok" role="status">{t.vaultChanged}</p>}
-      <Button type="submit" variant="tonal" disabled={f.busy}>{f.busy ? t.vaultWorking : t.vaultChangeButton}</Button>
+    <form onSubmit={submit} className="vault vault-change form-card">
+      <FormSection title={t.vaultChangeHeading} description={t.vaultChangeIntro}>
+        <PasswordField id="vault-old" width="m" label={t.vaultOldPassword} autoComplete="current-password" {...f.bind('old')} />
+        <FormRow>
+          <PasswordField id="vault-change-new" width="m" label={t.vaultNewPassword} hint={t.vaultMinLength(MIN)} autoComplete="new-password" {...f.bind('password')} />
+          <PasswordField id="vault-change-again" width="m" label={t.vaultNewPasswordAgain} autoComplete="new-password" {...f.bind('again')} />
+        </FormRow>
+        {f.message && <p className="error" role="alert">{f.message}</p>}
+        {done && <p className="ok" role="status">{t.vaultChanged}</p>}
+      </FormSection>
+      <FormActions>
+        <Button type="submit" variant="primary" disabled={f.busy}>{f.busy ? t.vaultWorking : t.vaultChangeButton}</Button>
+      </FormActions>
     </form>
   )
 }
@@ -361,12 +367,14 @@ export function RecoveryNew({ onCode }) {
     else f.setMessage(t.vaultError(res.error, res.info))
   }
   return (
-    <form onSubmit={submit} className="vault">
-      <h3>{t.recoveryNewHeading}</h3>
-      <p className="hint">{t.recoveryNewIntro}</p>
-      <PasswordField id="recovery-new-password" label={t.vaultPassword} autoComplete="current-password" {...f.bind('password')} />
-      {f.message && <p className="error" role="alert">{f.message}</p>}
-      <Button type="submit" variant="tonal" disabled={f.busy}>{f.busy ? t.vaultWorking : t.recoveryNewButton}</Button>
+    <form onSubmit={submit} className="vault recovery-new form-card">
+      <FormSection title={t.recoveryNewHeading} description={t.recoveryNewIntro}>
+        <PasswordField id="recovery-new-password" width="m" label={t.vaultPassword} autoComplete="current-password" {...f.bind('password')} />
+        {f.message && <p className="error" role="alert">{f.message}</p>}
+      </FormSection>
+      <FormActions>
+        <Button type="submit" variant="tonal" disabled={f.busy}>{f.busy ? t.vaultWorking : t.recoveryNewButton}</Button>
+      </FormActions>
     </form>
   )
 }

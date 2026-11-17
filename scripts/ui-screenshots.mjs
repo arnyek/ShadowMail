@@ -7,7 +7,7 @@
 //   node scripts/ui-screenshots.mjs <prefix> [--out docs/ui] [--keep] [--strict] [--set readme] [--lang hu|en] [--theme <id>] [--pane none|right|bottom]
 //
 // Writes <out>/<prefix>-{unlock,list,collapsed,selected,hover,chips,reader,headers,source,reader-plain,compose,settings}.png (collapsed,
-// selected/hover/chips, filter-chips, filtered, filtered-empty, headers, source: when the build has them), and settings-{security,about,appearance}, settings-claude, account-editor, contacts, contacts-editor, contacts-delete, contacts-export-menu,
+// selected/hover/chips, filter-chips, filtered, filtered-empty, headers, source: when the build has them), and settings-{security,about,appearance}, settings-claude, account-editor, account-editor-bottom, contacts-none, contacts, contacts-editor, contacts-delete, contacts-export-menu,
 // and, in a second, empty data folder, create and recovery-code (a code of a throw-away test vault). Prints, per screen, the native
 // controls left (`button:not([class]), select`) and the icon buttons without an aria-label, the
 // renderer console errors/warnings and the main process' stderr, and the net-guard log lines.
@@ -321,12 +321,24 @@ try {
     await page.locator('form.account-editor').waitFor()
     await shot(page, 'account-editor')
   })
+  // the same editor scrolled to its bottom: the sticky action bar with the last section (an older build: its own bottom)
+  await step('account-editor-bottom', async () => {
+    await page.evaluate(() => {
+      const s = document.querySelector('section.settings')
+      s.scrollTop = s.scrollHeight
+    })
+    await page.waitForTimeout(100)
+    await shot(page, 'account-editor-bottom')
+  })
   // the address book (Címlista): the list with a person, the editor, the delete question
   await step('contacts', async () => {
     const btn = page.getByRole('button', { name: t.viewContacts, exact: true })
     if (!(await btn.count())) return // an older build has no address book
     await page.evaluate(() => window.shadowMail.contacts.save({ displayName: 'Minta Mária', org: 'Példa Kft.', emails: ['maria@example.invalid', 'maria2@example.invalid'], phones: ['+36 1 234 5678'] }))
     await btn.click()
+    // nobody chosen yet: the empty state of the detail pane
+    await page.locator('.contacts-choose').waitFor()
+    await shot(page, 'contacts-none')
     await page.locator('.contact-item').first().click()
     await page.locator('.contact-details').waitFor()
     await shot(page, 'contacts')

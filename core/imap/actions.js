@@ -130,6 +130,12 @@ export async function renameFolder(client, from, to) {
   return res.newPath
 }
 
+/** SUBSCRIBE / UNSUBSCRIBE one folder (the subscriptions dialog). A NO is server_refused. */
+export async function setSubscription(client, path, subscribed) {
+  const ok = subscribed ? await client.mailboxSubscribe(path) : await client.mailboxUnsubscribe(path)
+  if (ok === false) throw new ServerRefused(subscribed ? 'SUBSCRIBE' : 'UNSUBSCRIBE')
+}
+
 export async function deleteFolder(client, path) {
   await client.mailboxUnsubscribe(path).catch(() => {})
   const res = await client.mailboxDelete(path)

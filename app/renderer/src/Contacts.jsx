@@ -5,10 +5,18 @@
 // Everything goes through window.shadowMail.contacts (contacts:* IPC); the page never sees a file path.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { t } from '../i18n/index.js'
-import { Avatar, Banner, Button, Checkbox, IconButton, MenuButton, Modal, SearchField, Splitter, TextField } from './ui/index.js'
+import { Avatar, Banner, Button, Checkbox, FormActions, FormRow, FormSection, IconButton, MenuButton, Modal, PageHeader, SearchField, Splitter, TextField } from './ui/index.js'
+import { Icon } from './Icon.jsx'
 
 const api = () => window.shadowMail
 const PAGE = 200
+
+/**
+ * The link of an address on the details: the whole address percent-encoded, so a "?", "&", "," or "%" in its local
+ * part (an import lets them through) stays part of the one recipient when the browser itself opens the link (middle
+ * or Shift+click -> the composer's mailto: path) and cannot add a recipient, a subject or a body.
+ */
+export const mailtoHref = address => `mailto:${encodeURIComponent(String(address))}`
 const emptyForm = () => ({ id: null, displayName: '', givenName: '', familyName: '', org: '', title: '', note: '', emails: [{ address: '', label: '', isPrimary: true }], phones: [] })
 
 /** A person from contacts:get -> the editor's form (strings everywhere). */
@@ -48,8 +56,15 @@ function Editor({ initial, onSaved, onCancel, onOpenOther }) {
   const [f, setF] = useState(initial)
   const [error, setError] = useState(null)
   const [busy, setBusy] = useState(false)
+  const C = t.contacts
   const set = (k, v) => setF(x => ({ ...x, [k]: v }))
   const setRow = (list, i, k, v) => setF(x => ({ ...x, [list]: x[list].map((r, n) => (n === i ? { ...r, [k]: v } : r)) }))
+  // removing the primary address hands the primary to the first one left (the save did the same: exactly one is chosen)
+  const removeEmail = i =>
+    setF(x => {
+      const emails = x.emails.filter((_, n) => n !== i)
+      return { ...x, emails: emails.length && !emails.some(e => e.isPrimary) ? emails.map((e, n) => ({ ...e, isPrimary: n === 0 })) : emails }
+    })
   const save = async () => {
     setBusy(true)
     setError(null)
@@ -58,6 +73,7 @@ function Editor({ initial, onSaved, onCancel, onOpenOther }) {
     if (r.ok) onSaved(r.id)
     else setError({ code: r.error, personId: r.personId })
   }
+  const field = (k, width) => <TextField label={C.fields[k]} name={k} width={width} value={f[k]} maxLength={200} onChange={e => set(k, e.target.value)} />
   return (
     <form
       className="contact-editor"
@@ -66,121 +82,178 @@ function Editor({ initial, onSaved, onCancel, onOpenOther }) {
         save()
       }}
     >
-      <h2>{f.id ? t.contacts.editTitle : t.contacts.newTitle}</h2>
+      <PageHeader title={f.id ? C.editTitle : C.newTitle} subtitle={initial.displayName || null} />
       {error && (
         <Banner kind="error" className="contact-error" role="alert">
-          {t.contacts.error(error.code)}
+          {C.error(error.code)}
           {error.personId ? (
             <Button variant="text" className="contact-open-other" onClick={() => onOpenOther(error.personId)}>
-              {t.contacts.openOther}
+              {C.openOther}
             </Button>
           ) : null}
         </Banner>
       )}
-      <div className="contact-editor-grid">
-        {['displayName', 'givenName', 'familyName', 'org', 'title'].map(k => (
-          <TextField key={k} label={t.contacts.fields[k]} name={k} value={f[k]} maxLength={200} onChange={e => set(k, e.target.value)} />
-        ))}
-      </div>
-      <fieldset className="contact-rows">
-        <legend>{t.contacts.emails}</legend>
-        {f.emails.map((e, i) => (
-          <div className="contact-row" key={`e${i}`}>
-            <TextField label={t.contacts.address} name={`email-${i}`} type="email" value={e.address} maxLength={320} onChange={ev => setRow('emails', i, 'address', ev.target.value)} />
-            <TextField label={t.contacts.label} name={`email-label-${i}`} value={e.label} maxLength={50} onChange={ev => setRow('emails', i, 'label', ev.target.value)} />
-            <Checkbox
-              label={t.contacts.primaryChoice}
-              checked={e.isPrimary}
-              onChange={() => setF(x => ({ ...x, emails: x.emails.map((r, n) => ({ ...r, isPrimary: n === i })) }))}
-            />
-            <IconButton icon="close" label={t.contacts.removeEmail(i + 1)} onClick={() => setF(x => ({ ...x, emails: x.emails.filter((_, n) => n !== i) }))} />
+      <div className="form-card">
+        <FormSection className="contact-name-section" title={C.sectionName}>
+          {/* the family name first; the composed display name stays "given family" (people.js) */}
+          <FormRow>
+            {field('familyName', 'm')}
+            {field('givenName', 'm')}
+          </FormRow>
+          {field('displayName', 'l')}
+        </FormSection>
+        <FormSection className="contact-work-section" title={C.sectionWork}>
+          <FormRow>
+            {field('org', 'm')}
+            {field('title', 'm')}
+          </FormRow>
+        </FormSection>
+        <FormSection className="contact-rows contact-emails" title={C.emails}>
+          <div className="repeat" role="group" aria-label={C.emails}>
+            <span className="repeat-head">{C.headAddress}</span>
+            <span className="repeat-head">{C.label}</span>
+            <span className="repeat-head">{C.primaryTag}</span>
+            <span />
+            {f.emails.map((e, i) => (
+              <div className="repeat-row contact-row" key={`e${i}`}>
+                <input className="text-field-input" name={`email-${i}`} type="email" aria-label={C.emailRow(i + 1)} value={e.address} maxLength={320} onChange={ev => setRow('emails', i, 'address', ev.target.value)} />
+                <input className="text-field-input" name={`email-label-${i}`} aria-label={C.emailLabelRow(i + 1)} value={e.label} maxLength={50} onChange={ev => setRow('emails', i, 'label', ev.target.value)} />
+                <span className="repeat-radio">
+                  <input type="radio" name="contact-primary" aria-label={C.primaryRow(i + 1)} checked={e.isPrimary}
+                    onChange={() => setF(x => ({ ...x, emails: x.emails.map((r, n) => ({ ...r, isPrimary: n === i })) }))} />
+                </span>
+                <IconButton icon="close" label={C.removeEmail(i + 1)} onClick={() => removeEmail(i)} />
+              </div>
+            ))}
           </div>
-        ))}
-        <Button variant="text" icon="plus" className="contact-add-email" onClick={() => setF(x => ({ ...x, emails: [...x.emails, { address: '', label: '', isPrimary: !x.emails.length }] }))}>
-          {t.contacts.addEmail}
-        </Button>
-      </fieldset>
-      <fieldset className="contact-rows">
-        <legend>{t.contacts.phones}</legend>
-        {f.phones.map((p, i) => (
-          <div className="contact-row" key={`p${i}`}>
-            <TextField label={t.contacts.number} name={`phone-${i}`} type="tel" value={p.number} maxLength={50} onChange={ev => setRow('phones', i, 'number', ev.target.value)} />
-            <TextField label={t.contacts.label} name={`phone-label-${i}`} value={p.label} maxLength={50} onChange={ev => setRow('phones', i, 'label', ev.target.value)} />
-            <IconButton icon="close" label={t.contacts.removePhone(i + 1)} onClick={() => setF(x => ({ ...x, phones: x.phones.filter((_, n) => n !== i) }))} />
-          </div>
-        ))}
-        <Button variant="text" icon="plus" className="contact-add-phone" onClick={() => setF(x => ({ ...x, phones: [...x.phones, { number: '', label: '' }] }))}>
-          {t.contacts.addPhone}
-        </Button>
-      </fieldset>
-      <label className="text-field contact-note">
-        <span className="text-field-label">{t.contacts.fields.note}</span>
-        <textarea className="text-field-input" name="note" rows={4} maxLength={10_000} value={f.note} onChange={e => set('note', e.target.value)} />
-      </label>
-      <div className="contact-editor-actions">
-        <Button variant="primary" type="submit" disabled={busy}>
-          {t.contacts.save}
-        </Button>
-        <Button variant="text" onClick={onCancel}>
-          {t.contacts.cancel}
-        </Button>
+          <Button variant="text" icon="plus" className="contact-add-email" onClick={() => setF(x => ({ ...x, emails: [...x.emails, { address: '', label: '', isPrimary: !x.emails.length }] }))}>
+            {C.addEmail}
+          </Button>
+        </FormSection>
+        <FormSection className="contact-rows contact-phones" title={C.phones}>
+          {f.phones.length > 0 && (
+            <div className="repeat repeat-phones" role="group" aria-label={C.phones}>
+              <span className="repeat-head">{C.headNumber}</span>
+              <span className="repeat-head">{C.label}</span>
+              <span />
+              {f.phones.map((p, i) => (
+                <div className="repeat-row contact-row" key={`p${i}`}>
+                  <input className="text-field-input" name={`phone-${i}`} type="tel" aria-label={C.phoneRow(i + 1)} value={p.number} maxLength={50} onChange={ev => setRow('phones', i, 'number', ev.target.value)} />
+                  <input className="text-field-input" name={`phone-label-${i}`} aria-label={C.phoneLabelRow(i + 1)} value={p.label} maxLength={50} onChange={ev => setRow('phones', i, 'label', ev.target.value)} />
+                  <IconButton icon="close" label={C.removePhone(i + 1)} onClick={() => setF(x => ({ ...x, phones: x.phones.filter((_, n) => n !== i) }))} />
+                </div>
+              ))}
+            </div>
+          )}
+          <Button variant="text" icon="plus" className="contact-add-phone" onClick={() => setF(x => ({ ...x, phones: [...x.phones, { number: '', label: '' }] }))}>
+            {C.addPhone}
+          </Button>
+        </FormSection>
+        <FormSection className="contact-note-section" title={C.fields.note}>
+          <label className="text-field w-full contact-note">
+            <span className="sr-only">{C.fields.note}</span>
+            <textarea className="text-field-input" name="note" rows={4} maxLength={10_000} value={f.note} onChange={e => set('note', e.target.value)} />
+          </label>
+        </FormSection>
+        <FormActions sticky className="contact-editor-actions">
+          <Button variant="primary" type="submit" disabled={busy}>
+            {C.save}
+          </Button>
+          <Button variant="text" onClick={onCancel}>
+            {C.cancel}
+          </Button>
+        </FormActions>
       </div>
     </form>
   )
 }
 
 function Details({ person, onWrite, onEdit, onDelete }) {
+  const C = t.contacts
   const primary = person.emails.find(e => e.isPrimary) || person.emails[0]
   const name = person.displayName || [person.givenName, person.familyName].filter(Boolean).join(' ')
+  const link = address => e => {
+    e.preventDefault()
+    onWrite(address)
+  }
   return (
     <section className="contact-details" data-person-id={person.id}>
-      <header className="contact-head">
+      <header className="contact-head contact-hero">
         <Avatar name={name} address={primary?.address} />
-        <div>
-          <h2 className="contact-name">{name || primary?.address || t.contacts.noName}</h2>
-          {(person.title || person.org) && <p className="contact-org">{[person.title, person.org].filter(Boolean).join(', ')}</p>}
+        <div className="contact-hero-text">
+          <h2 className="contact-name">{name || primary?.address || C.noName}</h2>
+          {(person.title || person.org) && <p className="contact-org contact-sub">{[person.title, person.org].filter(Boolean).join(' \u00b7 ')}</p>}
         </div>
       </header>
-      <div className="contact-actions">
-        <Button variant="tonal" icon="compose" className="contact-write" disabled={!primary} onClick={() => onWrite(primary.address)}>
-          {t.contacts.write}
+      <div className="contact-actions contact-toolbar">
+        <Button variant="primary" icon="compose" className="contact-write" disabled={!primary} onClick={() => onWrite(primary.address)}>
+          {C.write}
         </Button>
-        <Button variant="text" icon="edit" className="contact-edit" onClick={onEdit}>
-          {t.contacts.edit}
+        <Button variant="outlined" icon="edit" className="contact-edit" onClick={onEdit}>
+          {C.edit}
         </Button>
+        <span className="spacer" />
         <Button variant="text" icon="trash" className="contact-delete" onClick={onDelete}>
-          {t.contacts.delete}
+          {C.delete}
         </Button>
       </div>
-      {person.emails.length > 0 && (
-        <dl className="contact-fields">
-          <dt>{t.contacts.emails}</dt>
-          {person.emails.map(e => (
-            <dd key={e.address} className="contact-email">
-              {e.address}
-              {e.label ? <span className="contact-label"> ({e.label})</span> : null}
-              {e.isPrimary ? <span className="contact-primary"> · {t.contacts.primary}</span> : null}
-            </dd>
-          ))}
+      <div className="form-card contact-data">
+        <dl className="detail-list contact-fields">
+          {person.emails.length > 0 && (
+            <>
+              <dt>{C.detailEmail}</dt>
+              <dd className="detail-values">
+                {person.emails.map(e => (
+                  <div key={e.address} className="detail-value contact-email">
+                    <a href={mailtoHref(e.address)} onClick={link(e.address)}>{e.address}</a>
+                    {e.label ? <span className="contact-label">{e.label}</span> : null}
+                    {e.isPrimary ? <span className="tag tag-accent contact-primary">{C.primaryTag}</span> : null}
+                  </div>
+                ))}
+              </dd>
+            </>
+          )}
+          {person.phones.length > 0 && (
+            <>
+              <dt>{C.detailPhone}</dt>
+              <dd className="detail-values">
+                {person.phones.map((p, i) => (
+                  <div key={`${p.number}-${i}`} className="detail-value contact-phone">
+                    {p.number}
+                    {p.label ? <span className="contact-label">{p.label}</span> : null}
+                  </div>
+                ))}
+              </dd>
+            </>
+          )}
+          {person.org && (
+            <>
+              <dt>{C.fields.org}</dt>
+              <dd className="contact-org-value">{person.org}</dd>
+            </>
+          )}
+          {person.title && (
+            <>
+              <dt>{C.fields.title}</dt>
+              <dd className="contact-title-value">{person.title}</dd>
+            </>
+          )}
+          {person.note && (
+            <>
+              <dt>{C.fields.note}</dt>
+              <dd className="contact-note-text">{person.note}</dd>
+            </>
+          )}
+          {person.source && (
+            <>
+              <dt>{C.detailSource}</dt>
+              <dd>
+                <span className={`contact-source source-${person.source}`} title={C.sourceHint[person.source]}>{C.source[person.source]}</span>
+              </dd>
+            </>
+          )}
         </dl>
-      )}
-      {person.phones.length > 0 && (
-        <dl className="contact-fields">
-          <dt>{t.contacts.phones}</dt>
-          {person.phones.map((p, i) => (
-            <dd key={`${p.number}-${i}`} className="contact-phone">
-              {p.number}
-              {p.label ? <span className="contact-label"> ({p.label})</span> : null}
-            </dd>
-          ))}
-        </dl>
-      )}
-      {person.note && (
-        <dl className="contact-fields">
-          <dt>{t.contacts.fields.note}</dt>
-          <dd className="contact-note-text">{person.note}</dd>
-        </dl>
-      )}
+      </div>
     </section>
   )
 }
@@ -408,11 +481,10 @@ export function Contacts() {
             <Button variant="tonal" icon="addContact" className="contact-new" onClick={() => setEditing(emptyForm())}>
               {t.contacts.newContact}
             </Button>
-            <Button variant="text" icon="upload" className="contacts-import" onClick={doImport}>
-              {t.contacts.import}
-            </Button>
-            <MenuButton label={t.contacts.export} icon="download" text={t.contacts.export} className="contacts-export" items={exportItems} />
+            <span className="spacer" />
             {selection.size > 0 && <IconButton icon="trash" label={t.contacts.deleteSelected} className="contacts-delete-selected" onClick={() => setConfirm([...selection])} />}
+            <IconButton icon="upload" label={t.contacts.import} className="contacts-import" onClick={doImport} />
+            <MenuButton label={t.contacts.export} icon="download" className="contacts-export" items={exportItems} />
           </div>
           <SearchField label={t.contacts.search} clearLabel={t.contacts.searchClear} value={q} onChange={e => setQ(e.target.value)} onClear={() => setQ('')} ref={searchRef} placeholder={t.contacts.search} className="contacts-search" />
           <p className="contacts-count" data-total={list.total}>
@@ -462,7 +534,16 @@ export function Contacts() {
           ) : person ? (
             <Details person={person} onWrite={write} onEdit={() => setEditing(formOf(person))} onDelete={() => setConfirm([person.id])} />
           ) : (
-            <p className="hint pad contacts-choose">{t.contacts.choose}</p>
+            <div className="empty-state contacts-choose">
+              <span className="empty-icon">
+                <Icon name="contacts" />
+              </span>
+              <h2>{t.contacts.emptyTitle}</h2>
+              <p>{t.contacts.emptyText}</p>
+              <Button variant="primary" icon="addContact" className="contacts-empty-new" onClick={() => setEditing(emptyForm())}>
+                {t.contacts.newContact}
+              </Button>
+            </div>
           )}
         </div>
       </div>

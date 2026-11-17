@@ -31,7 +31,7 @@ for (const theme of THEMES) {
   const run = spawnSync(process.execPath, args, { cwd: repo, encoding: 'utf8', timeout: 300_000 })
   const text = `${run.stdout || ''}${run.stderr || ''}`
   const screens = [...text.matchAll(/^ {2}([\w-]+): native controls (\d+), icon buttons without aria-label (\d+), without title (\d+), theme (\S+)$/gm)].map(m => ({ name: m[1], native: +m[2], unnamed: +m[3], untitled: +m[4], theme: m[5] }))
-  const EXPECTED = ['unlock', 'list', 'collapsed', 'selected', 'hover', 'chips', 'context-menu', 'folder-dialog', 'folder-menu', 'account-menu', 'confirm-dialog', 'reader', 'reader-plain', 'compose', 'settings', 'settings-security', 'settings-about', 'settings-appearance', 'account-editor', 'create', 'recovery-code']
+  const EXPECTED = ['unlock', 'list', 'collapsed', 'selected', 'hover', 'chips', 'context-menu', 'folder-dialog', 'folder-menu', 'account-menu', 'confirm-dialog', 'reader', 'reader-plain', 'compose', 'settings', 'settings-security', 'settings-about', 'settings-appearance', 'account-editor', 'account-editor-bottom', 'create', 'recovery-code']
   const at = `[${theme.id}] `
   check(`${at}every screen was reached`, EXPECTED.every(n => screens.some(s => s.name === n)), EXPECTED.filter(n => !screens.some(s => s.name === n)).join(', ') || `${screens.length} screens`)
   check(`${at}every screen is under the theme (the composer window too)`, screens.length > 0 && screens.every(s => s.theme === theme.id), screens.filter(s => s.theme !== theme.id).map(s => `${s.name}=${s.theme}`).join(', '))

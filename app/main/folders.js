@@ -11,8 +11,9 @@
 // - The index changes only after the server said yes; a rename also moves the subfolders and messages.
 import fs from 'node:fs'
 import path from 'node:path'
-import { createFolder, renameFolder, deleteFolder } from '../../core/imap/actions.js'
-import { assignRoles } from '../../core/imap/folders.js'
+import { createFolder, renameFolder, deleteFolder, setSubscription } from '../../core/imap/actions.js'
+import { assignRoles, isRoleCandidate } from '../../core/imap/folders.js'
+import { listSyncFolders, serverSpecialUse } from '../../core/imap/client.js'
 import { ActionError } from './sync-manager.js'
 import { FolderOrderError } from '../../core/db/mail-index.js'
 import { errCode } from '../../core/log-safe.js'
@@ -146,6 +147,72 @@ export class FolderActions {
     }
     this.onChange({ accountId, folders: [] })
     return { count }
+  }
+
+  /**
+   * The user's choice for one role of an IMAP account (the account settings' role picker): a server folder's path, or
+   * null for "Automatic" (MailIndex.setManualRole). Local only, then a full sync, which decides the automatic roles
+   * again around the choice. Errors: not_found (account or folder), pop3_local (POP3: its folders are fixed).
+   */
+  setRole({ accountId, role, path }) {
+    const ctx = this.#context(accountId)
+    if (!ctx.isImap) throw new ActionError('pop3_local')
+    let changed
+    try {
+      changed = this.index.setManualRole(accountId, role, path)
+    } catch (err) {
+      if (err.code === 'not_found' || err.code === 'bad_request') throw new ActionError(err.code)
+      throw err
+    }
+    this.log(`folder role ${role} ${path === null ? 'automatic' : 'chosen'}`)
+    this.onChange({ accountId, folders: changed })
+    this.requestSync(accountId)
+    return { changed: changed.length }
+  }
+
+  /**
+   * The subscriptions dialog: every selectable folder the server lists (a live LIST on the interactive connection), with
+   * whether it shows in the app (subscribed or kept) and whether it may be changed (not a role folder).
+   * -> { folders: [{ path, delimiter, shown, subscribed, kept, role }] }. POP3: pop3_local.
+   */
+  async subscriptions({ accountId }) {
+    const ctx = this.#context(accountId)
+    if (!ctx.isImap) throw new ActionError('pop3_local')
+    const listed = await this.withConnection(accountId, client => listSyncFolders(client, { skipJunkTrash: false }))
+    const kept = this.index.keptFolders(accountId)
+    return {
+      folders: listed.map(f => {
+        const row = { path: f.path, delimiter: f.delimiter || null, specialUse: serverSpecialUse(f) }
+        const role = ctx.roles.get(f.path) || (isRoleCandidate(row) ? 'candidate' : null)
+        const subscribed = f.subscribed === true
+        return { path: f.path, delimiter: row.delimiter, subscribed, kept: kept.get(f.path) === 1, role, shown: subscribed || kept.get(f.path) === 1 || Boolean(role) }
+      }),
+    }
+  }
+
+  /**
+   * One tick of the subscriptions dialog or the folder menu's "Unsubscribe": on = SUBSCRIBE on the server; off = the
+   * local kept flag goes, and UNSUBSCRIBE when the server had it subscribed (a kept folder may be unsubscribed there
+   * already). A role folder cannot be unsubscribed (role_folder). Then a full sync: the folder appears or goes.
+   */
+  async setSubscribed({ accountId, path: p, subscribed }) {
+    const ctx = this.#context(accountId)
+    if (!ctx.isImap) throw new ActionError('pop3_local')
+    const listed = await this.withConnection(accountId, client => listSyncFolders(client, { skipJunkTrash: false }))
+    const f = listed.find(x => x.path === p)
+    if (!f) throw new ActionError('not_found')
+    if (!subscribed && (ctx.roles.has(p) || isRoleCandidate({ path: f.path, delimiter: f.delimiter || null, specialUse: serverSpecialUse(f) }))) {
+      throw new ActionError('role_folder')
+    }
+    if (subscribed) {
+      if (f.subscribed !== true) await this.withConnection(accountId, client => setSubscription(client, p, true))
+    } else {
+      if (f.subscribed === true) await this.withConnection(accountId, client => setSubscription(client, p, false))
+      this.index.setKept(accountId, p, false)
+    }
+    this.log(`folder ${subscribed ? 'subscribed' : 'unsubscribed'}`)
+    this.requestSync(accountId)
+    return { subscribed }
   }
 
   /** Every folder of the account back to the default order (role folders first, the rest alphabetical). */

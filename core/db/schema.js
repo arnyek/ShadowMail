@@ -265,4 +265,46 @@ export const MIGRATIONS = [
       db.exec('ALTER TABLE folders ADD COLUMN sort_order INTEGER')
     },
   },
+  {
+    version: 9,
+    name: 'folders: the role the sync decided',
+    up(db) {
+      // 0.14.1: the folder's role (inbox, drafts, sent, trash, junk, archive) as the IMAP sync decides it once per LIST
+      // (core/imap/folders.js resolveRoles), NULL = none. Every reader takes it from here (assignRoles), so a role does
+      // not depend on which copy of the old name rule ran. NULL until the first full sync after the upgrade: until
+      // then the old rule answers. Additive: the older code ignores the column.
+      db.exec('ALTER TABLE folders ADD COLUMN role TEXT')
+    },
+  },
+  {
+    version: 10,
+    name: 'folders: the role the user chose',
+    up(db) {
+      // 0.15.0: 1 = the folder's role was chosen by hand in the account settings (MailIndex.setManualRole); it beats
+      // every automatic rule (resolveRoles) until the user goes back to "Automatic" or the folder disappears from the
+      // server (the row goes, and the choice with it). Additive: the older code ignores the column.
+      db.exec('ALTER TABLE folders ADD COLUMN role_manual INTEGER NOT NULL DEFAULT 0')
+    },
+  },
+  {
+    version: 11,
+    name: 'accounts: the archive mode',
+    up(db) {
+      // 0.15.0: how the Archive action files a message (core/imap/folders.js archiveModeOf): 'single' (into the
+      // Archive), 'yearly' (into its year folder, "Archívum/2024"), NULL = by the Archive's year folders. Additive.
+      db.exec('ALTER TABLE accounts ADD COLUMN archive_mode TEXT')
+    },
+  },
+  {
+    version: 12,
+    name: 'folders: kept without a subscription',
+    up(db) {
+      // 0.15.0: the sync shows and syncs only the subscribed server folders (and the role folders). A folder the user
+      // already had in the app before stays (nothing that showed disappears with the upgrade): its kept flag
+      // is decided by the first full sync after the upgrade (NULL = not decided yet, 1 = kept although unsubscribed on
+      // the server, 0 = by the subscription). Local only, the server is not written. Additive.
+      db.exec('ALTER TABLE folders ADD COLUMN kept INTEGER DEFAULT 0')
+      db.exec('UPDATE folders SET kept = NULL WHERE is_local = 0')
+    },
+  },
 ]

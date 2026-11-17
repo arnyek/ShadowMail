@@ -5,7 +5,7 @@
 // message follows the account's body limit (body_state 3) unless the user opened it (body_pinned),
 // and the list preview is stored with the body.
 import { FTS_OPERATORS, toSafeFts, isFtsSyntaxError } from './fts.js'
-import { buildFolderTree, siblingsOf } from '../imap/folders.js'
+import { buildFolderTree, resolveRoles, siblingsOf } from '../imap/folders.js'
 import { UNREAD_SQL } from './unread-total.js'
 
 /** a refused folder order (MailIndex.reorderFolders); `code`: not_found | order_mismatch */
@@ -180,7 +180,17 @@ export class MailIndex {
       // instr, not LIKE: a Message-ID may contain _ or %, which LIKE would read as wildcards
       byRef: p('SELECT * FROM messages WHERE account_id = ? AND instr(refs, ?) > 0'),
       // the folder rows alone (no messages read): folderList, and the base of folders()
-      folderList: p('SELECT path, delimiter, special_use, is_local, synced_at, sort_order FROM folders WHERE account_id = ? ORDER BY path'),
+      folderList: p('SELECT path, delimiter, special_use, is_local, synced_at, sort_order, role, role_manual, kept FROM folders WHERE account_id = ? ORDER BY path'),
+      keptRows: p('SELECT path, kept FROM folders WHERE account_id = ? AND is_local = 0'),
+      setKept: p('UPDATE folders SET kept = ? WHERE account_id = ? AND path = ? AND is_local = 0'),
+      // the roles the IMAP sync decided (core/imap/folders.js resolveRoles); local folders keep NULL
+      folderRoles: p('SELECT path, role FROM folders WHERE account_id = ? AND is_local = 0 AND role IS NOT NULL'),
+      clearFolderRoles: p('UPDATE folders SET role = NULL WHERE account_id = ? AND is_local = 0 AND role IS NOT NULL AND role_manual = 0'),
+      setFolderRole: p('UPDATE folders SET role = ? WHERE account_id = ? AND path = ? AND is_local = 0'),
+      // the roles chosen by hand (role_manual = 1): they survive every sync, the sync's own roles go around them
+      manualRoles: p('SELECT path, role FROM folders WHERE account_id = ? AND is_local = 0 AND role_manual = 1 AND role IS NOT NULL'),
+      dropRole: p('UPDATE folders SET role = NULL, role_manual = 0 WHERE account_id = ? AND is_local = 0 AND role = ?'),
+      pinRole: p('UPDATE folders SET role = ?, role_manual = 1 WHERE account_id = ? AND path = ? AND is_local = 0'),
       countFolder: p('SELECT COUNT(*) AS n FROM messages WHERE account_id = ? AND folder = ?'),
       // the unread count: the taskbar's query letter for letter (its partial index idx_messages_unread is used only so)
       unreadFolder: p(UNREAD_SQL),
@@ -282,8 +292,88 @@ export class MailIndex {
     })
   }
 
+  /** The stored roles of an IMAP account's server folders: Map path -> role. */
+  folderRoles(accountId) {
+    return new Map(this.s.folderRoles.all(accountId).map(r => [r.path, r.role]))
+  }
+
+  /** The roles the user chose by hand: Map path -> role. */
+  manualRoles(accountId) {
+    return new Map(this.s.manualRoles.all(accountId).map(r => [r.path, r.role]))
+  }
+
+  /**
+   * The user's choice for one role (drafts, sent, trash, junk, archive) of an IMAP account: a server folder's path, or
+   * null for "Automatic". In one transaction the role leaves the folder that had it (chosen or automatic), the chosen
+   * folder gets it, pinned (role_manual = 1), and then EVERY role is decided again at once, the way the sync does
+   * (resolveRoles), with the local message counts in place of the server's STATUS: so a role that "Automatic" or the
+   * choice left without a folder goes to the right one now, not only at the next full sync (before this,
+   * the gap went by the alphabet, "Elküldött elemek" before "Sent"). INBOX cannot be chosen (bad_request).
+   * -> the paths whose role changed. Throws not_found for a path that is not a server folder.
+   */
+  setManualRole(accountId, role, path) {
+    if (path !== null && path.toUpperCase() === 'INBOX') throw Object.assign(new Error('INBOX is the inbox'), { code: 'bad_request' })
+    return this.db.transaction(() => {
+      const before = new Map(this.s.folderList.all(accountId).filter(f => f.role).map(f => [f.path, f.role]))
+      if (path !== null && !this.s.folderList.all(accountId).some(f => f.path === path && !f.is_local)) {
+        throw Object.assign(new Error('no such server folder'), { code: 'not_found' })
+      }
+      this.s.dropRole.run(accountId, role)
+      if (path !== null) this.s.pinRole.run(role, accountId, path)
+      const rows = this.s.folderList.all(accountId).filter(f => !f.is_local)
+      if (rows.some(f => f.role && !f.role_manual)) {
+        // an account the sync has listed: decide the rest again now (before its first full sync the old rule answers)
+        const previous = new Map(rows.filter(f => f.role && !f.role_manual).map(f => [f.path, f.role]))
+        const counts = new Map(rows.map(f => [f.path, this.s.countFolder.get(accountId, f.path).n]))
+        const listed = rows.map(f => ({ path: f.path, delimiter: f.delimiter, specialUse: f.special_use }))
+        const { roles } = resolveRoles(listed, { previous, counts, manual: this.manualRoles(accountId) })
+        this.s.clearFolderRoles.run(accountId)
+        for (const [p, r] of roles) this.s.setFolderRole.run(r, accountId, p)
+      }
+      const after = new Map(this.s.folderList.all(accountId).filter(f => f.role).map(f => [f.path, f.role]))
+      return [...new Set([...before.keys(), ...after.keys()])].filter(p => before.get(p) !== after.get(p))
+    })()
+  }
+
+  /** Stores the roles the sync decided (Map path -> role) in one transaction: every other server folder gets none. */
+  setFolderRoles(accountId, roles) {
+    this.db.transaction(() => {
+      this.s.clearFolderRoles.run(accountId)
+      for (const [path, role] of roles) this.s.setFolderRole.run(role, accountId, path)
+    })()
+  }
+
   getFolder(accountId, path) {
     return this.s.getFolder.get(accountId, path)
+  }
+
+  /** The kept flags of an IMAP account's server folders: Map path -> 1 | 0 | null (null: not decided yet). */
+  keptFolders(accountId) {
+    return new Map(this.s.keptRows.all(accountId).map(r => [r.path, r.kept]))
+  }
+
+  /**
+   * After a LIST: every server folder whose kept flag is not decided yet (the rows from before the upgrade) gets 1 when
+   * the server lists it as unsubscribed (it stays visible), else 0. -> the paths that got 1.
+   */
+  settleKept(accountId, listed) {
+    return this.db.transaction(() => {
+      const kept = []
+      const byPath = new Map(listed.map(f => [f.path, f]))
+      for (const r of this.s.keptRows.all(accountId)) {
+        if (r.kept !== null) continue
+        const f = byPath.get(r.path)
+        const value = f && f.subscribed !== true ? 1 : 0
+        this.s.setKept.run(value, accountId, r.path)
+        if (value) kept.push(r.path)
+      }
+      return kept
+    })()
+  }
+
+  /** The kept flag of one server folder (0 when the user unsubscribes it in the app). */
+  setKept(accountId, path, kept) {
+    this.s.setKept.run(kept ? 1 : 0, accountId, path)
   }
 
   upsertFolder(f) {

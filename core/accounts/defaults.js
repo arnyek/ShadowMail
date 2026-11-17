@@ -37,6 +37,7 @@ export function newAccountDefaults(type = 'imap') {
     save_sent_to_server: true,
     pop3_delete_after_days: null,
     signature: '',
+    archive_mode: '',
   }
 }
 
@@ -80,5 +81,6 @@ export function accountEditorForm(account) {
     save_sent_to_server: Boolean(account.save_sent_to_server),
     pop3_delete_after_days: account.pop3_delete_after_days,
     signature: account.signature || '',
+    archive_mode: account.archive_mode || '',
   }
 }

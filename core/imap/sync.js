@@ -10,7 +10,9 @@
 //    pinned, raising it re-queues rows (3 -> 0) for the body phase;
 //  - deletions on the server are detected for the whole folder;
 //  - the list preview is stored together with the indexed text.
-import { createImapClient, listSyncFolders } from './client.js'
+import { createImapClient, listSyncFolders, serverSpecialUse } from './client.js'
+import { shownFolders, subscriptionsKnown } from './folders.js'
+import { resolveRoles } from './folders.js'
 import { analyzeStructure, extractReferences, fmtAddr, fmtAddrs } from '../mime/envelope.js'
 import { bodyFromSource } from '../mime/text.js'
 import { BODY_STATE } from '../db/mail-index.js'
@@ -281,7 +283,15 @@ export class Syncer {
           .filter(Boolean)
           .map(f => ({ path: f.path, delimiter: f.delimiter, specialUse: f.special_use }))
       } else {
-        folders = await listSyncFolders(client, this.folderOptions)
+        // only the server's own SPECIAL-USE flag is stored (special_use), never imapflow's guess from the name
+        const listed = (await listSyncFolders(client, this.folderOptions)).map(f => ({ ...f, specialUse: serverSpecialUse(f) }))
+        // only the subscribed folders (and the kept and role ones) show and sync; the rows from before the upgrade get
+        // their kept flag now, so nothing that showed disappears (migration 12). Only when the LIST tells the subscriptions:
+        // with LSUB refused imapflow says "subscribed" of every folder, and deciding then would drop the unsubscribed
+        // ones at the next, successful LIST; undecided rows wait for a run that knows
+        if (subscriptionsKnown(listed)) this.index.settleKept(accountId, listed)
+        const roles = new Set([...this.index.folderRoles(accountId).keys(), ...this.index.manualRoles(accountId).keys()])
+        folders = shownFolders(listed, { kept: this.index.keptFolders(accountId), roles })
       }
       const folderErrors = []
       for (const f of folders) {
@@ -300,6 +310,7 @@ export class Syncer {
         this.index.dropFoldersExcept(accountId, folders.map(f => f.path))
         const dropped = [...before].filter(p => !folders.some(f => f.path === p))
         if (dropped.length) this._changed(dropped)
+        await this.updateRoles(client, folders)
       }
       this._checkStopped()
       this._setState({ phase: 'bodies', folder: null, progress: null })
@@ -321,6 +332,36 @@ export class Syncer {
       this._emitState()
       if (ctx.client) await ctx.client.logout().catch(() => ctx.client.close())
     }
+  }
+
+  /**
+   * The folder roles after a LIST (resolveRoles): the stored ones stay, a contested role (two folders with a usual name)
+   * goes to the one with more messages on the server (STATUS MESSAGES of the candidates only). Stored in folders.role;
+   * a change is reported like a folder change, so the tree is drawn again.
+   */
+  async updateRoles(client, folders) {
+    const accountId = this.account.id
+    const previous = this.index.folderRoles(accountId)
+    const manual = this.index.manualRoles(accountId)
+    let { roles, needCounts } = resolveRoles(folders, { previous, manual })
+    if (needCounts.length) {
+      const counts = new Map()
+      for (const path of needCounts) {
+        this._checkStopped()
+        try {
+          const st = await client.status(path, { messages: true })
+          counts.set(path, Number.isFinite(st?.messages) ? st.messages : null)
+        } catch (err) {
+          if (isConnectionLoss(err)) throw err
+          counts.set(path, null) // a refused STATUS: the folder only loses the count, the other rules still apply
+        }
+      }
+      roles = resolveRoles(folders, { previous, counts, manual }).roles
+    }
+    const changed = [...new Set([...previous.keys(), ...roles.keys()])].filter(p => previous.get(p) !== roles.get(p))
+    if (!changed.length) return
+    this.index.setFolderRoles(accountId, roles)
+    this._changed(changed)
   }
 
   /** Syncs one folder. Returns true when its message list changed (new, gone or changed flags). */

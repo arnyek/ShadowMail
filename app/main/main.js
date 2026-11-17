@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Electron main process. The data paths MUST be set before anything else touches Electron,
 // otherwise Chromium creates its folders under %APPDATA% / %LOCALAPPDATA%.
-import { app, BrowserWindow, clipboard, ClipboardItem, dialog, ipcMain, Menu, nativeImage, protocol, session, shell } from 'electron'
+import { app, BrowserWindow, clipboard, ClipboardItem, dialog, ipcMain, Menu, nativeImage, protocol, screen, session, shell } from 'electron'
 import fs from 'node:fs'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -10,7 +10,7 @@ import { upgradeDatabase } from '../../core/db/upgrade.js'
 import { sqliteVersion } from '../../core/db/index.js'
 import { t, lang, setLanguage, hu } from '../renderer/i18n/index.js'
 import { readLanguage, writeLanguage } from '../../core/ui-language-file.js'
-import { MAIN_MIN_WIDTH } from './window-size.js'
+import { COMPOSER_SIZE, composerBounds, MAIN_MIN_WIDTH } from './window-size.js'
 import { Vault, VaultError } from '../../core/vault/vault.js'
 import { vaultPath, dataFolderState, openUnlockedDatabase, openSealedStore } from '../../core/vault/vaulted-db.js'
 import { recoverInterruptedReset } from '../../core/vault/reset.js'
@@ -39,6 +39,7 @@ import { registerPrefsIpc } from './ipc/prefs.js'
 import { showMainWindow } from './window-front.js'
 import { noRecent } from './dialog-options.js'
 import { registerMailSchemes, handleMailProtocols, VIEW_SCHEME } from './protocols.js'
+import { frameReaderKey } from './reader-keys.js'
 import { installNetGuard } from './net-guard.js'
 import { createRoutedIpc } from './routed-ipc.js'
 import { saveBeforeLock } from './lock.js'
@@ -183,9 +184,21 @@ function lockDown(wc) {
   wc.on('will-attach-webview', event => event.preventDefault())
 }
 
+/** The composer's bounds: centered on the main window, on its display (window-size.js composerBounds). */
+function composerPlacement() {
+  if (!mainWindow || mainWindow.isDestroyed()) return { ...COMPOSER_SIZE }
+  try {
+    const main = mainWindow.isMinimized() ? mainWindow.getNormalBounds() : mainWindow.getBounds()
+    return composerBounds(main, screen.getDisplayMatching(main).workArea)
+  } catch (err) {
+    log(`composer placement failed: ${errCode(err)}`)
+    return { ...COMPOSER_SIZE }
+  }
+}
+
 /** A composer window for one compose session. */
 function createComposerWindow(sessionId) {
-  const win = new BrowserWindow({ width: 900, height: 700, show: false, title: t.composeTitle, webPreferences: webPreferences() })
+  const win = new BrowserWindow({ ...composerPlacement(), show: false, title: t.composeTitle, webPreferences: webPreferences() })
   lockDown(win.webContents)
   guardComposerClose(win, () => quitting)
   // no show on 'ready-to-show'; the page's compose:checked shows it (ipc/compose.js), after
@@ -229,6 +242,13 @@ function createWindow() {
     if (!event.isMainFrame && !String(event.url).startsWith(`${VIEW_SCHEME}://view/`)) event.preventDefault()
   })
   wc.on('will-attach-webview', event => event.preventDefault())
+  // the reader's Up / Down / Delete / End typed in the message frame (no script there): to the page as an event
+  wc.on('before-input-event', (event, input) => {
+    const key = frameReaderKey(input, wc.focusedFrame ? wc.focusedFrame.url : null)
+    if (!key) return
+    event.preventDefault()
+    wc.send('app:status', { kind: 'readerKey', key })
+  })
   mainWindow.once('ready-to-show', () => mainWindow.show())
   mainWindow.on('closed', () => {
     mainWindow = null

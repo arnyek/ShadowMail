@@ -185,12 +185,104 @@ try {
   await page.getByRole('button', { name: t.contacts.save, exact: true }).click()
   await page.locator('.contact-details .contact-name', { hasText: 'Kiss Anna' }).waitFor()
   const det = await page.locator('.contact-details').innerText()
-  check('new person: two addresses (the first primary) and a phone', /anna@example\.invalid/.test(det) && /anna2@example\.invalid/.test(det) && /\+36 1 234 5678/.test(det) && det.includes(t.contacts.primary), det)
+  check('new person: two addresses (the first primary) and a phone', /anna@example\.invalid/.test(det) && /anna2@example\.invalid/.test(det) && /\+36 1 234 5678/.test(det) && det.includes(t.contacts.primaryTag), det)
   await page.locator('.contact-edit').click()
   await page.locator('input[name="org"]').fill('Cég Kft.')
   await page.getByRole('button', { name: t.contacts.save, exact: true }).click()
   await page.locator('.contact-org', { hasText: 'Cég Kft.' }).waitFor()
   check('edit: the company saved and shown', true)
+
+  // 3b. the shared form base: family name first, the primary as a radio group, the table columns line up with the name
+  // row, the tool row on one line, Save visible on a long person, the composed name unchanged, no horizontal scroll
+  const onTop = sel => page.evaluate(q => {
+    const b = document.querySelector(q)
+    const r = b.getBoundingClientRect()
+    const top = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2)
+    return { inView: r.top >= 0 && r.bottom <= window.innerHeight, onTop: top === b || b.contains(top) }
+  }, sel)
+  const hscroll = () => page.evaluate(() => Math.max(...[document.scrollingElement, document.querySelector('.contacts-detail-pane'), document.querySelector('.contacts-list-pane')].map(e => e.scrollWidth - e.clientWidth)))
+  const oneRow = () => page.evaluate(() => {
+    // the controls (not the empty spacer): their middles on one line (2 px for rounding)
+    const kids = [...document.querySelectorAll('.contacts-tools > :not(.spacer)')].filter(e => e.getBoundingClientRect().width > 0)
+    const mids = kids.map(e => e.getBoundingClientRect().top + e.getBoundingClientRect().height / 2)
+    return kids.length >= 3 && Math.max(...mids) - Math.min(...mids) <= 2
+  })
+  check('the tool row: Import and Export are icon buttons named as before', (await page.locator('.contacts-import').getAttribute('aria-label')) === t.contacts.import && (await page.locator('.contacts-export button, button.contacts-export').first().getAttribute('aria-label')) === t.contacts.export)
+  check('the tool row is one line at 1280 px', await oneRow())
+  await page.locator('.contact-edit').click()
+  await page.locator('form.contact-editor').waitFor()
+  const order = await page.evaluate(() => {
+    const all = [...document.querySelectorAll('form.contact-editor input')]
+    return [all.indexOf(document.querySelector('input[name="familyName"]')), all.indexOf(document.querySelector('input[name="givenName"]'))]
+  })
+  check('the editor: the family name before the given name in the DOM', order[0] >= 0 && order[0] < order[1], JSON.stringify(order))
+  const vdoc = await page.evaluate(() => {
+    const chain = []
+    for (let e = document.querySelector('form.contact-editor'); e; e = e.parentElement) chain.push(`${e.tagName.toLowerCase()}.${String(e.className).split(' ')[0]}:${Math.round(e.getBoundingClientRect().height)}`)
+    return { over: document.scrollingElement.scrollHeight - document.scrollingElement.clientHeight, chain: chain.join(' < ') }
+  })
+  check('the editor: the page itself does not scroll (only the detail pane)', vdoc.over <= 0, JSON.stringify(vdoc))
+  const radios = () => page.locator('input[type="radio"][name="contact-primary"]').evaluateAll(els => els.map(e => e.checked))
+  check('the primary is a radio group with exactly one chosen', JSON.stringify(await radios()) === '[true,false]', JSON.stringify(await radios()))
+  const cols = await page.evaluate(() => {
+    const x = q => Math.round(document.querySelector(q).getBoundingClientRect().left)
+    const xs = q => [...document.querySelectorAll(q)].map(e => Math.round(e.getBoundingClientRect().left))
+    return { given: x('input[name="givenName"]'), labels: xs('input[name^="email-label-"]'), radios: xs('.contact-emails .repeat-radio'), heads: xs('.contact-emails .repeat-head') }
+  })
+  const same = a => a.length > 0 && Math.max(...a) - Math.min(...a) <= 1
+  check('the label and primary columns line up in every row and with the given-name column', same(cols.labels) && same(cols.radios) && Math.abs(cols.labels[0] - cols.given) <= 1 && Math.abs(cols.heads[1] - cols.labels[0]) <= 1 && Math.abs(cols.heads[2] - cols.radios[0]) <= 1, JSON.stringify(cols))
+  await page.locator('input[type="radio"][name="contact-primary"]').nth(1).check()
+  check('choosing the second: still exactly one', JSON.stringify(await radios()) === '[false,true]')
+  if (shots) await page.screenshot({ path: path.join(shots, 'contacts-editor-form.png') })
+  await page.getByRole('button', { name: t.contacts.save, exact: true }).click()
+  await page.locator('.contact-details .contact-name', { hasText: 'Kiss Anna' }).waitFor()
+  await page.waitForTimeout(200)
+  const prim = await page.locator('.contact-email', { has: page.locator('.contact-primary') }).innerText()
+  check('saved: the second address is the primary one', prim.includes('anna2@example.invalid'), prim)
+  await page.locator('.contact-edit').click()
+  // the saved person lists its primary address first: choose the row of anna@ by its address
+  const annaRow = await page.locator('input[name^="email-"]:not([name^="email-label-"])').evaluateAll(els => els.findIndex(e => e.value === 'anna@example.invalid'))
+  await page.locator('input[type="radio"][name="contact-primary"]').nth(annaRow).check()
+  await page.getByRole('button', { name: t.contacts.save, exact: true }).click()
+  await page.locator('.contact-details .contact-name', { hasText: 'Kiss Anna' }).waitFor()
+  await page.waitForTimeout(200)
+  check('and back to the first', (await page.locator('.contact-email', { has: page.locator('.contact-primary') }).innerText()).includes('anna@example.invalid'))
+  if (shots) await page.screenshot({ path: path.join(shots, 'contacts-detail.png') })
+  // a long person: 5 addresses, 5 phones, Save visible without scrolling at 1280 x 800
+  await page.locator('.contact-new').click()
+  await page.locator('input[name="familyName"]').fill('Nagy')
+  await page.locator('input[name="givenName"]').fill('Béla')
+  for (let i = 0; i < 5; i++) {
+    if (i) await page.locator('.contact-add-email').click()
+    await page.locator(`input[name="email-${i}"]`).fill(`bela${i}@example.invalid`)
+    await page.locator('.contact-add-phone').click()
+    await page.locator(`input[name="phone-${i}"]`).fill(`+36 1 000 000${i}`)
+  }
+  const saveSel = 'form.contact-editor button[type="submit"]'
+  let v = await onTop(saveSel)
+  check('1280 x 800, 5 addresses and 5 phones: Save visible without scrolling', v.inView && v.onTop, JSON.stringify(v))
+  await page.locator('input[type="radio"][name="contact-primary"]').nth(0).focus()
+  await page.keyboard.press('ArrowDown')
+  check('the arrow keys move the primary within the group (native radios)', JSON.stringify(await radios()) === '[false,true,false,false,false]', JSON.stringify(await radios()))
+  await page.setViewportSize({ width: 860, height: 800 })
+  await page.waitForTimeout(300)
+  check('860 px: the editor has no horizontal scroll bar', (await hscroll()) <= 0, String(await hscroll()))
+  check('860 px: the tool row is one line', await oneRow())
+  v = await onTop(saveSel)
+  check('860 px: Save visible', v.inView && v.onTop, JSON.stringify(v))
+  if (shots) await page.screenshot({ path: path.join(shots, 'contacts-editor-860.png') })
+  await page.setViewportSize({ width: 1280, height: 800 })
+  await page.getByRole('button', { name: t.contacts.save, exact: true }).click()
+  await page.locator('.contact-details .contact-name').filter({ hasText: 'Nagy' }).waitFor()
+  check('an empty display name is still composed "given family"', (await page.locator('.contact-details .contact-name').innerText()).trim() === 'Béla Nagy', await page.locator('.contact-details .contact-name').innerText())
+  await page.setViewportSize({ width: 860, height: 800 })
+  await page.waitForTimeout(300)
+  check('860 px: the details have no horizontal scroll bar', (await hscroll()) <= 0, String(await hscroll()))
+  await page.setViewportSize({ width: 1280, height: 800 })
+  await page.locator('.contact-delete').click()
+  await page.locator('.contacts-delete-ok').click()
+  await page.waitForTimeout(300)
+  check('the long person deleted again', (await item('Béla Nagy').count()) === 0)
   // a taken address: the error and the link to the other person
   await page.locator('.contact-new').click()
   await page.locator('input[name="displayName"]').fill('Másik')

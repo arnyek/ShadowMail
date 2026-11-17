@@ -134,16 +134,25 @@ test('MCP settings: a v3 database (0.10.1) migrates to 4: the settings table is 
   }
 })
 
-test('the migration list: 1..8 without a gap or a repeat; 6 the signature image, 7 the partial unread index, 8 the folder order', () => {
-  assert.deepEqual(MIGRATIONS.map(m => m.version), [1, 2, 3, 4, 5, 6, 7, 8])
+test('the migration list: 1..12 without a gap or a repeat; 6 the signature image, 7 the partial unread index, 8 the folder order, 9 the folder role, 10 the chosen role, 11 the archive mode, 12 the kept folders', () => {
+  assert.deepEqual(MIGRATIONS.map(m => m.version), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12])
   assert.match(MIGRATIONS[5].name, /signature image/)
   assert.match(MIGRATIONS[6].name, /partial index of the unread rows/)
   assert.match(MIGRATIONS[6].up.toString(), /CREATE INDEX idx_messages_unread ON messages \(account_id, folder\) WHERE instr\(flags, '\\\\Seen'\) = 0/)
   assert.match(MIGRATIONS[7].name, /manual order among siblings/)
   assert.match(MIGRATIONS[7].up.toString(), /ALTER TABLE folders ADD COLUMN sort_order INTEGER'/)
+  assert.match(MIGRATIONS[8].name, /role the sync decided/)
+  assert.match(MIGRATIONS[8].up.toString(), /ALTER TABLE folders ADD COLUMN role TEXT'/)
+  assert.match(MIGRATIONS[9].name, /role the user chose/)
+  assert.match(MIGRATIONS[9].up.toString(), /ALTER TABLE folders ADD COLUMN role_manual INTEGER NOT NULL DEFAULT 0'/)
+  assert.match(MIGRATIONS[10].name, /archive mode/)
+  assert.match(MIGRATIONS[10].up.toString(), /ALTER TABLE accounts ADD COLUMN archive_mode TEXT'/)
+  assert.match(MIGRATIONS[11].name, /kept without a subscription/)
+  assert.match(MIGRATIONS[11].up.toString(), /ALTER TABLE folders ADD COLUMN kept INTEGER DEFAULT 0'/)
+  assert.match(MIGRATIONS[11].up.toString(), /UPDATE folders SET kept = NULL WHERE is_local = 0'/)
 })
 
-test('a schema 7 database migrates to 8: the .bak-7 is made, every folder has no manual order, the folder trees and the account list are byte for byte the old ones', t => {
+test('a schema 7 database migrates to the latest (8, 9, 10, 11, 12): the .bak-7 is made, every folder has no manual order, the folder trees and the account list are byte for byte the old ones', t => {
   const dir = tempDir(t)
   const file = path.join(dir, 'mail.sqlite')
   const key = Buffer.alloc(32, 7)
@@ -172,16 +181,18 @@ test('a schema 7 database migrates to 8: the .bak-7 is made, every folder has no
 
   const { db, migration } = openMailDatabase(file, { key })
   try {
-    assert.deepEqual(migration, { from: 7, to: 8, backup: backupPath(file, 7) })
+    assert.deepEqual(migration, { from: 7, to: 12, backup: backupPath(file, 7) })
     assert.ok(fs.existsSync(`${file}.bak-7`), 'the pre-migration copy')
     assert.equal(db.prepare('SELECT COUNT(*) FROM folders WHERE sort_order IS NOT NULL').pluck().get(), 0, 'no manual order anywhere')
     assert.equal(db.prepare('SELECT COUNT(*) FROM folders').pluck().get(), 25)
     const index = new MailIndex(db)
     for (const [i, id] of ids.entries()) {
-      assert.deepEqual(index.folders(id), rowsBefore[i].map(r => ({ ...r, sort_order: null })), 'the rows: the old ones plus sort_order NULL')
+      assert.deepEqual(index.folders(id), rowsBefore[i].map(r => ({ ...r, sort_order: null, role: null, role_manual: 0, kept: r.is_local ? 0 : null })), 'the rows: the old ones plus sort_order and role NULL, role_manual 0, kept undecided (NULL) on the server folders, 0 on the local ones')
       assert.equal(JSON.stringify(buildFolderTree(index.folders(id))), treesBefore[i], `the tree of account ${id} byte for byte`)
     }
-    assert.equal(JSON.stringify(db.prepare('SELECT * FROM accounts ORDER BY sort_order, id').all()), accountsBefore, 'the account list byte for byte')
+    const accountsNow = db.prepare('SELECT * FROM accounts ORDER BY sort_order, id').all()
+    assert.ok(accountsNow.every(a => a.archive_mode === null), 'migration 11: no archive mode chosen')
+    assert.equal(JSON.stringify(accountsNow.map(({ archive_mode, ...a }) => a)), accountsBefore, 'the account list byte for byte (the old columns)')
     assert.deepEqual(db.prepare('SELECT name FROM accounts ORDER BY sort_order, id').pluck().all(), ['Pontos', 'Perjeles', 'Helyi'])
   } finally {
     db.close()
@@ -195,7 +206,7 @@ test('a schema 7 database migrates to 8: the .bak-7 is made, every folder has no
   }
 })
 
-test('a 0.12.0 database (schema 5, encrypted) migrates to the latest: the .bak-5 is made, 6, 7 and 8 are applied, the data stays', t => {
+test('a 0.12.0 database (schema 5, encrypted) migrates to the latest: the .bak-5 is made, 6 to 12 are applied, the data stays', t => {
   const dir = tempDir(t)
   const file = path.join(dir, 'mail.sqlite')
   const key = Buffer.alloc(32, 9)
@@ -207,12 +218,16 @@ test('a 0.12.0 database (schema 5, encrypted) migrates to the latest: the .bak-5
   old.close()
   const { db, migration } = openMailDatabase(file, { key })
   try {
-    assert.deepEqual(migration, { from: 5, to: 8, backup: backupPath(file, 5) })
+    assert.deepEqual(migration, { from: 5, to: 12, backup: backupPath(file, 5) })
     assert.ok(fs.existsSync(`${file}.bak-5`), 'the pre-migration copy')
     assert.ok(db.prepare("SELECT name FROM pragma_table_info('accounts')").pluck().all().includes('signature_image'), 'migration 6')
     assert.equal(db.prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'idx_messages_unread'").pluck().get(), 'idx_messages_unread', 'migration 7')
     assert.equal(db.prepare("SELECT COUNT(*) FROM messages WHERE account_id = ? AND folder = 'INBOX' AND instr(flags, '\\Seen') = 0").pluck().get(acc), 3, 'the data stays, counted through the new index')
     assert.equal(db.prepare('SELECT sort_order FROM folders WHERE account_id = ?').pluck().get(acc), null, 'migration 8')
+    assert.equal(db.prepare('SELECT role FROM folders WHERE account_id = ?').pluck().get(acc), null, 'migration 9')
+    assert.equal(db.prepare('SELECT role_manual FROM folders WHERE account_id = ?').pluck().get(acc), 0, 'migration 10')
+    assert.equal(db.prepare('SELECT archive_mode FROM accounts WHERE id = ?').pluck().get(acc), null, 'migration 11')
+    assert.ok(db.prepare("SELECT name FROM pragma_table_info('folders')").pluck().all().includes('kept'), 'migration 12')
   } finally {
     db.close()
   }

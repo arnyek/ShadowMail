@@ -37,6 +37,20 @@ The interface is Hungarian by default; Settings / Appearance / Nyelv / Language 
 
 ![Writing a message: From, To, Subject, icon formatting, the blue Send button](docs/screenshots/readme-en-compose.png)
 
+### Keys with a message open
+
+- **Down** / **Up**: the next / previous message of the list (in its current order and filter; in a search, in the
+  order of the hits). **PageUp**, **PageDown** and **Space** scroll the message.
+- **Delete** deletes, **End** archives (into the account's Archive folder, by year in the yearly mode). With a visible
+  selection in the list they act on that, otherwise on the open message. The reader's toolbar has an **Archive**
+  button next to Delete. With no message open, Delete deletes the visible selection and End goes to the end of the list.
+- After a delete, an archive or a move the **next** message of the list (the one below) opens; after the last one, the
+  previous one.
+- Where there is nowhere to archive to (the account has no Archive folder, or the message is in it already), End does
+  nothing but a line says why.
+- The keys work after a click into the message text too. In a text field, a menu, a dialog and on a pane divider they
+  keep their usual meaning.
+
 ### Filters
 
 The **Filters** button next to the search opens the filter row. Without a search word it filters the
@@ -130,6 +144,57 @@ Changing the From account replaces only the signature block, the text you typed 
 - The order is kept only in ShadowMail: the server and other mail programs do not change. A renamed folder keeps its
   place, a new folder comes at the end of its list.
 
+### New in 0.15.0, known limits
+
+- **Folder roles by hand:** in Settings / Accounts / an IMAP account's editor you can pick the Drafts, Sent, Trash,
+  Junk and Archive folder; "Automatic" is the program's own choice. The choice applies at once; nothing changes on
+  the server.
+- **Archiving by year:** when the Archive has year subfolders (or the account is set so), Archive puts a message
+  into the folder of its year and creates a missing year folder.
+- **Folding subfolders in the sidebar;** a folded folder's count includes the unread messages of its subfolders.
+- **Folder subscriptions:** an IMAP account shows only the folders subscribed on the server; change it in the
+  account menu ("Folder subscriptions…") and the folder menu (Unsubscribe). Nothing disappears on the update.
+- **Keys on an open message:** Down/Up the next/previous message, Delete deletes, End archives; after a delete or
+  archive the next message opens.
+- **A new account needs its type (IMAP or POP3) chosen;** it could always be chosen, IMAP was just preselected.
+- **One form layout:** the account editor, the address book, Appearance and Security have a new layout (sections,
+  fields sized to their content, the Save button always visible; in the address book the family name first and the
+  primary address as a radio button).
+
+Known limits of this release:
+
+- If the second move of a yearly archive fails on the server, the list updates only on the next sync; for an
+  existing year folder the server may answer "folder exists".
+- On a heavily loaded computer the text of a large message may stay out of the search (so since 0.12.0).
+- After deleting a message opened in place of the list, the next message opens, not the list.
+- The account editor's Archive menu cuts a long choice; in an 860 px wide window the address column of the address
+  book editor is narrow.
+- The Windows package (ZIP) is checked on Windows before the release; the real Windows taskbar and the keys inside
+  an open HTML message were not measured on Linux.
+
+### New in 0.14.1, known limits
+
+0.14.1 is a bugfix release:
+
+- **Folder roles on a mailbox used by several programs.** When the server does not mark which folder is Sent, Trash,
+  Drafts and Junk, 0.14.0 took the alphabetically first of the names. So in an account where another program's
+  "Elküldött elemek" (Sent Items) folder sits next to "Sent", the built-in Sent pointed to the almost empty folder.
+  Now the server's own flag decides; without one, the folder with more messages wins, and the choice is kept. The
+  fix takes effect with the first full sync after the update.
+- **A bigger number on the taskbar icon:** the digit is about half of the badge, smoothed, on a brighter red.
+- **The new message window** opens on the main window's monitor, centered on the main window (until now always on the
+  primary display).
+
+Known limits of this release:
+
+- While sending, 0.14.0 put the copy of the message, and on delete the message itself, into the wrong folder on the
+  server (for example "Elküldött elemek", "Törölt elemek"). These messages **stay there**: 0.14.1 moves nothing on
+  the server; they can be moved by hand.
+- The **real Windows taskbar** and a **two-monitor** setup were not measured before the release; only the image the
+  program draws and the computed position.
+- On a second display at 125%, the new message window may stick out of the display by a few pixels (Electron's
+  rounding).
+
 ### New in 0.14.0, known limits
 
 0.14.0 brings everything listed above since 0.12.0: the English interface, the themes and the layout button, the
@@ -144,6 +209,9 @@ Known limits of this release:
 - The **taskbar badge on a real Windows taskbar** was not checked; only the image the program draws was measured.
 
 ## Download and start
+
+The latest version: [github.com/arnyek/ShadowMail/releases/latest](https://github.com/arnyek/ShadowMail/releases/latest)
+(the `ShadowMail-<version>-win-x64.zip` file under Assets).
 
 1. Unzip `ShadowMail-<version>-win-x64.zip` into a **local** folder, for example `D:\Programs\ShadowMail`, or onto
    a USB stick.
@@ -216,7 +284,7 @@ the sync stops, and the database closes until you unlock again.
 mode (SSL/TLS, STARTTLS, or no encryption), the user name and the password, and the SMTP (sending) details.
 **Test the connection** checks them before you save.
 
-- **Indexed messages: last N years** (3 by default): for older messages only the
+- **Indexed messages** (in the Sync section, 3 years by default): for older messages only the
   header (sender, subject) can be searched locally; their text can be searched with "Search on the server too"
   (IMAP) or "Search the text of old messages too" (POP3).
   What you opened once always stays searchable.

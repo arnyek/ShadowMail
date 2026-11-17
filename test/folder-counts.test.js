@@ -23,7 +23,7 @@ const until = async (fn, ms = 6000) => {
 const msg = n => ({ from: `k${n}@example.invalid`, to: 'en@example.invalid', subject: `Levél ${n}`, messageId: `<m${n}@x>`, date: NOW - n * 60_000, body: `Szöveg ${n}` })
 
 // the former query of folders(), with a full table walk: what the new counts must equal
-const OLD_FOLDERS = `SELECT f.path, f.delimiter, f.special_use, f.is_local, f.synced_at, f.sort_order, COUNT(m.id) AS count,
+const OLD_FOLDERS = `SELECT f.path, f.delimiter, f.special_use, f.is_local, f.synced_at, f.sort_order, f.role, f.role_manual, f.kept, COUNT(m.id) AS count,
     COALESCE(SUM(CASE WHEN m.id IS NOT NULL AND instr(m.flags, '\\Seen') = 0 THEN 1 ELSE 0 END), 0) AS unread
   FROM folders f LEFT JOIN messages m NOT INDEXED ON m.account_id = f.account_id AND m.folder = f.path
   WHERE f.account_id = ? GROUP BY f.path ORDER BY f.path`

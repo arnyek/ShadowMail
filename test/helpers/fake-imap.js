@@ -46,6 +46,8 @@ export class FakeImapServer {
     this.delimiter = '/' // '.' for Courier/cPanel-like servers
     this.prefix = '' // personal namespace prefix, e.g. 'INBOX.'
     this.subscribed = new Set()
+    this.statusLog = [] // { path, query }
+    this.refuseStatus = new Set() // paths whose STATUS is answered NO
     this.refuseOps = new Set() // 'flags+', 'flags-', 'move', 'expunge': answered NO (imapflow: false)
   }
 
@@ -81,8 +83,10 @@ export class FakeImapServer {
     this._event(path, 'flags', { uid, flags: new Set(flags) })
   }
 
-  addMailbox(path, { uidValidity = 1, specialUse = null } = {}) {
-    this.mailboxes.set(path, { path, uidValidity, specialUse, messages: new Map(), nextUid: 1 })
+  // specialUseSource: 'extension' = the server sent the flag (the default when there is one); 'name' = imapflow's
+  // guess from the folder name on a server without SPECIAL-USE (the real list() reports both the same way)
+  addMailbox(path, { uidValidity = 1, specialUse = null, specialUseSource = specialUse ? 'extension' : undefined } = {}) {
+    this.mailboxes.set(path, { path, uidValidity, specialUse, specialUseSource, messages: new Map(), nextUid: 1 })
     return this
   }
 
@@ -184,7 +188,21 @@ class FakeImapClient extends EventEmitter {
       delimiter: d,
       flags: new Set(),
       specialUse: mb.specialUse,
+      specialUseSource: mb.specialUseSource,
+      // like imapflow 2.11 (dist/esm/commands/list.js): it never writes subscribed: false. subscriptionsKnown (LSUB answered):
+      // true for a subscribed folder (and INBOX), the field LEFT OUT for the others; unknown (no LSUB data, or LSUB refused
+      // with NO): true for every folder
+      ...(!this.server.subscriptionsKnown || this.server.subscribed.has(mb.path) || mb.path.toUpperCase() === 'INBOX' ? { subscribed: true } : {}),
     }))
+  }
+
+  /** STATUS (MESSAGES only); every call is in server.statusLog. refuseStatus: answered like a NO (imapflow throws). */
+  async status(path, query = {}) {
+    if (!this.usable) throw Object.assign(new Error('Connection not available'), { code: 'NoConnection' })
+    this.server.statusLog.push({ path, query })
+    const mb = this.server.mailboxes.get(path)
+    if (!mb || this.server.refuseStatus.has(path)) throw Object.assign(new Error('Command failed'), { responseStatus: 'NO' })
+    return { path, messages: mb.messages.size }
   }
 
   async getMailboxLock(path, { readOnly = false } = {}) {

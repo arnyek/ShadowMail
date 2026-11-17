@@ -402,3 +402,124 @@ test('ChipMenu (0.10.1): its own items with checks, by click and by keyboard; a 
   await click(chip)
   assert.equal(chip.getAttribute('aria-expanded'), 'true')
 })
+
+// The shared form base (ui/Form.jsx, the TextField width / optional, the Checkbox switch)
+const { PageHeader, FormSection, FormRow, FormActions, SettingList, SettingRow, ReadOnlyField, FIELD_WIDTHS } = ui
+const { t: dict } = await import('../app/renderer/i18n/index.js')
+
+test('TextField width and optional: a width class only when asked, "(optional)" after the label', async t => {
+  const v = await mount(h('div', null,
+    h(TextField, { label: 'Alap', id: 'plain' }),
+    ...FIELD_WIDTHS.map(w => h(TextField, { key: w, label: w, width: w, id: `w-${w}` })),
+    h(TextField, { label: 'Felhasználónév', optional: true, id: 'opt' }),
+    h(TextField, { label: 'Rossz', width: 'huge', id: 'bad' }),
+  ))
+  t.after(v.unmount)
+  const box = id => v.container.querySelector(`#${id}`).closest('label')
+  assert.equal(box('plain').className, 'text-field', 'no width: the old look and the container width')
+  for (const w of FIELD_WIDTHS) assert.match(box(`w-${w}`).className, new RegExp(`\\bw-${w}\\b`))
+  assert.equal(box('bad').className, 'text-field', 'an unknown width adds nothing')
+  const opt = box('opt').querySelector('.text-field-label')
+  assert.equal(opt.querySelector('.optional').textContent.trim(), dict.optionalField)
+  assert.equal(v.container.querySelector('#opt').labels[0].textContent, `Felhasználónév ${dict.optionalField}`, 'the input is named with the optional mark')
+})
+
+test('TextField hint and error: the message describes the input, the error replaces the hint, aria-invalid', async t => {
+  const v = await mount(h('div', null,
+    h(TextField, { label: 'Port', hint: 'Általában 993.', id: 'hinted' }),
+    h(TextField, { label: 'Szerver', hint: 'nem látszik', error: 'Kötelező mező.', id: 'wrong' }),
+    h(TextField, { label: 'Semmi', id: 'none' }),
+  ))
+  t.after(v.unmount)
+  const input = id => v.container.querySelector(`#${id}`)
+  const described = id => document.getElementById(input(id).getAttribute('aria-describedby'))
+  assert.equal(described('hinted').textContent, 'Általában 993.')
+  assert.ok(described('hinted').classList.contains('hint'))
+  assert.equal(input('hinted').getAttribute('aria-invalid'), null)
+  assert.equal(described('wrong').textContent, 'Kötelező mező.', 'the error, not the hint')
+  assert.equal(described('wrong').getAttribute('role'), 'alert')
+  assert.ok(described('wrong').querySelector('svg.icon'), 'the error carries an icon')
+  assert.equal(input('wrong').getAttribute('aria-invalid'), 'true')
+  assert.ok(!input('wrong').closest('label').textContent.includes('nem látszik'))
+  assert.equal(input('none').getAttribute('aria-describedby'), null, 'nothing to describe: no attribute')
+})
+
+test('PageHeader, FormSection, FormRow, FormActions (sticky, side action), ReadOnlyField', async t => {
+  let saved = 0
+  const v = await mount(h('div', null,
+    h(PageHeader, { title: 'Fiók szerkesztése', subtitle: 'Munka · munka@example.invalid' }),
+    h('form', null,
+      h(FormSection, { title: 'Bejövő szerver', description: 'IMAP vagy POP3.', 'data-section': 'in' },
+        h(FormRow, null, h(TextField, { label: 'Szerver', width: 'l', id: 'host' }), h(TextField, { label: 'Port', width: 'xs', id: 'port' })),
+        h(ReadOnlyField, { label: 'Típus', value: 'IMAP', hint: 'Mentés után nem változtatható.' })),
+      h(FormSection, { title: 'Aláírás' }, h(TextField, { label: 'Szöveg', id: 'sig' })),
+      h(FormActions, { sticky: true, side: h(Button, { variant: 'outlined' }, 'Kapcsolat próbája') },
+        h(Button, { variant: 'primary', onClick: () => saved++ }, 'Mentés'), h(Button, { variant: 'text' }, 'Mégse'))),
+    h(FormActions, null, h(Button, null, 'OK')),
+  ))
+  t.after(v.unmount)
+  const c = v.container
+  assert.equal(c.querySelector('.page-head h1.page-title').textContent, 'Fiók szerkesztése')
+  assert.equal(c.querySelector('.page-head .page-sub').textContent, 'Munka · munka@example.invalid')
+  const sections = c.querySelectorAll('section.form-section')
+  assert.equal(sections.length, 2)
+  assert.equal(sections[0].dataset.section, 'in', 'other props reach the section')
+  assert.equal(sections[0].querySelector('h2.form-section-title').textContent, 'Bejövő szerver')
+  assert.equal(sections[0].querySelector('.form-section-desc').textContent, 'IMAP vagy POP3.')
+  assert.equal(sections[1].querySelector('.form-section-desc'), null, 'no description: no element')
+  const row = sections[0].querySelector('.form-section-body .form-row')
+  assert.deepEqual([...row.querySelectorAll('input')].map(i => i.id), ['host', 'port'])
+  const ro = sections[0].querySelector('.readonly-field')
+  assert.equal(ro.querySelector('.readonly-value').textContent, 'IMAP')
+  assert.equal(ro.querySelector('input'), null, 'a read-only value is not an input')
+  assert.equal(ro.querySelector('.text-field-message.hint').textContent, 'Mentés után nem változtatható.')
+  const [sticky, plain] = c.querySelectorAll('.form-actions')
+  assert.ok(sticky.classList.contains('form-actions-sticky'))
+  assert.ok(!plain.classList.contains('form-actions-sticky'))
+  assert.deepEqual([...sticky.children].map(e => e.textContent || e.className), ['Mentés', 'Mégse', 'form-actions-spacer', 'Kapcsolat próbája'], 'primary, Cancel, then the side action on the right')
+  assert.equal(plain.querySelector('.form-actions-spacer'), null, 'no side action: no spacer')
+  await click(sticky.querySelector('button'))
+  assert.equal(saved, 1)
+})
+
+test('SettingRow in a SettingList: name and description left, the control right, the name can label the control', async t => {
+  const v = await mount(h(SettingList, null,
+    h(SettingRow, { label: 'Téma', description: 'A felület színei.', labelId: 'theme-label' }, h('button', { 'aria-labelledby': 'theme-label', id: 'theme' }, 'Alap')),
+    h(SettingRow, { label: 'Tálca' }, h(Checkbox, { label: 'Olvasatlan', switch: true, hideLabel: true })),
+  ))
+  t.after(v.unmount)
+  const rows = v.container.querySelectorAll('ul.setting-list > li.setting-row')
+  assert.equal(rows.length, 2)
+  assert.equal(rows[0].querySelector('.setting-text .setting-label').textContent, 'Téma')
+  assert.equal(rows[0].querySelector('.setting-text .setting-desc').textContent, 'A felület színei.')
+  assert.equal(rows[0].querySelector('.setting-control #theme').getAttribute('aria-labelledby'), 'theme-label')
+  assert.equal(document.getElementById('theme-label').textContent, 'Téma')
+  assert.equal(rows[1].querySelector('.setting-desc'), null)
+})
+
+test('Checkbox switch: a toggle on the same native checkbox; click and change switch it, disabled does not', async t => {
+  function Toggle({ disabled = false, id }) {
+    const [on, setOn] = useState(false)
+    return h(Checkbox, { label: 'Claude-hozzáférés', switch: true, checked: on, disabled, id, onChange: e => setOn(e.target.checked) })
+  }
+  const v = await mount(h('div', null, h(Toggle, { id: 'sw' }), h(Toggle, { id: 'off', disabled: true }), h(Checkbox, { label: 'Sima', id: 'box' })))
+  t.after(v.unmount)
+  const sw = v.container.querySelector('#sw')
+  assert.equal(sw.type, 'checkbox', 'the role stays checkbox (and Space is the browser\'s own toggle of it)')
+  assert.ok(sw.closest('label').classList.contains('switch'))
+  assert.ok(sw.closest('label').querySelector('.switch-track[aria-hidden="true"]'))
+  assert.equal(sw.closest('label').querySelector('.checkbox-box'), null, 'no box drawn')
+  assert.equal(sw.labels[0].textContent, 'Claude-hozzáférés')
+  sw.focus()
+  assert.equal(document.activeElement, sw)
+  await click(sw)
+  assert.equal(sw.checked, true)
+  await click(sw)
+  assert.equal(sw.checked, false)
+  const off = v.container.querySelector('#off')
+  await click(off)
+  assert.equal(off.checked, false, 'disabled: no change')
+  const box = v.container.querySelector('#box')
+  assert.ok(!box.closest('label').classList.contains('switch'))
+  assert.ok(box.closest('label').querySelector('.checkbox-box'), 'the plain checkbox as before')
+})

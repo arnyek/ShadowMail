@@ -90,6 +90,9 @@ const TEXT_PAIRS = [
   ['--c-accent', ['--c-surface']],
   ['--c-accent', ['--c-surface-2']],
   ['--c-accent-hover', ['--c-accent-soft', '--c-bg']], // a text button on hover
+  // the "Elsődleges" (primary) tag in the contact details card: --c-accent-hover, the mockup's --c-accent measured
+  // 4.37:1 (default) and 4.48:1 (graphite)
+  ['--c-accent-hover', ['--c-accent-soft', '--c-bg']],
   ['--c-on-accent', ['--c-accent']],
   ['--c-on-accent', ['--c-accent-hover']],
   ['--c-on-accent', ['--c-danger']],
@@ -114,6 +117,10 @@ const ICON_PAIRS = [
   ['--c-star', ['--c-surface-2']],
   ['--c-star', ['--c-hover']],
   ['--c-danger', ['--c-bg']],
+  // the Checkbox switch (ui/ui.css): the track off is --c-text-2 (the pair above; --c-border-strong measured only
+  // 1.7-2.7:1), the knob on the track off and on
+  ['--c-bg', ['--c-text-2']],
+  ['--c-bg', ['--c-accent']],
 ]
 
 const ratio = ([fg, bg]) => contrast(solid(fg, ...bg.slice(1)), solid(...bg))

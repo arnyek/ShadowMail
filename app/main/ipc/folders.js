@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// IPC of folder management: folder:create, folder:rename, folder:delete, and the manual order (folders:reorder,
-// folders:resetOrder).
+// IPC of folder management: folder:create, folder:rename, folder:delete, the manual order (folders:reorder,
+// folders:resetOrder) and the role picker (folders:setRole).
 import { ActionError } from '../sync-manager.js'
 import { errCode } from '../../../core/log-safe.js'
 
-export const FOLDER_CHANNELS = Object.freeze(['folder:create', 'folder:rename', 'folder:delete', 'folders:reorder', 'folders:resetOrder'])
+export const FOLDER_CHANNELS = Object.freeze(['folder:create', 'folder:rename', 'folder:delete', 'folders:reorder', 'folders:resetOrder', 'folders:setRole', 'folders:subscriptions', 'folders:setSubscribed'])
+// the roles the account settings can choose a folder for (INBOX is always the inbox)
+export const CHOOSABLE_ROLES = Object.freeze(['drafts', 'sent', 'trash', 'junk', 'archive'])
 // a sibling list longer than this is not a list of one parent's folders
 export const MAX_REORDER_PATHS = 5000
 
@@ -51,5 +53,22 @@ export function registerFolderIpc({ ipcMain, folders, isTrustedSender, log = () 
   handle('folders:resetOrder', async q => {
     if (!isPlainObject(q) || !isId(q.accountId)) throw new BadRequest()
     return folders.resetOrder({ accountId: q.accountId })
+  })
+  // the role picker: { accountId, role, path } with path null = Automatic
+  handle('folders:setRole', async q => {
+    if (!isPlainObject(q) || !isId(q.accountId) || !CHOOSABLE_ROLES.includes(q.role) || !(q.path === null || isPath(q.path))) throw new BadRequest()
+    if (Object.keys(q).some(k => !['accountId', 'role', 'path'].includes(k))) throw new BadRequest()
+    if (q.path !== null && q.path.toUpperCase() === 'INBOX') throw new BadRequest() // INBOX is always the inbox
+    return folders.setRole({ accountId: q.accountId, role: q.role, path: q.path })
+  })
+  // subscriptions: the server's folders with what shows; one folder on or off (a role folder cannot go off)
+  handle('folders:subscriptions', async q => {
+    if (!isPlainObject(q) || !isId(q.accountId) || Object.keys(q).length !== 1) throw new BadRequest()
+    return folders.subscriptions({ accountId: q.accountId })
+  })
+  handle('folders:setSubscribed', async q => {
+    if (!isPlainObject(q) || !isId(q.accountId) || !isPath(q.path) || typeof q.subscribed !== 'boolean') throw new BadRequest()
+    if (Object.keys(q).some(k => !['accountId', 'path', 'subscribed'].includes(k))) throw new BadRequest()
+    return folders.setSubscribed({ accountId: q.accountId, path: q.path, subscribed: q.subscribed })
   })
 }

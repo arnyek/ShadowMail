@@ -35,6 +35,20 @@ Windows írja, nem a program. A Windows „Legutóbbi fájlok” listájába a S
 
 ![Levélírás: Feladó, Címzett, Tárgy, ikonos formázás, kék Küldés gomb](docs/screenshots/readme-compose.png)
 
+### Billentyűk megnyitott levélnél
+
+- **Le** / **Fel**: a lista következő / előző levele (a lista mostani sorrendjében és szűrésével; keresésnél a
+  találatok sorrendjében). A levél szövegét a **PageUp**, **PageDown** és a **Szóköz** görgeti.
+- **Delete**: törlés, **End**: archiválás (a fiók Archívum-mappájába, évenkénti módban az év mappájába). Ha van
+  látható kijelölés a listában, azokra hat, különben a megnyitott levélre. Az olvasó eszköztárában a Törlés mellett
+  **Archiválás** gomb is van. Nyitott levél nélkül a Delete a látható kijelölést törli, az End a lista végére görget.
+- Törlés, archiválás vagy áthelyezés után a lista **következő** (alatta lévő) levele nyílik meg; ha az volt az utolsó,
+  az előző.
+- Ahol nincs hova archiválni (a fióknak nincs Archívum-mappája, vagy a levél már ott van), az End nem csinál semmit,
+  csak egy sor mondja meg, miért.
+- A billentyűk akkor is működnek, ha a levél szövegébe kattintottál. Szövegmezőben, menüben, párbeszédablakban és a
+  panelek elválasztóján a megszokott jelentésük marad.
+
 ### Szűrők
 
 A kereső melletti **Szűrők** gomb nyitja a szűrősort. Keresőszó nélkül a megnyitott mappa listáját szűri:
@@ -124,6 +138,56 @@ hivatkozásként). A Feladó-fiók váltása csak az aláírás blokkját cseré
 - A sorrendet csak a ShadowMail tartja: a szerveren és más levelezőprogramokban nem változik semmi. Az átnevezett
   mappa a helyén marad, az új mappa a listája végére kerül.
 
+### Újdonságok a 0.15.0-ban, ismert korlátok
+
+- **Mappaszerepek kézzel:** a Beállítások / Fiókok / egy IMAP-fiók szerkesztőjében a Piszkozatok, az Elküldött, a
+  Kuka, a Levélszemét és az Archívum mappa kiválasztható; az "Automatikus" a program saját döntése. A választás
+  azonnal érvényes, a szerveren semmi nem változik.
+- **Archiválás évenként:** ha az Archívum alatt évszámos almappák vannak (vagy a fiókban ez van beállítva), az
+  Archiválás a levelet a saját évének mappájába teszi, a hiányzó év-mappát létrehozza.
+- **Almappák csukása a bal sávban,** a csukott mappa száma az almappák olvasatlanjait is mutatja.
+- **Mappák feliratkozása:** IMAP-fióknál csak a szerveren feliratkozott mappák látszanak; a fiók menüjében
+  ("Mappák feliratkozása…") és a mappa menüjében (Leiratkozás) állítható. Frissítés után semmi nem tűnik el.
+- **Billentyűk megnyitott levélnél:** Le/Fel a következő/előző levél, Delete törlés, End archiválás; törlés vagy
+  archiválás után a következő levél nyílik.
+- **Új fióknál a típust (IMAP vagy POP3) választani kell;** eddig is választható volt, csak előre ki volt jelölve
+  az IMAP.
+- **Egységes űrlapok:** a fiókszerkesztő, a Címlista, a Megjelenés és a Biztonság új elrendezést kapott (szakaszok,
+  a tartalomhoz illő mezők, a Mentés gomb mindig látszik; a Címlistában a vezetéknév elöl, az elsődleges cím
+  rádiógombbal).
+
+A kiadás ismert korlátai:
+
+- Ha egy évenkénti archiválásnál a második áthelyezés a szerveren elbukik, a lista csak a következő szinkronnál
+  frissül; egy már létező év-mappánál a szerver "a mappa már létezik" hibát adhat.
+- Nagyon terhelt gépen egy-egy nagy levél szövege nem kerül a keresőbe (a 0.12.0 óta így van).
+- A lista helyén megnyitott levél törlése után a következő levél nyílik meg, nem a lista.
+- A fiókszerkesztő Archiválás-menüje a hosszú választást levágja; 860 px széles ablakban a Címlista
+  szerkesztőjének címoszlopa keskeny.
+- A Windows-csomagot (ZIP) a kiadás előtt Windowson ellenőrizzük; a valódi Windows-tálcát és a billentyűket egy
+  megnyitott HTML-levél belsejében Linuxon nem mértük.
+
+### Újdonságok a 0.14.1-ben, ismert korlátok
+
+A 0.14.1 javító kiadás:
+
+- **Mappaszerepek több program által használt postafiókon.** Ha a szerver nem jelöli, melyik mappa az Elküldött, a
+  Lomtár, a Piszkozatok és a Levélszemét, a 0.14.0 a nevek közül ábécérendben az elsőt választotta. Így egy fiókban,
+  ahol a "Sent" mellett egy másik program "Elküldött elemek" mappája is ott van, a gyári Elküldött a szinte üres
+  mappára mutatott. Most a szerver saját jelzője dönt; ha nincs, a több levelet tartalmazó mappa nyer, és a
+  választás megmarad. A javítás a frissítés utáni első teljes szinkronnal lép életbe.
+- **Nagyobb szám a tálca-ikonon:** a számjegy a karika kb. fele, simított, élénkebb piros alapon.
+- **Az új levél ablaka** a főablak monitorán, a főablak közepén nyílik (eddig mindig az elsődleges kijelzőn).
+
+A kiadás ismert korlátai:
+
+- A 0.14.0 küldés közben a levél másolatát, törléskor a levelet a rossz mappába (például "Elküldött elemek",
+  "Törölt elemek") tette a szerveren. Ezek a levelek **ott maradnak**: a 0.14.1 a szerveren semmit nem mozgat, kézzel
+  áthelyezhetők.
+- A **valódi Windows-tálcát** és a **két monitoros** elrendezést a kiadás előtt nem mértük; csak a program által
+  rajzolt képet és a hely számítását.
+- 125%-os második kijelzőn az új levél ablaka néhány képponttal kilóghat a kijelzőről (az Electron kerekítése).
+
 ### Újdonságok a 0.14.0-ban, ismert korlátok
 
 A 0.14.0 a 0.12.0 óta elkészült mindent hozza: az angol felületet, a témákat és az elrendezés-gombot, a képes
@@ -138,6 +202,9 @@ A kiadás ismert korlátai:
 - A **tálca-karikát valódi Windows-tálcán** nem ellenőriztük; csak a program által rajzolt képet mértük.
 
 ## Letöltés és indítás
+
+A legújabb változat: [github.com/arnyek/ShadowMail/releases/latest](https://github.com/arnyek/ShadowMail/releases/latest)
+(az Assets alatt a `ShadowMail-<verzió>-win-x64.zip` fájl).
 
 1. A `ShadowMail-<verzió>-win-x64.zip` fájlt csomagold ki egy **helyi** mappába, például
    `D:\Programok\ShadowMail` vagy egy pendrive-ra.
@@ -210,7 +277,7 @@ bezárulnak, a szinkron leáll, az adatbázis bezárul, amíg újra fel nem oldo
 STARTTLS, vagy titkosítás nélkül), a felhasználónév és a jelszó, az SMTP (küldés) adatai. A
 **Kapcsolat próbája** gomb ellenőrzi, mielőtt elmented.
 
-- **Indexelt levelek: utolsó N év** (alapból 3): ennél régebbi leveleknek csak a fejléce (feladó, tárgy)
+- **Indexelt levelek** (a Szinkronizálás szakaszban, alapból 3 év): ennél régebbi leveleknek csak a fejléce (feladó, tárgy)
   kereshető helyben; a szövegükben a keresés "Keresés a szerveren is" (IMAP) vagy "Keresés a régi levelek
   szövegében is" (POP3) gombjával lehet keresni. Amit egyszer megnyitottál, az mindig kereshető marad.
 - **A helyi keresés a levél LÁTHATÓ szövegében keres**: HTML-levélnél abban, amit az olvasó is mutat (a

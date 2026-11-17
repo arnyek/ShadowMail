@@ -37,10 +37,109 @@ function nameRole(folder) {
 }
 
 /**
- * Role of every folder: { path -> role }. INBOX by name, then SPECIAL-USE, then the usual names.
- * One folder per role; a SPECIAL-USE flag beats a name match.
+ * A folder that may hold a role: INBOX, the server's own SPECIAL-USE flag, or a usual role name (top level or under
+ * INBOX). These always show, subscribed or not (a role folder cannot be unsubscribed in the app either).
+ */
+export function isRoleCandidate(folder) {
+  if (folder.path.toUpperCase() === 'INBOX') return true
+  if (folder.specialUse && SPECIAL_USE_ROLE[folder.specialUse]) return true
+  return nameRole(folder) !== null
+}
+
+/**
+ * Whether a LIST answer tells the subscriptions at all: imapflow gives true to EVERY folder when it does not know them
+ * (no LSUB data, or LSUB refused with NO), and true to INBOX always; so the state is known only when a folder other than
+ * INBOX is not true. (An account whose folders are all subscribed looks the same as an unknown state: nothing to decide.)
+ */
+export function subscriptionsKnown(listed) {
+  return listed.some(f => f.path.toUpperCase() !== 'INBOX' && f.subscribed !== true)
+}
+
+/**
+ * The server folders the app shows and syncs after a LIST: the subscribed ones (`subscribed === true`: imapflow never
+ * writes false, it leaves the field out of an unsubscribed folder; with no subscription data it gives true to every folder),
+ * the kept ones (kept: Map path -> 1, folders the user had before the upgrade), the role candidates and the folders
+ * with a stored or chosen role (roles: Set of paths).
+ */
+export function shownFolders(listed, { kept = new Map(), roles = new Set() } = {}) {
+  return listed.filter(f => f.subscribed === true || kept.get(f.path) === 1 || roles.has(f.path) || isRoleCandidate(f))
+}
+
+const depth = f => splitPath(f.path, f.delimiter).length
+const nameRank = (f, role) => ROLE_NAMES[role].indexOf(splitPath(f.path, f.delimiter).pop().toLowerCase())
+
+/**
+ * The roles of an IMAP account's folders as the sync decides them once per LIST (stored in folders.role):
+ *   INBOX by name; then the user's own choice (`manual`, path -> role: the account settings' role picker, it beats
+ *   every automatic rule); then the server's own SPECIAL-USE flag (`specialUse` here is ONLY a flag the server sent: imapflow's
+ *   guess from the name is not one); then the role each folder had before (`previous`, path -> role: a decided role
+ *   stays, it does not move with the message counts); then the usual names. When more than one folder has a usual name
+ *   of the same role (a mailbox used by several programs: "Sent" and "Elküldött elemek"), the one with more messages on
+ *   the server wins (`counts`, path -> MESSAGES or null), then the shallower path, then the order of ROLE_NAMES (the
+ *   English name first), then the path.
+ * Without `counts`, a contested role is left out and its candidates are in `needCounts` (the sync asks the server for
+ * their STATUS and calls again). -> { roles: Map path -> role, needCounts: [path] }
+ */
+export function resolveRoles(folders, { previous = new Map(), counts = null, manual = new Map() } = {}) {
+  const roles = new Map()
+  const taken = new Set()
+  const give = (path, role) => {
+    if (!role || taken.has(role) || roles.has(path)) return
+    roles.set(path, role)
+    taken.add(role)
+  }
+  const exists = new Set(folders.map(f => f.path))
+  for (const f of folders) if (f.path.toUpperCase() === 'INBOX') give(f.path, 'inbox')
+  for (const [path, role] of manual) if (role !== 'inbox' && exists.has(path)) give(path, role)
+  for (const f of folders) give(f.path, SPECIAL_USE_ROLE[f.specialUse])
+  for (const [path, role] of previous) if (role !== 'inbox' && exists.has(path)) give(path, role)
+  const needCounts = []
+  for (const role of ROLE_ORDER) {
+    if (taken.has(role)) continue
+    const candidates = folders.filter(f => !roles.has(f.path) && nameRole(f) === role)
+    if (candidates.length > 1 && !counts) {
+      needCounts.push(...candidates.map(f => f.path))
+      continue
+    }
+    const messages = f => counts?.get(f.path) ?? -1
+    candidates.sort((a, b) => messages(b) - messages(a) || depth(a) - depth(b) || nameRank(a, role) - nameRank(b, role) || (a.path < b.path ? -1 : a.path > b.path ? 1 : 0))
+    if (candidates.length) give(candidates[0].path, role)
+  }
+  return { roles, needCounts }
+}
+
+/**
+ * Role of every folder: { path -> role }.
+ * An IMAP account the sync has listed: the stored roles (the `role` column, resolveRoles), INBOX by name; a role no
+ * stored folder has goes by the usual name to a folder without a stored role, if it is the only such candidate (one
+ * created or renamed in the app since the last full sync: it gets its role at once, and the next sync agrees); two
+ * candidates wait for the sync, which has the message counts.
+ * Otherwise (POP3's local folders, an account before its first full sync): INBOX by name, then SPECIAL-USE, then the
+ * usual names; one folder per role; a SPECIAL-USE flag beats a name match.
  */
 export function assignRoles(folders) {
+  if (folders.some(f => f.role)) {
+    const roles = new Map()
+    const taken = new Set()
+    for (const f of folders) if (f.path.toUpperCase() === 'INBOX') roles.set(f.path, 'inbox')
+    for (const f of folders) {
+      if (!f.role || f.role === 'inbox' || taken.has(f.role) || roles.has(f.path)) continue
+      roles.set(f.path, f.role)
+      taken.add(f.role)
+    }
+    // only an unambiguous name: two candidates of one role need the message counts, which only the sync has
+    const byName = new Map()
+    for (const f of folders) {
+      const role = f.role ? null : nameRole(f)
+      if (role && !taken.has(role) && !roles.has(f.path)) byName.set(role, [...(byName.get(role) || []), f.path])
+    }
+    for (const [role, paths] of byName) {
+      if (paths.length !== 1) continue
+      roles.set(paths[0], role)
+      taken.add(role)
+    }
+    return roles
+  }
   const roles = new Map()
   const taken = new Set()
   const give = (f, role) => {
@@ -52,6 +151,59 @@ export function assignRoles(folders) {
   for (const f of folders) give(f, SPECIAL_USE_ROLE[f.special_use ?? f.specialUse])
   for (const f of folders) give(f, nameRole(f))
   return roles
+}
+
+// Archiving by year (the account's archive_mode): the Archive role folder's direct children named by a 4-digit year
+// ("Archívum/2024", with the server's delimiter) are the year folders. 'single' = everything into the Archive itself,
+// 'yearly' = into the year of the message; none set = yearly when the Archive already has a year folder, else single.
+export const ARCHIVE_MODES = Object.freeze(['single', 'yearly'])
+const YEAR_RE = /^\d{4}$/
+
+/** The year folders under the Archive: Map year (number) -> path. Empty for a folder without a delimiter (flat server). */
+export function yearFolders(folders, archivePath) {
+  const archive = folders.find(f => f.path === archivePath)
+  const years = new Map()
+  if (!archive || !archive.delimiter) return years
+  const prefix = archivePath + archive.delimiter
+  for (const f of folders) {
+    if (!f.path.startsWith(prefix)) continue
+    const rest = f.path.slice(prefix.length)
+    if (YEAR_RE.test(rest)) years.set(Number(rest), f.path)
+  }
+  return years
+}
+
+/** The mode in effect: the account's setting, or by the Archive's year folders; never yearly on a flat server. */
+export function archiveModeOf(setting, folders, archivePath) {
+  const archive = folders.find(f => f.path === archivePath)
+  if (!archive || !archive.delimiter) return 'single'
+  if (ARCHIVE_MODES.includes(setting)) return setting
+  return yearFolders(folders, archivePath).size ? 'yearly' : 'single'
+}
+
+/** Whether a folder is the Archive or inside it (no Archive action there). */
+export function inArchive(folders, archivePath, path) {
+  if (!archivePath) return false
+  if (path === archivePath) return true
+  const archive = folders.find(f => f.path === archivePath)
+  return Boolean(archive && archive.delimiter && path.startsWith(archivePath + archive.delimiter))
+}
+
+/**
+ * A message's archive year, in local time (as the user reads the date): its Date header's, else its arrival's, if that
+ * year is a plausible one (ARCHIVE_YEAR_MIN .. next year); with neither date, now's. null = no plausible year (a Date
+ * header of year 999 or 10000 and no usable arrival): the message goes into the Archive itself, no year folder is made.
+ */
+export const ARCHIVE_YEAR_MIN = 1970
+export function archiveYear(row, now = Date.now()) {
+  if (!row.date && !row.idate) return new Date(now).getFullYear()
+  const max = new Date(now).getFullYear() + 1
+  for (const at of [row.date, row.idate]) {
+    if (!at) continue
+    const year = new Date(at).getFullYear()
+    if (Number.isInteger(year) && year >= ARCHIVE_YEAR_MIN && year <= max) return year
+  }
+  return null
 }
 
 const collator = typeof Intl !== 'undefined' ? new Intl.Collator('hu', { sensitivity: 'base', numeric: true }) : null

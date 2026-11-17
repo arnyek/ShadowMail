@@ -7,6 +7,7 @@ import { VaultError } from '../vault/vault.js'
 
 import { SECURITY, ACCOUNT_TYPES, MAX_INDEX_YEARS, yearsToDays, daysToYears } from './defaults.js'
 import { SIGNATURE_LIMITS, SIGNATURE_TYPES } from './signature-image.js'
+import { ARCHIVE_MODES } from '../imap/folders.js'
 
 export { SECURITY, ACCOUNT_TYPES, DEFAULT_INDEX_YEARS, MAX_INDEX_YEARS, defaultPort, newAccountDefaults, yearsToDays, daysToYears } from './defaults.js'
 
@@ -78,6 +79,12 @@ export function validateAccount(input, existing = null, { hasIncoming = false, h
   }
   if (v.type !== 'pop3') v.pop3_delete_after_days = null
 
+  // the Archive action: '' / null = by the Archive's year folders, or one of ARCHIVE_MODES (IMAP only)
+  const am = input.archive_mode
+  v.archive_mode = am === undefined || am === null || am === '' ? null : am
+  if (v.archive_mode !== null && !ARCHIVE_MODES.includes(v.archive_mode)) errors.archive_mode = 'bad_archive_mode'
+  if (v.type !== 'imap') v.archive_mode = null
+
   v.signature = typeof input.signature === 'string' && input.signature !== '' ? input.signature : null
   if (v.signature && v.signature.length > 10_000) errors.signature = 'too_long'
 
@@ -105,7 +112,7 @@ export class AccountError extends Error {
 const COLUMNS = [
   'name', 'email', 'display_name', 'type', 'in_host', 'in_port', 'in_security', 'in_user',
   'smtp_host', 'smtp_port', 'smtp_security', 'smtp_user', 'smtp_same_password', 'tls_verify',
-  'body_index_days', 'sync_interval_min', 'save_sent_to_server', 'pop3_delete_after_days', 'signature',
+  'body_index_days', 'sync_interval_min', 'save_sent_to_server', 'pop3_delete_after_days', 'signature', 'archive_mode',
 ]
 
 export class AccountStore {

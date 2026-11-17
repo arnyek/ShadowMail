@@ -21,6 +21,10 @@ window.shadowMail = {
     save: async () => ({ ok: true }),
     test: async () => ({ ok: true }),
   },
+  // the role picker of a saved IMAP account (its own test: folder-role-picker-ui.test.js)
+  mail: { folders: async () => ({ ok: true, accounts: [] }) },
+  folders: { setRole: async () => ({ ok: true, changed: 0 }) },
+  onStatus: () => () => {},
 }
 const { createElement: h } = await import('react')
 const { AccountEditor } = await import('../app/renderer/src/Accounts.jsx')

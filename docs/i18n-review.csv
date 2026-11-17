@@ -48,7 +48,8 @@ vaultChangeHeading;Mesterjelszó cseréje;Change the master password
 vaultOldPassword;Jelenlegi mesterjelszó;Current master password
 vaultNewPassword;Új mesterjelszó;New master password
 vaultNewPasswordAgain;Új mesterjelszó még egyszer;New master password again
-vaultChangeButton;Csere;Change
+vaultChangeButton;Mesterjelszó cseréje;Change the master password
+vaultChangeIntro;Ezzel oldod fel a ShadowMailt indításkor és zárolás után.;You unlock ShadowMail with it at start and after locking.
 vaultChanged;A mesterjelszó megváltozott.;The master password has been changed.
 vaultErrors.wrong_password;Hibás mesterjelszó;Wrong master password
 vaultErrors.password_too_short;A mesterjelszó túl rövid (legalább 10 karakter).;The master password is too short (at least 10 characters).
@@ -180,14 +181,35 @@ accountFields.index_years;Indexelt levelek: utolsó N év;Indexed messages: last
 accountFields.index_all;mind;all
 accountFields.sync_interval_min;Frissítés (perc);Refresh (minutes)
 accountFields.save_sent_to_server;Elküldött levelek mentése a szerverre;Save sent messages on the server
+accountFields.archive_mode;Archiválás;Archiving
 accountFields.pop3_delete_after_days;Törlés a szerverről N nap után (üres = soha);Delete from the server after N days (empty = never)
 accountFields.signature;Aláírás;Signature
+accountForm.editTitle;Fiók szerkesztése;Edit account
+accountForm.sections.account;Fiók;Account
+accountForm.sections.incoming;Bejövő szerver;Incoming server
+accountForm.sections.incomingImap;Bejövő szerver (IMAP);Incoming server (IMAP)
+accountForm.sections.incomingPop3;Bejövő szerver (POP3);Incoming server (POP3)
+accountForm.sections.smtp;Kimenő szerver (SMTP);Outgoing server (SMTP)
+accountForm.sections.folders;Mappák;Folders
+accountForm.sections.sync;Szinkronizálás;Sync
+accountForm.sections.signature;Aláírás;Signature
+accountForm.typeLocked;Mentés után nem változtatható.;Cannot be changed after saving.
+accountForm.smtpUser;Felhasználónév;User name
+accountForm.smtpUserHint;Üresen hagyva a bejövővel azonos.;Leave it empty to use the incoming one.
+accountForm.indexYears;Indexelt levelek;Indexed messages
+accountForm.yearsUnit;év;years
+accountForm.indexAll;Mind;All
+accountForm.syncInterval;Frissítés;Refresh every
+accountForm.minutesUnit;percenként;minutes
+accountForm.signatureText;Szöveg;Text
 accountPasswordUnchanged;•••• (változatlan);•••• (unchanged)
 securityLabels.tls;SSL/TLS;SSL/TLS
 securityLabels.starttls;STARTTLS;STARTTLS
 securityLabels.none;Nincs (titkosítatlan);None (unencrypted)
 typeLabels.imap;IMAP;IMAP
 typeLabels.pop3;POP3;POP3
+accountTypeHelp.imap;"a levelek a szerveren maradnak, minden eszközről ugyanazt látod";"the mail stays on the server, every device sees the same"
+accountTypeHelp.pop3;"a levelek letöltődnek erre a gépre, a szerverről csak a beállítás szerint törlődnek";"the mail is downloaded to this computer, deleted from the server only as set below"
 tlsVerifyOffWarning;"A tanúsítvány-ellenőrzés ki van kapcsolva: a kapcsolat titkosított, de nem ellenőrzött, hogy valóban a te szervereddel beszélsz. Csak akkor kapcsold ki, ha a tárhely tanúsítványa más névre szól.";"Certificate verification is off: the connection is encrypted, but it is not checked that you are really talking to your server. Only turn it off if your host’s certificate is issued to a different name."
 noSecurityWarning;Titkosítás nélkül a jelszó és a levelek olvashatóan mennek a hálózaton.;"Without encryption, the password and the messages travel over the network in readable form."
 indexHelp;"Ennél régebbi levelekben csak a feladóra, címzettre, tárgyra és dátumra lehet keresni, a megnyitottakban a szövegre is.";"In older messages you can only search by sender, recipient, subject and date; in the ones you have opened, by the text too."
@@ -198,13 +220,14 @@ reindexStatus (2);"Újraindexelés: 2 levél szövege kikerült az indexből, 2 
 accountErrors.required;Kötelező mező.;Required field.
 accountErrors.too_long;Túl hosszú.;Too long.
 accountErrors.bad_email;Érvénytelen e-mail cím.;Invalid email address.
-accountErrors.bad_type;Válassz típust.;Choose a type.
+accountErrors.bad_type;Válaszd ki a fiók típusát (IMAP vagy POP3).;Choose the account type (IMAP or POP3).
 accountErrors.type_locked;Meglévő fiók típusa nem változtatható.;The type of an existing account cannot be changed.
 accountErrors.bad_host;Érvénytelen szervernév.;Invalid server name.
 accountErrors.bad_security;Válassz biztonsági módot.;Choose a security mode.
 accountErrors.bad_port;A port 1 és 65535 közötti egész szám.;The port is a whole number between 1 and 65535.
 accountErrors.bad_index_years;"Egész szám 1 és 50 között, vagy „mind”.";"A whole number between 1 and 50, or “all”."
 accountErrors.bad_interval;Egész szám 1 és 1440 között.;A whole number between 1 and 1440.
+accountErrors.bad_archive_mode;Ismeretlen archiválási mód.;Unknown archive mode.
 accountErrors.bad_days;"Egész szám 0 és 3650 között, vagy üres.";"A whole number between 0 and 3650, or empty."
 accountErrors.bad_password;Érvénytelen jelszó.;Invalid password.
 accountErrors.bad_chars;Sortörés vagy vezérlőkarakter nem lehet benne.;It cannot contain a line break or a control character.
@@ -295,6 +318,26 @@ contacts.removeEmail (1);1. cím eltávolítása;Remove address 1
 contacts.removeEmail (2);2. cím eltávolítása;Remove address 2
 contacts.removePhone (1);1. telefon eltávolítása;Remove phone 1
 contacts.removePhone (2);2. telefon eltávolítása;Remove phone 2
+contacts.emptyTitle;Nincs kiválasztott névjegy;No contact selected
+contacts.emptyText;"Válassz egyet a listából, vagy vegyél fel újat. Importálni vCard- és CSV-fájlból lehet.";"Pick one from the list, or add a new one. You can import from vCard and CSV files."
+contacts.primaryTag;Elsődleges;Primary
+contacts.detailEmail;E-mail;Email
+contacts.detailPhone;Telefon;Phone
+contacts.detailSource;Forrás;Source
+contacts.sectionName;Név;Name
+contacts.sectionWork;Munkahely;Work
+contacts.headAddress;E-mail cím;Email address
+contacts.headNumber;Telefonszám;Phone number
+contacts.emailRow (1);1. e-mail cím;Email address 1
+contacts.emailRow (2);2. e-mail cím;Email address 2
+contacts.emailLabelRow (1);1. cím címkéje;Label of address 1
+contacts.emailLabelRow (2);2. cím címkéje;Label of address 2
+contacts.primaryRow (1);1. cím az elsődleges;Address 1 is the primary one
+contacts.primaryRow (2);2. cím az elsődleges;Address 2 is the primary one
+contacts.phoneRow (1);1. telefonszám;Phone number 1
+contacts.phoneRow (2);2. telefonszám;Phone number 2
+contacts.phoneLabelRow (1);1. telefon címkéje;Label of phone 1
+contacts.phoneLabelRow (2);2. telefon címkéje;Label of phone 2
 contacts.save;Mentés;Save
 contacts.cancel;Mégse;Cancel
 contacts.newTitle;Új névjegy;New contact
@@ -418,9 +461,25 @@ folderRoles.sent;Elküldött;Sent
 folderRoles.trash;Kuka;Trash
 folderRoles.junk;Levélszemét;Junk
 folderRoles.archive;Archívum;Archive
+archiveCreated (1);Az archiváláshoz új mappa készült: Archive/2024;A new folder was made for archiving: Archive/2024
+archiveCreated (2);Az archiváláshoz új mappa készült: Archive/2024;A new folder was made for archiving: Archive/2024
+archiveModes.;"Automatikus (évenként, ha az Archívumban már van évszám-mappa)";Automatic (by year if the Archive already has a year folder)
+archiveModes.single;Egy mappába (Archívum);Into one folder (Archive)
+archiveModes.yearly;Évenként (Archívum/2024);By year (Archive/2024)
+folderRolePicker.label;Mappaszerepek;Folder roles
+folderRolePicker.auto;Automatikus;Automatic
+folderRolePicker.autoNow (1);Automatikus (most: Sent);Automatic (now: Sent)
+folderRolePicker.autoNow (2);Automatikus (most: Sent);Automatic (now: Sent)
+folderRolePicker.help;"Melyik mappa legyen az Elküldött, a Kuka, a Piszkozatok, a Levélszemét és az Archívum. Az Automatikus a szerver jelzése, a korábbi választás vagy a szokásos név szerint dönt, két hasonló nevű mappa közül a több levelet tartalmazót választja. A választás azonnal érvényes, a szerveren semmi nem változik.";"Which folder is Sent, Trash, Drafts, Junk and Archive. Automatic goes by the server's flag, the earlier choice or the usual name, and between two similarly named folders it takes the one with more messages. The choice applies at once; nothing changes on the server."
 foldersHeading;Mappák;Folders
 unreadCount (1);1 olvasatlan;1 unread
 unreadCount (2);2 olvasatlan;2 unread
+unreadCountFolded (1);"1 olvasatlan, az almappákkal együtt";"1 unread, subfolders included"
+unreadCountFolded (2);"2 olvasatlan, az almappákkal együtt";"2 unread, subfolders included"
+folderFoldHide (1);Projects: almappák elrejtése;Projects: hide subfolders
+folderFoldHide (2);Projects: almappák elrejtése;Projects: hide subfolders
+folderFoldShow (1);Projects: almappák megjelenítése;Projects: show subfolders
+folderFoldShow (2);Projects: almappák megjelenítése;Projects: show subfolders
 noMailAccounts;Még nincs postafiók. Vegyél fel egyet a „Fiókok és beállítások” alatt.;No mailbox yet. Add one under “Accounts and settings”.
 noFolders;A mappák az első szinkron után jelennek meg.;The folders appear after the first sync.
 chooseFolder;Válassz mappát.;Choose a folder.
@@ -569,6 +628,10 @@ readerNoRecipient;nincs címzett;no recipient
 readerAttachmentKind.executable;futtatható;executable
 readerAttachmentKind.browserActive;weboldal-jellegű;web-page-like
 readerAttachmentKind.notOpenable;csak menthető;save only
+settingDesc.language;A felület nyelve. A váltás azonnal érvényes.;The language of the interface. The change applies at once.
+settingDesc.theme;Színek és sűrűség.;Colors and density.
+settingDesc.readerPane;Hol nyíljon meg a kijelölt levél.;Where the selected message opens.
+settingDesc.taskbar;"Piros karika a számmal, ha a Beérkezettekben olvasatlan levél van (Windows).";A red disc with the number when the Inbox has unread messages (Windows).
 settingsAppearance;Megjelenés;Appearance
 readerPaneLabel;Olvasópanel;Reading pane
 taskbarUnreadLabel;Olvasatlan levelek száma a tálca-ikonon;Unread count on the taskbar icon
@@ -777,9 +840,21 @@ folderMenu.rename;Átnevezés…;Rename…
 folderMenu.moveUp;Feljebb;Move up
 folderMenu.moveDown;Lejjebb;Move down
 folderMenu.delete;Törlés…;Delete…
+folderMenu.unsubscribe;Leiratkozás;Unsubscribe
 accountMenu.moveUp;Feljebb;Move up
 accountMenu.moveDown;Lejjebb;Move down
 accountMenu.sortFolders;Mappák betűrendbe;Sort folders A-Z
+accountMenu.subscriptions;Mappák feliratkozása…;Folder subscriptions…
+subscriptions.title (1);Mappák feliratkozása: Work;Folder subscriptions: Work
+subscriptions.title (2);Mappák feliratkozása: Work;Folder subscriptions: Work
+subscriptions.help;A bepipált mappák látszanak a bal sávban és szinkronizálódnak. A levelek a leiratkozott mappákban is a szerveren maradnak.;The ticked folders show in the sidebar and sync. The messages of an unsubscribed folder stay on the server too.
+subscriptions.loading;A szerver mappái betöltődnek…;Loading the server’s folders…
+subscriptions.roleLocked;"Ez a fiók egyik alapmappája: mindig látszik, nem lehet róla leiratkozni.";This is one of the account’s main folders: it always shows and cannot be unsubscribed.
+subscriptions.kept;a korábbi verzióból megtartva;kept from the earlier version
+subscriptions.close;Kész;Done
+readerKeys.no_archive;Ebben a fiókban nincs Archívum-mappa: nincs hova archiválni.;This account has no Archive folder: there is nowhere to archive to.
+readerKeys.in_archive;Az Archívumban lévő levél nem archiválható tovább.;A message in the Archive cannot be archived again.
+optionalField;(nem kötelező);(optional)
 folderProtected;Ez a fiók egyik alapmappája: nem nevezhető át és nem törölhető.;This is one of the account’s standard folders: it cannot be renamed or deleted.
 newFolderTitle (1);Új mappa: Work;New folder: Work
 newFolderTitle (2);Új mappa: Work;New folder: Work
@@ -797,6 +872,7 @@ confirmFolderDelete (2);"A(z) „Projects” mappa törlődik, és vele együtt 
 folderErrors.bad_name;"Érvénytelen név (üres, túl hosszú, vagy tiltott karaktert tartalmaz: % * "" \).";"Invalid name (empty, too long, or it contains a forbidden character: % * "" \)."
 folderErrors.name_has_delimiter;"A név nem tartalmazhat elválasztó karaktert (/ vagy a szerver saját elválasztóját, pl. pont). Almappát a mappa helyi menüjéből hozhatsz létre.";"The name cannot contain a separator character (/ or the server’s own separator, e.g. a dot). You can create a subfolder from the folder’s context menu."
 folderErrors.folder_exists;Már van ilyen nevű mappa.;There is already a folder with this name.
+folderErrors.role_folder;Ez a fiók egyik alapmappája: nem lehet róla leiratkozni.;This is one of the account’s main folders: it cannot be unsubscribed.
 folderErrors.protected_folder;Ez a fiók egyik alapmappája: nem nevezhető át és nem törölhető.;This is one of the account’s standard folders: it cannot be renamed or deleted.
 folderErrors.has_children;A mappának almappái vannak: előbb azokat töröld.;The folder has subfolders: delete those first.
 folderErrors.no_subfolders;Ez a szerver nem támogat almappákat.;This server does not support subfolders.

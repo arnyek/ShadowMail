@@ -103,6 +103,16 @@ export async function listSyncFolders(client, { skipJunkTrash = true, exclude = 
   })
 }
 
+/**
+ * The SPECIAL-USE flag the server itself sent (RFC 6154, or XLIST), or null. imapflow also fills `specialUse` from
+ * the folder's name when the server sends none (specialUseSource 'name'), and between two such names it picks the
+ * alphabetically first: "Elküldött elemek" before "Sent". That guess is not the server's word, so it is not kept;
+ * the roles are decided by core/imap/folders.js resolveRoles.
+ */
+export function serverSpecialUse(f) {
+  return f.specialUse && f.specialUseSource === 'extension' ? f.specialUse : null
+}
+
 export async function findSpecialFolder(client, specialUse, fallbacks) {
   const list = await client.list()
   const hit = list.find(f => f.specialUse === specialUse)

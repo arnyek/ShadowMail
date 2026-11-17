@@ -147,15 +147,19 @@ test('POP3 "régi levelek szövegében is" (messageText): a hidden word is not i
 // a complex HTML is filtered once more on its first 128 KB
 import { newsletterHtml } from './helpers/newsletter.js'
 import { visibleTextInfo } from '../core/mime/visible-text.js'
+import { retryWhenLoaded } from './helpers/load-retry.js'
 import { htmlHead, COMPLEX_RETRY_BYTES } from '../core/mime/text.js'
 
-test('a 404 KB HTML over the work ceiling: its first 128 KB is searched (the visible word yes, the hidden no)', () => {
+test('a 404 KB HTML over the work ceiling: its first 128 KB is searched (the visible word yes, the hidden no)', async t => {
   const html = newsletterHtml({ blocks: 2000, hidden: 'rejtettpreheader', visible: 'lathatotermek' })
   assert.equal(visibleTextInfo(html).cut, 'complex', 'the whole is over the ceiling (precondition)')
-  const text = searchTextOf({ html })
-  assert.ok(text.includes('lathatotermek'), 'the visible word of the first 128 KB')
-  assert.ok(!text.includes('rejtettpreheader'), 'the hidden preheader is not')
-  assert.ok(text.length > 1000)
+  // the 128 KB retry rests on visible-text.js's wall-clock net: again only on a loaded machine (load-retry.js)
+  await retryWhenLoaded(t, async () => {
+    const text = searchTextOf({ html })
+    assert.ok(text.includes('lathatotermek'), 'the visible word of the first 128 KB')
+    assert.ok(!text.includes('rejtettpreheader'), 'the hidden preheader is not')
+    assert.ok(text.length > 1000)
+  })
 })
 
 test('complex in its first 128 KB too: no body; an HTML that fits in 128 KB is not filtered twice', () => {

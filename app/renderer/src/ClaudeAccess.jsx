@@ -5,7 +5,7 @@
 // memory only: time, tool, result, count; never an argument) and what Claude can and cannot do.
 import { useCallback, useEffect, useState } from 'react'
 import { t } from '../i18n/index.js'
-import { Button, Checkbox } from './ui/index.js'
+import { Button, Checkbox, PageHeader, SettingList, SettingRow } from './ui/index.js'
 
 const api = window.shadowMail
 const ca = t.claudeAccess
@@ -72,12 +72,14 @@ export function ClaudeAccess() {
 
   return (
     <div className="settings-cards claude-access">
+      <PageHeader title={ca.title} />
       <section className="settings-card">
-        <h2>{ca.title}</h2>
         <p>{ca.intro}</p>
-        <div className="setting-row">
-          <Checkbox id="claude-access-switch" checked={Boolean(status && status.enabled)} onChange={e => toggle(e.target.checked)} label={ca.switchLabel} />
-        </div>
+        <SettingList>
+          <SettingRow label={ca.switchLabel}>
+            <Checkbox id="claude-access-switch" switch hideLabel checked={Boolean(status && status.enabled)} onChange={e => toggle(e.target.checked)} label={ca.switchLabel} />
+          </SettingRow>
+        </SettingList>
         <p className="claude-state" role="status" data-state={!status || !status.enabled ? 'off' : status.connections > 0 ? 'connected' : 'waiting'}>
           {ca.stateLabel} <strong>{stateText(status)}</strong>
         </p>

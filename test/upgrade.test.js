@@ -136,9 +136,18 @@ test('the upgrade runs in a worker: the main thread keeps ticking (an in-thread 
   // control: the same work on the main thread blocks it (the measurement sees a freeze)
   const b = oldDatabase(path.join(dir, 'b'), 24)
   const m = await gaps(async () => openMailDatabase(b.file, { key: b.key }).db.close())
-  console.log(`worker: ${Math.round(w.ms)} ms, longest main-thread gap ${Math.round(w.max)} ms; in-thread control: ${Math.round(m.ms)} ms, gap ${Math.round(m.max)} ms`)
+  // the gap is wall-clock: on a loaded machine (`npm test` runs its files in parallel) one run can stretch past 100 ms;
+  // an upgrade on the main thread blocks EVERY run, so the best of up to 3 runs (each on a fresh old database) decides
+  const fine = r => r.max < 100 && r.max < r.ms / 3
+  let best = w
+  for (let i = 2; i <= 3 && !fine(best); i++) {
+    const again = oldDatabase(path.join(dir, `a${i}`), 24)
+    const r = await gaps(() => upgradeDatabase({ file: again.file, key: again.key }))
+    if (r.max < best.max) best = r
+  }
+  console.log(`worker: ${Math.round(best.ms)} ms, longest main-thread gap ${Math.round(best.max)} ms; in-thread control: ${Math.round(m.ms)} ms, gap ${Math.round(m.max)} ms`)
   assert.ok(m.max > 0.8 * m.ms, 'the control blocks')
-  assert.ok(w.max < 100 && w.max < w.ms / 3, `worker gap ${w.max} ms of ${w.ms} ms`)
+  assert.ok(fine(best), `worker gap ${best.max} ms of ${best.ms} ms`)
 })
 
 test('killed during the backup copy: the database opens and checks ok at the old schema, no .bak-N; the next run upgrades', async t => {

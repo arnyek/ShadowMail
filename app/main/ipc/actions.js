@@ -29,11 +29,12 @@ export function registerActionIpc({ ipcMain, actions, index, isTrustedSender, lo
       }
     })
 
-  // { ids, action, target?, permanent? } -> { done, final }
+  // { ids, action, target?, permanent? } -> { done, final, created? } (archive by year: the year folders it created)
   handle('mail:action', async q => {
     if (!isPlainObject(q) || !Array.isArray(q.ids) || !q.ids.length || q.ids.length > MAX_SELECTION || !q.ids.every(isId)) throw new BadRequest()
     if (!ACTIONS.includes(q.action)) throw new BadRequest()
     if (q.action === 'move' && !isFolder(q.target)) throw new BadRequest()
+    if (q.action === 'archive' && q.target !== undefined) throw new BadRequest() // the main process picks the folder
     if (q.permanent !== undefined && typeof q.permanent !== 'boolean') throw new BadRequest()
     return actions.run({ ids: [...new Set(q.ids)], action: q.action, target: q.target ?? null, permanent: q.permanent === true })
   })

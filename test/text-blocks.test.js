@@ -113,12 +113,17 @@ test('partBlocks: a mark counts as one character, a mark run is never cut, the o
 })
 
 test('speed: 2 MB of each alternating pattern is cut in well under 300 ms', () => {
+  // wall-clock: on a loaded machine (`npm test` runs its files in parallel) one run can stretch; a superlinear cutter is
+  // slow on EVERY run, so the best of up to 3 runs decides
   for (const unit of [`x${HEB}`, `x${EMOJI}`, `x${COMB}`, `x${CR}`, `y${FLAG_HU}`]) {
     const s = unit.repeat(Math.floor((2 * 1024 * 1024) / unit.length))
-    const t0 = performance.now()
-    const b = textBlocks(s)
-    const ms = performance.now() - t0
-    assert.equal(b.join(''), s)
-    assert.ok(ms < 300, `${JSON.stringify(unit)}: ${ms} ms`)
+    let ms = Infinity
+    for (let i = 0; i < 3 && ms >= 300; i++) {
+      const t0 = performance.now()
+      const b = textBlocks(s)
+      ms = Math.min(ms, performance.now() - t0)
+      assert.equal(b.join(''), s)
+    }
+    assert.ok(ms < 300, `${JSON.stringify(unit)}: ${ms} ms (best of 3)`)
   }
 })

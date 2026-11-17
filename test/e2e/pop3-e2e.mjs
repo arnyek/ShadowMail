@@ -85,12 +85,11 @@ try {
   check('account editor, POP3: the "read on the server" help shows', (await help.innerText()).includes(t.pop3SeenHelp), await help.innerText())
   await page.getByRole('button', { name: t.accountCancel, exact: true }).click()
   await page.getByRole('button', { name: t.accountNew, exact: true }).click()
-  // the type is a menu (no native <select>)
-  await page.locator('#acc-type').click()
-  await page.getByRole('menuitemradio', { name: t.typeLabels.imap, exact: true }).click()
+  // a new account: the type is two radio buttons, none chosen
+  check('account editor, new: no POP3 help before a type', (await page.locator('#acc-pop3-seen-help').count()) === 0)
+  await page.locator('#acc-type-imap').check()
   check('account editor, IMAP: no POP3 help', (await page.locator('#acc-pop3-seen-help').count()) === 0)
-  await page.locator('#acc-type').click()
-  await page.getByRole('menuitemradio', { name: t.typeLabels.pop3, exact: true }).click()
+  await page.locator('#acc-type-pop3').check()
   check('account editor, new POP3: the help shows', (await page.locator('#acc-pop3-seen-help').count()) === 1)
   if (values.shot) await page.screenshot({ path: values.shot })
 } catch (err) {

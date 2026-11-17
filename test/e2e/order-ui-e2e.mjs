@@ -272,7 +272,8 @@ try {
   await section(page, imapC).locator('.account-head').click({ button: 'right' })
   if (values.shots) await page.screenshot({ path: path.join(values.shots, 'SO2-account-menu.png') })
   const accNames = await page.getByRole('menu').getByRole('menuitem').allInnerTexts()
-  check('the account menu: Up, Down, Sort folders A-Z', same(accNames.map(s => s.trim()), [t.accountMenu.moveUp, t.accountMenu.moveDown, t.accountMenu.sortFolders]), JSON.stringify(accNames))
+  // an IMAP account head: the subscriptions dialog too
+  check('the account menu: Up, Down, Sort folders A-Z, Folder subscriptions', same(accNames.map(s => s.trim()), [t.accountMenu.moveUp, t.accountMenu.moveDown, t.accountMenu.sortFolders, t.accountMenu.subscriptions]), JSON.stringify(accNames))
   const accUpOff = await page.getByRole('menuitem', { name: t.accountMenu.moveUp, exact: true }).isDisabled()
   await page.getByRole('menuitem', { name: t.accountMenu.moveDown, exact: true }).click()
   await until(async () => same(await accounts(page), [pop, imapC, imapB]), 'the account menu step')

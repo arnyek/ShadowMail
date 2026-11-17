@@ -2,19 +2,28 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { t } from '../i18n/index.js'
 import { defaultPort, newAccountDefaults, MAX_INDEX_YEARS, accountEditorForm } from '../../../core/accounts/defaults.js'
-import { Avatar, Button, IconButton, Modal, Select } from './ui/index.js'
+import { assignRoles } from '../../../core/imap/folders.js'
+import { Avatar, Button, Checkbox, FormActions, FormRow, FormSection, IconButton, Modal, PageHeader, ReadOnlyField, Select, TextField } from './ui/index.js'
+import { Icon } from './Icon.jsx'
 
 const api = window.shadowMail
 const F = t.accountFields
+const cx = (...parts) => parts.filter(Boolean).join(' ')
 
 // The stored row -> the editor's fields (passwords are never sent back, only "stored" flags).
 // MCP prepare_account: the fields Claude may fill in; never a password
 const PREFILL_FIELDS = ['name', 'email', 'display_name', 'in_host', 'in_port', 'in_security', 'in_user', 'smtp_host', 'smtp_port', 'smtp_security', 'smtp_user']
+// A new account starts WITHOUT a type: the user picks IMAP or POP3 (Save and the connection test refuse until then),
+// and the incoming port comes with the choice. Claude's prefill brings its type (prepare_account requires one).
+function newForm(type) {
+  const known = type === 'imap' || type === 'pop3'
+  return { ...newAccountDefaults(known ? type : 'imap'), type: known ? type : '', in_port: known ? defaultPort(type, 'tls') : '', in_password: '', smtp_password: '' }
+}
 function toForm(account) {
-  if (!account) return { ...newAccountDefaults('imap'), in_password: '', smtp_password: '' }
+  if (!account) return newForm('')
   if (account.prefill) {
     const p = account.prefill
-    const form = { ...newAccountDefaults(p.type === 'pop3' ? 'pop3' : 'imap'), in_password: '', smtp_password: '' }
+    const form = newForm(p.type)
     for (const k of PREFILL_FIELDS) if (p[k] !== undefined && p[k] !== null) form[k] = p[k]
     return form
   }
@@ -24,13 +33,30 @@ function toForm(account) {
 // Number inputs: '' stays '' (rejected by the main process with a clear message), "2,5" stays a string.
 const numberOrRaw = raw => (/^\d+$/.test(raw.trim()) ? Number(raw.trim()) : raw.trim())
 
-function Field({ name, error, children }) {
+/** A Select with its label above and its error below (the shared form look; the Select names itself with `label`). */
+function SelectField({ id, label, error, width = 'm', className, box = null, ...select }) {
+  const messageId = `${id}-message`
   return (
-    <label className="field" htmlFor={`acc-${name}`}>
-      <span>{F[name]}</span>
-      {children}
-      {error && <span className="error" role="alert">{t.accountError(error)}</span>}
-    </label>
+    <div className={cx('text-field', `w-${width}`, error && 'text-field-error', className)} {...box}>
+      <span className="text-field-label" id={`${id}-label`}>{label}</span>
+      <Select id={id} label={label} describedBy={error ? messageId : undefined} invalid={Boolean(error)} {...select} />
+      {error && (
+        <span className="text-field-message error" role="alert" id={messageId}>
+          <Icon name="error" />
+          {error}
+        </span>
+      )}
+    </div>
+  )
+}
+
+// a notice right under the control it is about (no encryption)
+function FieldNotice({ children }) {
+  return (
+    <div className="field-notice warning" role="note">
+      <Icon name="warning" />
+      <span>{children}</span>
+    </div>
   )
 }
 
@@ -63,8 +89,8 @@ function SignatureImage({ accountId }) {
     }
   }
   return (
-    <div className="field signature-image" data-has-image={image ? 'true' : 'false'}>
-      <span>{S.label}</span>
+    <div className="text-field signature-image" data-has-image={image ? 'true' : 'false'}>
+      <span className="text-field-label">{S.label}</span>
       {image ? <img className="signature-image-preview" src={image.dataUrl} alt={S.alt} /> : <p className="hint signature-image-none">{S.none}</p>}
       <span className="inline">
         <Button variant="outlined" className="signature-image-pick" disabled={busy} onClick={() => run(api.accounts.signatureImagePick)}>{image ? S.replace : S.upload}</Button>
@@ -76,9 +102,67 @@ function SignatureImage({ accountId }) {
   )
 }
 
-function SecuritySelect({ id, label, value, onChange }) {
-  return <Select id={id} label={label} value={value} onChange={onChange} options={Object.entries(t.securityLabels).map(([k, l]) => ({ value: k, label: l }))} />
+// the roles the picker offers (INBOX is always the inbox); the same list as ipc/folders.js CHOOSABLE_ROLES
+const PICKABLE_ROLES = ['drafts', 'sent', 'trash', 'junk', 'archive']
+
+/**
+ * The role picker of a saved IMAP account: for each role "Automatic" (the server's flag, the role the folder already
+ * had, the usual names, the bigger folder) or one of the account's server folders. Stored at once, apart from the
+ * editor's Save (folders:setRole); the folder tree follows through the usual mail change event.
+ */
+function FolderRoles({ accountId }) {
+  const R = t.folderRolePicker
+  const [folders, setFolders] = useState(null)
+  const [error, setError] = useState(null)
+  const [busy, setBusy] = useState(false)
+  const load = useCallback(async () => {
+    const res = await api.mail.folders()
+    const account = res.ok !== false ? (res.accounts || []).find(a => a.id === accountId) : null
+    setFolders(account ? account.folders.filter(f => !f.is_local) : [])
+  }, [accountId])
+  useEffect(() => {
+    load()
+    return api.onStatus(e => {
+      if (e && (e.kind === 'mail' || e.kind === 'accounts')) load()
+    })
+  }, [load])
+  if (!folders) return null
+  const choose = async (role, path) => {
+    setBusy(true)
+    setError(null)
+    try {
+      const res = await api.folders.setRole({ accountId, role, path })
+      if (!res.ok) setError(t.folderError(res.error))
+      await load()
+    } finally {
+      setBusy(false)
+    }
+  }
+  const choices = folders.filter(f => f.path.toUpperCase() !== 'INBOX').map(f => ({ value: f.path, label: f.path }))
+  // the folder each role goes to now (the stored roles, or before the first full sync the usual rule), and the chosen ones
+  const now = new Map([...assignRoles(folders)].map(([p, r]) => [r, p]))
+  const chosen = new Map(folders.filter(f => f.role && f.role_manual).map(f => [f.role, f.path]))
+  return (
+    <FormSection className="folder-roles-section" title={t.accountForm.sections.folders} description={R.help}>
+      <fieldset className="folder-roles">
+        <legend className="sr-only">{R.label}</legend>
+        <FormRow>
+          {PICKABLE_ROLES.map(role => {
+            const value = chosen.get(role) ?? ''
+            const auto = { value: '', label: !chosen.has(role) && now.has(role) ? R.autoNow(now.get(role)) : R.auto }
+            return (
+              <SelectField key={role} id={`acc-role-${role}`} className="folder-role" box={{ 'data-role': role }} label={t.folderRoles[role]} value={value} disabled={busy}
+                options={[auto, ...choices]} onChange={v => choose(role, v === '' ? null : v)} />
+            )
+          })}
+        </FormRow>
+      </fieldset>
+      {error && <p className="text-field-message error folder-roles-error" role="alert">{error}</p>}
+    </FormSection>
+  )
 }
+
+const securityOptions = () => Object.entries(t.securityLabels).map(([k, l]) => ({ value: k, label: l }))
 
 function ProbeResult({ result }) {
   if (!result) return null
@@ -104,19 +188,21 @@ export function AccountEditor({ account, onSaved, onCancel }) {
   const isNew = !account || Boolean(account.prefill)
 
   const set = (name, value) => setForm(f => ({ ...f, [name]: value }))
-  const bind = name => ({ id: `acc-${name}`, value: form[name] ?? '', onChange: e => set(name, e.target.value) })
-  const check = name => ({ id: `acc-${name}`, type: 'checkbox', checked: Boolean(form[name]), onChange: e => set(name, e.target.checked) })
 
   // Changing type or security moves the port along, unless the user typed a custom port.
   const setSecurity = (side, security) =>
     setForm(f => {
       const protocol = side === 'in' ? f.type : 'smtp'
+      if (!protocol) return { ...f, [`${side}_security`]: security } // no type chosen yet: the port comes with it
       const portKey = `${side}_port`
       const wasDefault = f[portKey] === defaultPort(protocol, f[`${side}_security`])
       return { ...f, [`${side}_security`]: security, [portKey]: wasDefault ? defaultPort(protocol, security) : f[portKey] }
     })
   const setType = type =>
-    setForm(f => ({ ...f, type, in_port: f.in_port === defaultPort(f.type, f.in_security) ? defaultPort(type, f.in_security) : f.in_port }))
+    setForm(f => {
+      const usual = f.type ? defaultPort(f.type, f.in_security) : ''
+      return { ...f, type, in_port: f.in_port === usual || f.in_port === '' ? defaultPort(type, f.in_security) : f.in_port }
+    })
 
   const payload = () => ({
     ...form,
@@ -163,87 +249,148 @@ export function AccountEditor({ account, onSaved, onCancel }) {
   }
 
   const pwPlaceholder = flag => (flag ? t.accountPasswordUnchanged : '')
+  const A = t.accountForm
+  const err = name => (errors[name] ? t.accountError(errors[name]) : undefined)
+  // a TextField of the form: the acc-<name> id, the value, the error
+  const field = name => ({ id: `acc-${name}`, value: form[name] ?? '', onChange: e => set(name, e.target.value), error: err(name) })
+  const check = name => ({ id: `acc-${name}`, checked: Boolean(form[name]), onChange: e => set(name, e.target.checked) })
+  const incomingTitle = form.type === 'imap' ? A.sections.incomingImap : form.type === 'pop3' ? A.sections.incomingPop3 : A.sections.incoming
+  const indexMessage = errors.index_years ? 'acc-index-error' : null
 
   return (
-    <form className="account-editor settings-card" onSubmit={save} noValidate>
-      <h3>{isNew ? t.accountNew : `${t.accountEdit}: ${account.name}`}</h3>
-      <Field name="type" error={errors.type}>
-        <Select id="acc-type" label={F.type} value={form.type} disabled={!isNew} onChange={setType} options={Object.entries(t.typeLabels).map(([k, l]) => ({ value: k, label: l }))} />
-      </Field>
-      <Field name="name" error={errors.name}><input {...bind('name')} /></Field>
-      <Field name="email" error={errors.email}><input type="email" {...bind('email')} /></Field>
-      <Field name="display_name" error={errors.display_name}><input {...bind('display_name')} /></Field>
+    <div className="account-editor-page">
+      <PageHeader title={isNew ? t.accountNew : A.editTitle} subtitle={isNew ? null : [account.name, account.email].filter(Boolean).join(' \u00b7 ')} />
+      <form className="account-editor form-card" onSubmit={save} noValidate>
+        <FormSection className="account-section" title={A.sections.account}>
+          {isNew ? (
+            <fieldset className="account-type" aria-describedby={errors.type ? 'acc-type-error' : undefined}>
+              <legend className="text-field-label">{F.type}</legend>
+              {Object.entries(t.typeLabels).map(([k, l]) => (
+                <label key={k} className="account-type-option" htmlFor={`acc-type-${k}`}>
+                  <input type="radio" id={`acc-type-${k}`} name="acc-type" value={k} checked={form.type === k} onChange={() => setType(k)} />
+                  <span className="account-type-text">
+                    <strong>{l}</strong> <span className="hint">{t.accountTypeHelp[k]}</span>
+                  </span>
+                </label>
+              ))}
+              {errors.type && (
+                <span className="text-field-message error" id="acc-type-error" role="alert">
+                  <Icon name="error" />
+                  {t.accountError(errors.type)}
+                </span>
+              )}
+            </fieldset>
+          ) : (
+            <>
+              <ReadOnlyField id="acc-type" label={F.type} value={<span className="tag">{t.typeLabels[form.type] || form.type}</span>} hint={A.typeLocked} />
+              {errors.type && <span className="text-field-message error" role="alert">{t.accountError(errors.type)}</span>}
+            </>
+          )}
+          <FormRow>
+            <TextField label={F.name} width="m" {...field('name')} />
+            <TextField label={F.display_name} width="m" optional {...field('display_name')} />
+          </FormRow>
+          <TextField label={F.email} width="l" type="email" {...field('email')} />
+        </FormSection>
 
-      <div className="account-columns">
-      <fieldset>
-        <legend>{F.incoming}</legend>
-        <Field name="in_host" error={errors.in_host}><input {...bind('in_host')} spellCheck={false} /></Field>
-        <Field name="in_security" error={errors.in_security}>
-          <SecuritySelect id="acc-in_security" label={F.in_security} value={form.in_security} onChange={v => setSecurity('in', v)} />
-        </Field>
-        <Field name="in_port" error={errors.in_port}><input inputMode="numeric" {...bind('in_port')} /></Field>
-        <Field name="in_user" error={errors.in_user}><input {...bind('in_user')} spellCheck={false} /></Field>
-        <Field name="in_password" error={errors.in_password}>
-          <input type="password" autoComplete="new-password" placeholder={pwPlaceholder(account?.has_incoming_password)} {...bind('in_password')} />
-        </Field>
-      </fieldset>
+        <FormSection className="incoming-section" title={incomingTitle}>
+          <FormRow>
+            <TextField label={F.in_host} width="l" spellCheck={false} {...field('in_host')} />
+            <TextField label={F.in_port} width="xs" inputMode="numeric" {...field('in_port')} />
+          </FormRow>
+          <SelectField id="acc-in_security" label={F.in_security} error={err('in_security')} value={form.in_security} options={securityOptions()} onChange={v => setSecurity('in', v)} />
+          {form.in_security === 'none' && <FieldNotice>{t.noSecurityWarning}</FieldNotice>}
+          <FormRow>
+            <TextField label={F.in_user} width="m" spellCheck={false} {...field('in_user')} />
+            <TextField label={F.in_password} width="m" type="password" autoComplete="new-password" placeholder={pwPlaceholder(account?.has_incoming_password)} {...field('in_password')} />
+          </FormRow>
+        </FormSection>
 
-      <fieldset>
-        <legend>{F.smtp}</legend>
-        <Field name="smtp_host" error={errors.smtp_host}><input {...bind('smtp_host')} spellCheck={false} /></Field>
-        <Field name="smtp_security" error={errors.smtp_security}>
-          <SecuritySelect id="acc-smtp_security" label={F.smtp_security} value={form.smtp_security} onChange={v => setSecurity('smtp', v)} />
-        </Field>
-        <Field name="smtp_port" error={errors.smtp_port}><input inputMode="numeric" {...bind('smtp_port')} /></Field>
-        <Field name="smtp_user" error={errors.smtp_user}><input {...bind('smtp_user')} spellCheck={false} /></Field>
-        <label className="check" htmlFor="acc-smtp_same_password"><input {...check('smtp_same_password')} /> {F.smtp_same_password}</label>
-        {!form.smtp_same_password && (
-          <Field name="smtp_password" error={errors.smtp_password}>
-            <input type="password" autoComplete="new-password" placeholder={pwPlaceholder(account?.has_smtp_password)} {...bind('smtp_password')} />
-          </Field>
-        )}
-      </fieldset>
-      </div>
-      {(form.in_security === 'none' || form.smtp_security === 'none') && <p className="warning">{t.noSecurityWarning}</p>}
+        {!isNew && account.type === 'imap' && <FolderRoles accountId={account.id} />}
 
-      <label className="check" htmlFor="acc-tls_verify"><input {...check('tls_verify')} /> {F.tls_verify}</label>
-      {!form.tls_verify && <p className="danger" role="alert">{t.tlsVerifyOffWarning}</p>}
+        <FormSection className="smtp-section" title={A.sections.smtp}>
+          <FormRow>
+            <TextField label={F.smtp_host} width="l" spellCheck={false} {...field('smtp_host')} />
+            <TextField label={F.smtp_port} width="xs" inputMode="numeric" {...field('smtp_port')} />
+          </FormRow>
+          <SelectField id="acc-smtp_security" label={F.smtp_security} error={err('smtp_security')} value={form.smtp_security} options={securityOptions()} onChange={v => setSecurity('smtp', v)} />
+          {form.smtp_security === 'none' && <FieldNotice>{t.noSecurityWarning}</FieldNotice>}
+          <TextField label={A.smtpUser} width="m" optional hint={A.smtpUserHint} spellCheck={false} {...field('smtp_user')} />
+          <Checkbox label={F.smtp_same_password} {...check('smtp_same_password')} />
+          {!form.smtp_same_password && (
+            <TextField label={F.smtp_password} width="m" type="password" autoComplete="new-password" placeholder={pwPlaceholder(account?.has_smtp_password)} {...field('smtp_password')} />
+          )}
+          <Checkbox label={F.tls_verify} {...check('tls_verify')} />
+          {!form.tls_verify && <p className="danger" role="alert">{t.tlsVerifyOffWarning}</p>}
+        </FormSection>
 
-      <div className="field">
-        <label htmlFor="acc-index_years">{F.index_years}</label>
-        <span className="inline">
-          <input id="acc-index_years" inputMode="numeric" disabled={form.index_years === 'all'} aria-describedby="acc-index-help"
-            value={form.index_years === 'all' ? '' : form.index_years} onChange={e => set('index_years', e.target.value)} />
-          <label className="check" htmlFor="acc-index_all">
-            <input id="acc-index_all" type="checkbox" checked={form.index_years === 'all'}
-              onChange={e => set('index_years', e.target.checked ? 'all' : 3)} /> {F.index_all}
+        <FormSection className="sync-section" title={A.sections.sync}>
+          <div className={cx('text-field', 'unit-field', errors.index_years && 'text-field-error')}>
+            <label className="text-field-label" htmlFor="acc-index_years">{A.indexYears}</label>
+            <div className="with-unit">
+              <input id="acc-index_years" className="text-field-input" inputMode="numeric" disabled={form.index_years === 'all'}
+                aria-describedby={cx(indexMessage, 'acc-index-help')} aria-invalid={errors.index_years ? true : undefined}
+                value={form.index_years === 'all' ? '' : form.index_years} onChange={e => set('index_years', e.target.value)} />
+              <span className="unit">{A.yearsUnit}</span>
+              <Checkbox id="acc-index_all" label={A.indexAll} checked={form.index_years === 'all'} onChange={e => set('index_years', e.target.checked ? 'all' : 3)} />
+            </div>
+            {errors.index_years && (
+              <span className="text-field-message error" role="alert" id="acc-index-error">
+                <Icon name="error" />
+                {t.accountError(errors.index_years)}
+              </span>
+            )}
+            <span className="text-field-message hint" id="acc-index-help">
+              {t.indexHelp} {form.type === 'imap' ? t.indexHelpImap : ''} (1–{MAX_INDEX_YEARS})
+            </span>
+          </div>
+          <div className={cx('text-field', 'unit-field', errors.sync_interval_min && 'text-field-error')}>
+            <label className="text-field-label" htmlFor="acc-sync_interval_min">{A.syncInterval}</label>
+            <div className="with-unit">
+              <input id="acc-sync_interval_min" className="text-field-input" inputMode="numeric"
+                aria-describedby={errors.sync_interval_min ? 'acc-sync-error' : undefined} aria-invalid={errors.sync_interval_min ? true : undefined}
+                value={form.sync_interval_min ?? ''} onChange={e => set('sync_interval_min', e.target.value)} />
+              <span className="unit">{A.minutesUnit}</span>
+            </div>
+            {errors.sync_interval_min && (
+              <span className="text-field-message error" role="alert" id="acc-sync-error">
+                <Icon name="error" />
+                {t.accountError(errors.sync_interval_min)}
+              </span>
+            )}
+          </div>
+          {form.type === 'imap' && <Checkbox label={F.save_sent_to_server} {...check('save_sent_to_server')} />}
+          {form.type === 'imap' && (
+            <SelectField id="acc-archive_mode" className="archive-mode" label={F.archive_mode} error={err('archive_mode')} value={form.archive_mode || ''}
+              onChange={v => set('archive_mode', v)} options={['', 'single', 'yearly'].map(v => ({ value: v, label: t.archiveModes[v] }))} />
+          )}
+          {form.type === 'pop3' && <TextField label={F.pop3_delete_after_days} width="m" inputMode="numeric" {...field('pop3_delete_after_days')} />}
+          {form.type === 'pop3' && <p className="hint" id="acc-pop3-seen-help">{t.pop3SeenHelp}</p>}
+        </FormSection>
+
+        <FormSection className="signature-section" title={A.sections.signature}>
+          <label className={cx('text-field', 'w-full', errors.signature && 'text-field-error')} htmlFor="acc-signature">
+            <span className="text-field-label">{A.signatureText}</span>
+            <textarea className="text-field-input" rows={3} id="acc-signature" value={form.signature ?? ''} onChange={e => set('signature', e.target.value)}
+              aria-describedby={errors.signature ? 'acc-signature-error' : undefined} aria-invalid={errors.signature ? true : undefined} />
+            {errors.signature && (
+              <span className="text-field-message error" role="alert" id="acc-signature-error">
+                <Icon name="error" />
+                {t.accountError(errors.signature)}
+              </span>
+            )}
           </label>
-        </span>
-        {errors.index_years && <span className="error" role="alert">{t.accountError(errors.index_years)}</span>}
-      </div>
-      <p className="hint" id="acc-index-help">
-        {t.indexHelp} {form.type === 'imap' ? t.indexHelpImap : ''} (1–{MAX_INDEX_YEARS})
-      </p>
+          <SignatureImage accountId={isNew ? null : account.id} />
+        </FormSection>
 
-      <Field name="sync_interval_min" error={errors.sync_interval_min}><input inputMode="numeric" {...bind('sync_interval_min')} /></Field>
-      {form.type === 'imap' && (
-        <label className="check" htmlFor="acc-save_sent_to_server"><input {...check('save_sent_to_server')} /> {F.save_sent_to_server}</label>
-      )}
-      {form.type === 'pop3' && (
-        <Field name="pop3_delete_after_days" error={errors.pop3_delete_after_days}><input inputMode="numeric" {...bind('pop3_delete_after_days')} /></Field>
-      )}
-      {form.type === 'pop3' && <p className="hint" id="acc-pop3-seen-help">{t.pop3SeenHelp}</p>}
-      <Field name="signature" error={errors.signature}><textarea rows={3} {...bind('signature')} /></Field>
-      <SignatureImage accountId={isNew ? null : account.id} />
-
-      {message && <p className="error" role="alert">{message}</p>}
-      <ProbeResult result={probe} />
-      <div className="buttons">
-        <Button type="submit" variant="primary" disabled={busy}>{t.accountSave}</Button>
-        <Button variant="outlined" disabled={busy} onClick={test}>{busy ? t.accountTesting : t.accountTest}</Button>
-        <Button variant="text" onClick={onCancel}>{t.accountCancel}</Button>
-      </div>
-    </form>
+        {message && <p className="error" role="alert">{message}</p>}
+        <ProbeResult result={probe} />
+        <FormActions sticky side={<Button variant="outlined" disabled={busy} onClick={test}>{busy ? t.accountTesting : t.accountTest}</Button>}>
+          <Button type="submit" variant="primary" disabled={busy}>{t.accountSave}</Button>
+          <Button variant="text" onClick={onCancel}>{t.accountCancel}</Button>
+        </FormActions>
+      </form>
+    </div>
   )
 }
 

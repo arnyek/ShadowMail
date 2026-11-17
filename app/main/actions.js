@@ -10,12 +10,12 @@
 // `permanent: true` (the renderer asks first), otherwise the answer is 'confirm_needed'.
 import fs from 'node:fs'
 import path from 'node:path'
-import { changeFlags, moveMessages, expungeMessages } from '../../core/imap/actions.js'
-import { assignRoles } from '../../core/imap/folders.js'
+import { changeFlags, createFolder, moveMessages, expungeMessages } from '../../core/imap/actions.js'
+import { archiveModeOf, archiveYear, assignRoles, inArchive, yearFolders } from '../../core/imap/folders.js'
 import { ActionError } from './sync-manager.js'
 import { errCode } from '../../core/log-safe.js'
 
-export const ACTIONS = Object.freeze(['read', 'unread', 'star', 'unstar', 'move', 'delete'])
+export const ACTIONS = Object.freeze(['read', 'unread', 'star', 'unstar', 'move', 'delete', 'archive'])
 
 const FLAG_CHANGE = {
   read: { add: ['\\Seen'], remove: [] },
@@ -46,7 +46,8 @@ export class MailActions {
    * @param onChange        ({ accountId, folders }) after the index changed
    * @param requestSync     (accountId, folders) a targeted sync (a moved message without a UID map)
    */
-  constructor({ index, store, storeDir, withConnection, onChange = () => {}, requestSync = () => {}, log = () => {} }) {
+  constructor({ index, store, storeDir, withConnection, onChange = () => {}, requestSync = () => {}, log = () => {}, now = () => Date.now() }) {
+    this.now = now
     this.index = index
     this.store = store
     this.storeDir = path.resolve(storeDir)
@@ -113,6 +114,17 @@ export class MailActions {
         dest = trash
       }
     }
+    if (action === 'archive') {
+      // into the Archive role folder, or by year into its year folders (core/imap/folders.js archiveModeOf)
+      const archive = [...assignRoles(folders)].find(([, r]) => r === 'archive')?.[0]
+      if (!archive || inArchive(folders, archive, folder)) throw new ActionError('bad_target')
+      if (archiveModeOf(account.archive_mode, folders, archive) === 'single') {
+        kind = 'move'
+        dest = archive
+      } else {
+        kind = 'archive-yearly'
+      }
+    }
     if (kind === 'move') {
       const f = folders.find(x => x.path === dest)
       if (!f || dest === folder || (!isImap && !f.is_local)) throw new ActionError('bad_target')
@@ -140,28 +152,67 @@ export class MailActions {
       return { done: rows.length, final: false }
     }
 
-    if (kind === 'move') {
+    const moveTo = async (list, to) => {
       if (!isImap) {
-        this.index.moveRows(rows.map(r => ({ id: r.id, folder: dest, uid: null })))
-      } else {
-        const uidMap = await guarded(() => this.withConnection(accountId, client => moveMessages(client, folder, rows.map(r => r.uid), dest, expect)))
-        const kept = []
-        const dropped = []
-        for (const r of rows) {
-          const newUid = uidMap && uidMap.get(r.uid)
-          if (newUid) kept.push({ id: r.id, folder: dest, uid: newUid })
-          else dropped.push(r)
-        }
-        // with the new UID the row keeps its text, pin and downloaded file; without it the target's sync brings it back
-        this.index.moveRows(kept)
-        if (dropped.length) {
-          this.index.deleteIds(dropped.map(r => r.id))
-          this.#removeFiles(dropped)
-          this.requestSync(accountId, [dest])
-        }
+        this.index.moveRows(list.map(r => ({ id: r.id, folder: to, uid: null })))
+        return
       }
+      const uidMap = await guarded(() => this.withConnection(accountId, client => moveMessages(client, folder, list.map(r => r.uid), to, expect)))
+      const kept = []
+      const dropped = []
+      for (const r of list) {
+        const newUid = uidMap && uidMap.get(r.uid)
+        if (newUid) kept.push({ id: r.id, folder: to, uid: newUid })
+        else dropped.push(r)
+      }
+      // with the new UID the row keeps its text, pin and downloaded file; without it the target's sync brings it back
+      this.index.moveRows(kept)
+      if (dropped.length) {
+        this.index.deleteIds(dropped.map(r => r.id))
+        this.#removeFiles(dropped)
+        this.requestSync(accountId, [to])
+      }
+    }
+
+    if (kind === 'move') {
+      await moveTo(rows, dest)
       this.onChange({ accountId, folders: [folder, dest] })
       return { done: rows.length, final: false }
+    }
+
+    if (kind === 'archive-yearly') {
+      // one move per year, oldest first; a missing year folder is created first (on the server for IMAP) and reported
+      const archive = [...assignRoles(folders)].find(([, r]) => r === 'archive')[0]
+      const delimiter = folders.find(f => f.path === archive).delimiter
+      const years = yearFolders(folders, archive)
+      const byYear = new Map()
+      for (const r of rows) {
+        const y = archiveYear(r, this.now())
+        byYear.set(y, [...(byYear.get(y) || []), r])
+      }
+      const created = []
+      const targets = []
+      // no plausible year (null): into the Archive itself, first
+      for (const [year, list] of [...byYear].sort((a, b) => (a[0] ?? -Infinity) - (b[0] ?? -Infinity))) {
+        let to = year === null ? archive : years.get(year)
+        if (!to) {
+          const wanted = `${archive}${delimiter}${year}`
+          if (isImap) {
+            to = await guarded(() => this.withConnection(accountId, client => createFolder(client, wanted)))
+            this.index.addFolder(accountId, to, delimiter, false)
+          } else {
+            to = wanted
+            this.index.addFolder(accountId, to, delimiter, true)
+          }
+          created.push(to)
+          this.log(`archive: a year folder created (${year})`)
+        }
+        await moveTo(list, to)
+        targets.push(to)
+      }
+      if (isImap && created.length) this.requestSync(accountId, created)
+      this.onChange({ accountId, folders: [folder, ...targets] })
+      return { done: rows.length, final: false, created }
     }
 
     // expunge: for good

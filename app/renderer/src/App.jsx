@@ -10,7 +10,7 @@ import { Mail } from './Mail.jsx'
 import { Contacts } from './Contacts.jsx'
 import { ReaderPaneButton, READER_PANES, readerPaneOf } from './ReaderPaneButton.jsx'
 import { Icon } from './Icon.jsx'
-import { Banner, Button, Checkbox, IconButton, Select, Splitter } from './ui/index.js'
+import { Banner, Button, Checkbox, IconButton, PageHeader, Select, SettingList, SettingRow, Splitter } from './ui/index.js'
 import { getPref, setPref } from './prefs.js'
 import { THEMES, applyTheme, themeOf } from './themes.js'
 
@@ -75,21 +75,18 @@ function LanguageSetting() {
     setState('failed')
   }
   return (
-    <>
-      <div className="setting-row">
-        <span className="setting-label">{t.languageLabel}</span>
-        <Select
-          id="ui-language"
-          label={t.languageLabel}
-          value={lang}
-          disabled={state === 'applying'}
-          options={LANGUAGES.map(v => ({ value: v, label: t.languageOptions[v] }))}
-          onChange={choose}
-        />
-      </div>
+    <SettingRow className="setting-language" label={t.languageLabel} description={t.settingDesc.language}>
+      <Select
+        id="ui-language"
+        label={t.languageLabel}
+        value={lang}
+        disabled={state === 'applying'}
+        options={LANGUAGES.map(v => ({ value: v, label: t.languageOptions[v] }))}
+        onChange={choose}
+      />
       {state === 'applying' && <p className="setting-note" role="status">{t.languageApplying}</p>}
       {state === 'failed' && <p className="error" role="alert">{t.languageFailed}</p>}
-    </>
+    </SettingRow>
   )
 }
 
@@ -105,10 +102,9 @@ function ThemeSetting({ onReaderPane }) {
     if (pane) onReaderPane(pane)
   }
   return (
-    <div className="setting-row">
-      <span className="setting-label">{t.themeLabel}</span>
+    <SettingRow className="setting-theme" label={t.themeLabel} description={t.settingDesc.theme}>
       <Select id="ui-theme" label={t.themeLabel} value={theme} options={THEMES.map(x => ({ value: x.id, label: t.themes[x.id] }))} onChange={choose} />
-    </div>
+    </SettingRow>
   )
 }
 
@@ -134,31 +130,34 @@ function TaskbarUnreadSetting() {
     else setError(t.taskbarUnreadFailed)
   }
   return (
-    <div className="setting-row">
-      <Checkbox id="taskbar-unread-switch" checked={enabled} onChange={e => toggle(e.target.checked)} label={t.taskbarUnreadLabel} />
+    <SettingRow className="setting-taskbar" label={t.taskbarUnreadLabel} description={t.settingDesc.taskbar}>
+      <Checkbox id="taskbar-unread-switch" switch hideLabel checked={enabled} onChange={e => toggle(e.target.checked)} label={t.taskbarUnreadLabel} />
       {error && <p className="error" role="alert">{error}</p>}
-    </div>
+    </SettingRow>
   )
 }
 
 /** Where a message opens: the App's value, the same one the header's quick switch changes. The language, the theme, the taskbar badge. */
 function AppearanceSettings({ readerPane, onReaderPane }) {
   return (
-    <section className="settings-appearance settings-card">
-      <h2>{t.settingsAppearance}</h2>
-      <LanguageSetting />
-      <ThemeSetting onReaderPane={onReaderPane} />
-      <div className="setting-row">
-        <span className="setting-label" id="reader-pane-label">{t.readerPaneLabel}</span>
-        <Select
-          id="reader-pane"
-          label={t.readerPaneLabel}
-          value={readerPane}
-          options={READER_PANES.map(v => ({ value: v, label: t.readerPaneOptions[v] }))}
-          onChange={onReaderPane}
-        />
+    <section className="settings-appearance">
+      <PageHeader title={t.settingsAppearance} />
+      <div className="form-card">
+        <SettingList>
+          <LanguageSetting />
+          <ThemeSetting onReaderPane={onReaderPane} />
+          <SettingRow className="setting-reader-pane" label={t.readerPaneLabel} description={t.settingDesc.readerPane} labelId="reader-pane-label">
+            <Select
+              id="reader-pane"
+              label={t.readerPaneLabel}
+              value={readerPane}
+              options={READER_PANES.map(v => ({ value: v, label: t.readerPaneOptions[v] }))}
+              onChange={onReaderPane}
+            />
+          </SettingRow>
+          <TaskbarUnreadSetting />
+        </SettingList>
       </div>
-      <TaskbarUnreadSetting />
     </section>
   )
 }
@@ -439,16 +438,19 @@ export function App() {
             {settingsTab === 'accounts' && <Accounts prefill={prefillAccount} onPrefillTaken={takePrefill} />}
             {settingsTab === 'appearance' && <AppearanceSettings readerPane={readerPane} onReaderPane={chooseReaderPane} />}
             {settingsTab === 'security' && (
-              <div className="settings-cards">
-                <div className="settings-card"><VaultChange /></div>
-                <div className="settings-card"><RecoveryNew onCode={setPendingCode} /></div>
+              <div className="settings-cards settings-security">
+                <PageHeader title={t.settingsNav.security} />
+                <VaultChange />
+                <RecoveryNew onCode={setPendingCode} />
               </div>
             )}
             {settingsTab === 'claude' && <ClaudeAccess />}
             {settingsTab === 'about' && (
-              <div className="settings-card">
-                <h2>{t.settingsNav.about}</h2>
-                <About />
+              <div className="settings-cards settings-about">
+                <PageHeader title={t.settingsNav.about} />
+                <div className="settings-card">
+                  <About />
+                </div>
               </div>
             )}
           </div>

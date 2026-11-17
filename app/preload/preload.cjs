@@ -69,7 +69,7 @@ contextBridge.exposeInMainWorld('shadowMail', {
     source: id => ipcRenderer.invoke('mail:source', id),
     saveSource: id => ipcRenderer.invoke('mail:saveSource', id),
     openAttachment: (id, index) => ipcRenderer.invoke('mail:openAttachment', id, index),
-    // message actions. { ids, action: read|unread|star|unstar|move|delete, target?, permanent? } -> { done, final }
+    // message actions. { ids, action: read|unread|star|unstar|move|delete|archive, target?, permanent? } -> { done, final, created? }
     action: request => ipcRenderer.invoke('mail:action', request),
     // { accountId, folder, sort, dir, seen?, filter? } -> { ids } (Ctrl+A; with filter: the filtered list's ids)
     ids: query => ipcRenderer.invoke('mail:ids', query),
@@ -155,6 +155,12 @@ contextBridge.exposeInMainWorld('shadowMail', {
     // the manual order of one displayed sibling list: { accountId, parentKey (null = top level), paths } -> { count }
     reorder: request => ipcRenderer.invoke('folders:reorder', request),
     resetOrder: request => ipcRenderer.invoke('folders:resetOrder', request),
+    // the role picker: { accountId, role: drafts|sent|trash|junk|archive, path (null = Automatic) } -> { changed }
+    setRole: request => ipcRenderer.invoke('folders:setRole', request),
+    // subscriptions: { accountId } -> { folders: [{ path, delimiter, shown, subscribed, kept, role }] };
+    // setSubscribed: { accountId, path, subscribed } (a role folder cannot be unsubscribed: role_folder)
+    subscriptions: request => ipcRenderer.invoke('folders:subscriptions', request),
+    setSubscribed: request => ipcRenderer.invoke('folders:setSubscribed', request),
   },
   // search. local -> { rows, truncated, headersOnly, scope: { imap, pop3 } }; server / pop3Old -> { jobId }, then
   // { kind: 'search', jobId, source, progress?, hits?, finished? } on onStatus.

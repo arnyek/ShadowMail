@@ -171,13 +171,6 @@ fieldset {
   gap: var(--space-2);
 }
 
-form.account-editor {
-  max-width: 560px;
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-3);
-}
-
 .check {
   display: flex;
   align-items: center;
@@ -541,6 +534,43 @@ main.app > .error {
   height: 8px;
   border-radius: 50%;
   background: var(--c-accent);
+}
+
+/* a folder's fold toggle (its subfolders): over the row's left padding, at the folder's depth; >= 24 px wide */
+.folder-tree .folder-fold {
+  position: absolute;
+  top: 0;
+  left: calc(var(--depth, 0) * var(--space-4));
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: var(--folder-h);
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-s);
+  background: none;
+  color: var(--c-text-2);
+  cursor: pointer;
+}
+
+.folder-tree .folder-fold:hover {
+  background: var(--c-hover);
+}
+
+/* the selected folder is folded away under this one: a faint selection */
+.folder-tree .folder.holds-selected {
+  background: var(--c-hover);
+}
+
+.folder-tree .folder.holds-selected .icon {
+  color: var(--c-accent);
+}
+
+/* a folded folder's count includes its hidden subfolders' */
+.unread-badge.with-hidden {
+  color: var(--c-text-2);
 }
 
 .folder-label {
@@ -1760,12 +1790,25 @@ section.settings {
   background: var(--c-bg);
 }
 
+/* the card titles of the settings as the form base's section title (bold 14 px; the page title is the PageHeader) */
 .settings-card h2,
 .settings-card h3 {
   margin-top: 0;
-  font-size: var(--fs-l);
-  font-weight: var(--fw-normal);
+  font-size: var(--fs-m);
+  font-weight: var(--fw-strong);
 }
+
+/* the preferences (pattern B): one 300 px control column, every control starting at the same x; a message under it */
+.setting-list .setting-row { grid-template-columns: minmax(0, 1fr) 300px; }
+.setting-list .setting-control { flex-direction: column; justify-content: flex-start; align-items: flex-start; gap: var(--space-1); }
+.setting-list .setting-control .menu-anchor { display: block; width: 100%; }
+.setting-list .setting-control .select-trigger { width: 100%; min-width: 0; justify-content: space-between; }
+.setting-list .setting-control .error,
+.setting-list .setting-control .setting-note { margin: 0; font-size: var(--fs-s); }
+.settings-appearance .form-card { padding-bottom: var(--space-5); }
+/* the password forms of the Security tab are cards of the form base, not the narrow unlock column */
+form.vault.form-card { display: block; max-width: 760px; }
+form.vault.form-card .form-section { padding-bottom: var(--space-4); }
 
 .settings-card form.vault {
   max-width: 460px;
@@ -1800,19 +1843,71 @@ section.settings {
   font-weight: var(--fw-strong);
 }
 
-form.account-editor {
-  max-width: 820px;
+/* the account editor on the shared form base (ui/Form.jsx): one card, sections without frames, the sticky action bar
+   at its bottom edge (the card has no bottom padding, the bar's own padding takes its place) */
+/* position: relative keeps an absolutely placed .sr-only text (a hidden legend or label) inside the card: without it its
+   containing block is the page, and a field low in a scrolled form made the whole page scroll (measured: 343 px) */
+.form-card {
+  position: relative;
+  max-width: 760px;
+  padding: var(--space-5) var(--space-5) 0;
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius-m);
+  background: var(--c-bg);
 }
-
-.account-columns {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-  gap: var(--space-4);
-}
-
+.form-card .form-actions { margin: 0 calc(-1 * var(--space-5)); padding-left: var(--space-5); padding-right: var(--space-5); border-radius: 0 0 var(--radius-m) var(--radius-m); }
+.account-editor-page .page-head { max-width: 760px; }
+/* the settings page scrolls with a 32 px bottom padding (section.settings), and a sticky box stops at that padding:
+   the bar goes down by it, to the visible bottom edge */
+section.settings .form-actions-sticky { bottom: calc(-1 * var(--space-6)); }
 .account-editor .select-trigger {
   width: 100%;
 }
+/* a checkbox in a section keeps its own width (the section body is a column that would stretch it) */
+.form-section-body > .checkbox { align-self: flex-start; }
+/* a number with its unit ("3 év", "5 percenként"), the "Mind" box after it */
+.with-unit {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+}
+.with-unit .text-field-input { width: 96px; }
+.with-unit .text-field-input:disabled { color: var(--c-text-disabled); }
+.with-unit .unit { color: var(--c-text-2); }
+.unit-field .text-field-message.hint { max-width: 520px; }
+.account-editor textarea.text-field-input {
+  height: auto;
+  min-height: 88px;
+  padding: var(--space-2) var(--space-3);
+  resize: vertical;
+  line-height: var(--lh);
+}
+/* a notice right under the control it is about (no encryption) */
+.field-notice {
+  display: flex;
+  gap: var(--space-2);
+  align-items: flex-start;
+  max-width: 420px;
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  border-left: 0;
+  border-radius: var(--radius-s);
+  font-size: var(--fs-s);
+}
+.field-notice .icon { flex: none; width: 16px; height: 16px; margin-top: 1px; }
+.form-section-body > .field-notice { margin-top: calc(var(--space-2) - var(--space-4)); }
+/* a narrow field (Port): its message may be wider than the 96 px box, it does not wrap word by word */
+.form-section .text-field.w-xs .text-field-message { width: max-content; max-width: 260px; }
+.readonly-value .tag { font-size: var(--fs-s); }
+.form-section .danger { max-width: 660px; margin: 0; font-size: var(--fs-s); }
+.form-section .folder-roles {
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.form-section .signature-image .inline { justify-content: flex-start; }
+.form-section .signature-image .hint { font-size: var(--fs-xs); max-width: 520px; }
 /* the signature image's preview: its own pixels on the message page's light background, never wider than the form */
 .signature-image-preview {
   display: block;
@@ -2097,7 +2192,7 @@ section.contacts {
 
 .contacts-tools {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: center;
   gap: var(--space-2);
   padding: var(--space-3) var(--space-3) var(--space-2);
@@ -2178,85 +2273,125 @@ section.contacts {
   padding: var(--space-4) var(--space-5);
 }
 
-.contact-head {
+/* the person (pattern of the shared form base): a 64 px monogram, a 22 px name, "title · company"; the actions; the data
+   in a card as a two-column list */
+.contact-hero {
   display: flex;
   align-items: center;
-  gap: var(--space-3);
+  gap: var(--space-4);
 }
-
+.contact-hero .avatar {
+  width: 64px;
+  height: 64px;
+  font-size: 22px;
+}
+.contact-hero-text { min-width: 0; }
 .contact-name {
   margin: 0;
+  font-size: var(--fs-xl);
+  font-weight: var(--fw-strong);
+  overflow-wrap: anywhere;
 }
-
-.contact-org {
-  margin: var(--space-1) 0 0;
-}
-
-.contact-actions,
-.contact-editor-actions {
+.contact-org { margin: 2px 0 0; }
+.contact-toolbar {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: var(--space-2);
-  margin: var(--space-3) 0;
+  margin: var(--space-4) 0 var(--space-5);
 }
-
-.contact-fields {
-  margin: var(--space-3) 0;
+.contact-toolbar .spacer,
+.contacts-tools .spacer { flex: 1; }
+.contact-data { padding-bottom: var(--space-2); }
+.detail-list {
+  display: grid;
+  grid-template-columns: 140px minmax(0, 1fr);
+  margin: 0;
 }
-
-.contact-fields dt {
+.detail-list dt,
+.detail-list dd {
+  margin: 0;
+  padding: var(--space-3) 0;
+  border-top: 1px solid var(--c-border);
+}
+.detail-list dt:first-of-type,
+.detail-list dt:first-of-type + dd { border-top: 0; padding-top: 0; }
+.detail-list dt {
   color: var(--c-text-2);
   font-size: var(--fs-s);
 }
-
-.contact-fields dd {
-  margin: var(--space-1) 0 0;
-  font-family: var(--font);
-}
-
-.contact-note-text {
-  white-space: pre-wrap;
-}
-
-.contact-editor h2 {
-  margin-top: 0;
-}
-
-.contact-editor-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: var(--space-3);
-}
-
-.contact-rows {
-  margin: var(--space-4) 0 0;
-  padding: 0;
-  border: 0;
-}
-
-.contact-rows legend {
-  padding: 0;
-  margin-bottom: var(--space-2);
-  font-weight: 600;
-}
-
-.contact-row {
+.detail-list dd { font-family: var(--font); min-width: 0; overflow-wrap: anywhere; }
+.detail-values { display: flex; flex-direction: column; gap: var(--space-2); }
+.detail-value {
   display: flex;
   flex-wrap: wrap;
-  align-items: flex-end;
+  align-items: center;
   gap: var(--space-2);
-  margin-bottom: var(--space-2);
+  min-width: 0;
 }
+.detail-value a { color: var(--c-accent); text-decoration: none; overflow-wrap: anywhere; }
+.detail-value a:hover { text-decoration: underline; }
+.detail-value .tag { font-weight: var(--fw-normal); }
+.tag.tag-accent { background: var(--c-accent-soft); color: var(--c-accent-hover); }
+.contact-note-text { white-space: pre-wrap; }
 
-.contact-row .text-field {
-  flex: 1 1 180px;
-}
-
-.contact-note {
-  margin-top: var(--space-4);
+/* no person chosen: an icon, a title, a sentence, the New contact button, in the middle of the pane */
+.empty-state {
   display: flex;
   flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  height: 100%;
+  min-height: 320px;
+  text-align: center;
+  color: var(--c-text-2);
 }
+.empty-state .empty-icon {
+  display: grid;
+  place-items: center;
+  width: 72px;
+  height: 72px;
+  margin-bottom: var(--space-2);
+  border-radius: 50%;
+  background: var(--c-surface-2);
+  color: var(--c-accent);
+}
+.empty-state .empty-icon .icon { width: 32px; height: 32px; }
+.empty-state h2 { margin: 0; font-size: var(--fs-l); font-weight: var(--fw-strong); color: var(--c-text); }
+.empty-state p { margin: 0 0 var(--space-3); max-width: 340px; }
+.empty-state > .btn { align-self: center; margin: 0; }
+
+/* the editor: the sections in one card, the address and phone rows as a table whose columns line up with the name
+   row (family name m = 280 px, a 16 px gap, then the label column) */
+.contact-editor .page-head { max-width: 760px; }
+.contact-editor > .contact-error { max-width: 760px; margin-bottom: var(--space-4); }
+.contact-editor textarea.text-field-input {
+  height: auto;
+  min-height: 88px;
+  padding: var(--space-2) var(--space-3);
+  resize: vertical;
+  line-height: var(--lh);
+}
+.repeat {
+  display: grid;
+  grid-template-columns: minmax(160px, 280px) minmax(64px, 160px) max-content 40px;
+  gap: var(--space-2) var(--space-4);
+  align-items: center;
+}
+.repeat-phones { grid-template-columns: minmax(160px, 280px) minmax(64px, 160px) 40px; }
+.repeat-row { display: contents; }
+.repeat-head {
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-strong);
+  color: var(--c-text-2);
+}
+.repeat .text-field-input { width: 100%; min-width: 0; }
+.repeat-radio { display: flex; align-items: center; height: var(--field-h); }
+.repeat-radio input { width: 18px; height: 18px; margin: 0; accent-color: var(--c-accent); cursor: pointer; }
+.contact-rows .form-section-body > .btn { align-self: flex-start; margin-left: calc(-1 * var(--space-3)); }
+/* the detail pane scrolls with a 16 px bottom padding: the sticky bar goes down by it, to the visible edge */
+.contacts-detail-pane .form-actions-sticky { bottom: calc(-1 * var(--space-4)); }
 
 .import-preview ul {
   max-height: 160px;
@@ -2264,3 +2399,62 @@ section.contacts {
   margin: 0;
   padding-left: var(--space-5);
 }
+
+/* a new account: the type is chosen, not preset (IMAP / POP3, a bold name and a grey line on each; the group's label
+   above, its error below, no visible frame) */
+.account-type {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.account-type legend {
+  padding: 0;
+  margin-bottom: var(--space-1);
+}
+
+.account-type-option {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  cursor: pointer;
+}
+
+.account-type-option input {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  margin: 1px 0 0;
+  accent-color: var(--c-accent);
+  cursor: pointer;
+}
+
+.account-type-text .hint { font-size: var(--fs-s); }
+
+/* Folder subscriptions: the server's folder tree with a tick per folder, scrolling inside the Modal */
+.subscriptions-list {
+  max-height: min(420px, calc(100vh - 260px));
+  margin: var(--space-3) 0 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+.subscriptions-list li {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 28px;
+  padding-left: calc(var(--depth, 0) * var(--space-4));
+}
+.subscriptions-kept {
+  color: var(--c-text-2);
+  font-size: var(--fs-s);
+}
+.subscriptions-error {
+  margin-top: var(--space-3);
+}
+/* a page header inside the settings card column: the column gap already separates it from the first card */
+.settings-cards > .page-head { margin-bottom: 0; }

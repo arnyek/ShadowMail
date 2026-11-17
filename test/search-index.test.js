@@ -18,6 +18,7 @@ import { openSettings } from '../app/main/settings.js'
 import { SearchTextService } from '../core/mime/search-text-service.js'
 import { createSearchRefiner, createFtsReindex, FLAG, FLAG_DONE } from '../app/main/search-index.js'
 import { INDEX_PARSE } from '../core/mime/text.js'
+import { retryWhenLoaded } from './helpers/load-retry.js'
 
 const NOW = Date.UTC(2026, 10, 12, 9, 0, 0)
 const sleep = ms => new Promise(r => setTimeout(r, ms))
@@ -68,55 +69,60 @@ async function syncDelay(t, mode) {
 }
 
 test('worker: IMAP sync of the 404 KB newsletter: the worker keeps the event loop far below the main-thread way; the visible text replaces the old', async t => {
-  const old = await syncDelay(t, 'old')
-  const inline = await syncDelay(t, 'inline')
-  const w = await syncDelay(t, 'worker')
-  t.diagnostic(`event loop max during the sync: old code ${old.maxMs.toFixed(0)} ms, visible text on the main thread ${inline.maxMs.toFixed(0)} ms, worker ${w.maxMs.toFixed(0)} ms`)
-  // the 50 ms condition is measured by test/tools/search-delay.mjs (its own process per run): `npm test` runs its files in
-  // parallel, and the loaded CPU moved this number (106 ms once); here only the direction, which no load turns around
-  assert.ok(w.maxMs * 3 < inline.maxMs, `worker ${w.maxMs.toFixed(0)} ms, the visible text on the main thread ${inline.maxMs.toFixed(0)} ms`)
-  // old code: the hidden preheader is searchable; worker: it is not, the visible word is
-  assert.equal(old.index.search({ query: HIDDEN }).length, 1)
-  assert.equal(w.index.search({ query: HIDDEN }).length, 0)
-  assert.equal(w.index.search({ query: VISIBLE }).length, 1)
-  // the preview is the same in all three
-  const pv = s => s.db.prepare('SELECT preview FROM messages').get().preview
-  assert.equal(pv(w), pv(old))
-  assert.equal(pv(inline), pv(old))
-  assert.ok(pv(w).includes(HIDDEN), 'the preview keeps the preheader')
+  // the visible text rests on visible-text.js's wall-clock net: again only on a loaded machine (load-retry.js)
+  await retryWhenLoaded(t, async () => {
+    const old = await syncDelay(t, 'old')
+    const inline = await syncDelay(t, 'inline')
+    const w = await syncDelay(t, 'worker')
+    t.diagnostic(`event loop max during the sync: old code ${old.maxMs.toFixed(0)} ms, visible text on the main thread ${inline.maxMs.toFixed(0)} ms, worker ${w.maxMs.toFixed(0)} ms`)
+    // the 50 ms condition is measured by test/tools/search-delay.mjs (its own process per run): `npm test` runs its files in
+    // parallel, and the loaded CPU moved this number (106 ms once); here only the direction, which no load turns around
+    assert.ok(w.maxMs * 3 < inline.maxMs, `worker ${w.maxMs.toFixed(0)} ms, the visible text on the main thread ${inline.maxMs.toFixed(0)} ms`)
+    // old code: the hidden preheader is searchable; worker: it is not, the visible word is
+    assert.equal(old.index.search({ query: HIDDEN }).length, 1)
+    assert.equal(w.index.search({ query: HIDDEN }).length, 0)
+    assert.equal(w.index.search({ query: VISIBLE }).length, 1)
+    // the preview is the same in all three
+    const pv = s => s.db.prepare('SELECT preview FROM messages').get().preview
+    assert.equal(pv(w), pv(old))
+    assert.equal(pv(inline), pv(old))
+    assert.ok(pv(w).includes(HIDDEN), 'the preview keeps the preheader')
+  })
 })
 
 test('worker: opening the newsletter: the indexed row gets the visible text, the preview stays', async t => {
-  const results = {}
-  for (const mode of ['old', 'worker']) {
-    const s = await syncDelay(t, 'old') // indexed by the old rule, no local source (an IMAP message from before the visible text)
-    assert.equal(s.index.search({ query: HIDDEN }).length, 1)
-    const svc = mode === 'worker' ? new SearchTextService() : null
-    const refiner = svc ? createSearchRefiner({ service: svc, index: s.index, settings: openSettings(s.db), sealed: sealedStore(s.storeDir) }) : OLD
-    onCleanup(t, () => svc && svc.stop())
-    const reader = new MessageReader({ index: s.index, sealed: sealedStore(s.storeDir), withConnection: (id, fn) => s.manager.withConnection(id, fn), searchText: refiner })
-    const id = s.db.prepare('SELECT id FROM messages').get().id
-    const preview = s.db.prepare('SELECT preview FROM messages').get().preview
-    const h = monitorEventLoopDelay({ resolution: 5 })
-    h.enable()
-    const t0 = performance.now()
-    await reader.open(id)
-    const openMs = performance.now() - t0
-    if (svc) await until(() => idle(svc) && s.index.search({ query: HIDDEN }).length === 0)
-    await sleep(30)
-    h.disable()
-    results[mode] = { openMs, maxMs: h.max / 1e6 }
-    assert.equal(s.db.prepare('SELECT preview FROM messages').get().preview, preview, `${mode}: the preview stays`)
-    if (svc) {
-      assert.equal(s.index.search({ query: HIDDEN }).length, 0, 'opened: clean')
-      // the whole 404 KB newsletter is over visibleTextInfo's work ceiling: its first 128 KB is searched
-      assert.equal(s.index.search({ query: VISIBLE }).length, 1)
+  await retryWhenLoaded(t, async () => {
+    const results = {}
+    for (const mode of ['old', 'worker']) {
+      const s = await syncDelay(t, 'old') // indexed by the old rule, no local source (an IMAP message from before the visible text)
+      assert.equal(s.index.search({ query: HIDDEN }).length, 1)
+      const svc = mode === 'worker' ? new SearchTextService() : null
+      const refiner = svc ? createSearchRefiner({ service: svc, index: s.index, settings: openSettings(s.db), sealed: sealedStore(s.storeDir) }) : OLD
+      onCleanup(t, () => svc && svc.stop())
+      const reader = new MessageReader({ index: s.index, sealed: sealedStore(s.storeDir), withConnection: (id, fn) => s.manager.withConnection(id, fn), searchText: refiner })
+      const id = s.db.prepare('SELECT id FROM messages').get().id
+      const preview = s.db.prepare('SELECT preview FROM messages').get().preview
+      const h = monitorEventLoopDelay({ resolution: 5 })
+      h.enable()
+      const t0 = performance.now()
+      await reader.open(id)
+      const openMs = performance.now() - t0
+      if (svc) await until(() => idle(svc) && s.index.search({ query: HIDDEN }).length === 0)
+      await sleep(30)
+      h.disable()
+      results[mode] = { openMs, maxMs: h.max / 1e6 }
+      assert.equal(s.db.prepare('SELECT preview FROM messages').get().preview, preview, `${mode}: the preview stays`)
+      if (svc) {
+        assert.equal(s.index.search({ query: HIDDEN }).length, 0, 'opened: clean')
+        // the whole 404 KB newsletter is over visibleTextInfo's work ceiling: its first 128 KB is searched
+        assert.equal(s.index.search({ query: VISIBLE }).length, 1)
+      }
     }
-  }
-  t.diagnostic(`open: old code ${results.old.openMs.toFixed(0)} ms (event loop max ${results.old.maxMs.toFixed(0)} ms), worker ${results.worker.openMs.toFixed(0)} ms (event loop max ${results.worker.maxMs.toFixed(0)} ms)`)
-  // "not worse than the old code" is measured by test/tools/open-delay.mjs (every run its own process,
-  // the modes alternating): two runs in one process favour the second one (a warmer JIT), measured both ways here
+    t.diagnostic(`open: old code ${results.old.openMs.toFixed(0)} ms (event loop max ${results.old.maxMs.toFixed(0)} ms), worker ${results.worker.openMs.toFixed(0)} ms (event loop max ${results.worker.maxMs.toFixed(0)} ms)`)
+    // "not worse than the old code" is measured by test/tools/open-delay.mjs (every run its own process,
+    // the modes alternating): two runs in one process favour the second one (a warmer JIT), measured both ways here
 
+  })
 })
 
 test('worker: lock: what waits is dropped, nothing is written after it; a lost local message clears its account flag', async t => {

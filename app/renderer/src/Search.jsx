@@ -298,7 +298,7 @@ const ResultRow = memo(function ResultRow({ m, source, selected, onOpen }) {
   )
 })
 
-export function SearchResults({ request, accounts, selectedId, onOpen }) {
+export function SearchResults({ request, accounts, selectedId, onOpen, idsRef = null }) {
   const openRef = useRef(onOpen)
   openRef.current = onOpen
   const [local, setLocal] = useState(null)
@@ -372,6 +372,8 @@ export function SearchResults({ request, accounts, selectedId, onOpen }) {
 
   if (!local) return <section className="search-results" aria-busy="true"><p className="hint pad">{t.searchRunning}</p></section>
   if (local.error) return <section className="search-results"><p className="error pad">{t.readerError(local.error)}</p></section>
+  // the reader's Up / Down and the next hit after a delete go by the shown order
+  if (idsRef) idsRef.current = () => (rows ? rows.map(x => x.row.id) : [])
   const hasWords = /[\p{L}\p{N}]/u.test(request.query)
 
   return (

@@ -150,9 +150,10 @@ export function MenuButton({ label, icon, text, variant = 'text', items, disable
 
 /**
  * The menu-based Select (the native <select> is gone). The button's accessible name is
- * `label`; it shows the current option's text. options: [{ value, label }].
+ * `label`; it shows the current option's text. options: [{ value, label }]. `describedBy`: the id of the field's hint or
+ * error message (aria-describedby); `invalid`: aria-invalid.
  */
-export function Select({ label, value, options, onChange, disabled, id, className }) {
+export function Select({ label, value, options, onChange, disabled, id, className, describedBy, invalid = false }) {
   const [open, setOpen] = useState(false)
   const trigger = useRef(null)
   const current = options.find(o => o.value === value)
@@ -171,6 +172,8 @@ export function Select({ label, value, options, onChange, disabled, id, classNam
         title={label}
         aria-haspopup="menu"
         aria-expanded={open}
+        aria-describedby={describedBy}
+        aria-invalid={invalid ? true : undefined}
         disabled={disabled}
         onClick={() => setOpen(o => !o)}
         onKeyDown={e => {

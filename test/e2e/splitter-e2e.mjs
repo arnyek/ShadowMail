@@ -119,7 +119,10 @@ const splitter = (page, name) => page.locator(`.splitter[data-split="${name}"]`)
 async function drag(page, name, dx, dy = 0) {
   const b = await splitter(page, name).boundingBox()
   const x = b.x + b.width / 2
-  const y = b.y + b.height / 2
+  // the middle of the VISIBLE part: a divider beside a tall, scrolled page reaches below the window (measured: 961 px
+  // tall in a 600 px window), and the middle of its box is then off-screen, where no pointer event lands
+  const vh = page.viewportSize()?.height ?? Infinity
+  const y = (Math.max(b.y, 0) + Math.min(b.y + b.height, vh)) / 2
   await page.mouse.move(x, y)
   await page.mouse.down()
   await page.mouse.move(x + dx / 2, y + dy / 2, { steps: 4 })

@@ -1,12 +1,13 @@
 // The main window's minimum width keeps the mail view's three panes (sidebar, list, reader on the right) whole: it is at
 // least their minimums (read from Mail.jsx, where the dividers use them) plus the mail area's right margin (app.css) plus
-// 20 px. A pane minimum or the margin raised without the window's one makes this red. The composer window has no minimum.
+// 20 px. A pane minimum or the margin raised without the window's one makes this red. The composer window has no minimum;
+// it opens centered on the main window, on the main window's display (composerBounds).
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { MAIN_MIN_WIDTH } from '../app/main/window-size.js'
+import { COMPOSER_SIZE, composerBounds, MAIN_MIN_WIDTH } from '../app/main/window-size.js'
 
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const read = rel => fs.readFileSync(path.join(repo, rel), 'utf8')
@@ -55,9 +56,49 @@ test('the minimum is on the main window only; the composer window keeps its size
   const main = read('app/main/main.js')
   const mainWin = main.slice(main.indexOf('function createWindow()'), main.indexOf('const wc = mainWindow.webContents'))
   assert.match(mainWin, /minWidth: MAIN_MIN_WIDTH,/)
-  const composer = main.slice(main.indexOf('function createComposerWindow('), main.indexOf('function createWindow()'))
-  assert.match(composer, /new BrowserWindow\(\{ width: 900, height: 700, show: false,/)
-  assert.doesNotMatch(composer, /minWidth|minHeight/)
+  const composer = main.slice(main.indexOf('function composerPlacement('), main.indexOf('function createWindow()'))
+  assert.match(composer, /new BrowserWindow\(\{ \.\.\.composerPlacement\(\), show: false,/)
+  assert.doesNotMatch(composer, /minWidth|minHeight|parent:/)
+  assert.deepEqual(COMPOSER_SIZE, { width: 900, height: 700 })
+  // where it opens: the main window's display, its normal bounds when minimized; the plain size without a main window
+  assert.match(composer, /mainWindow\.isMinimized\(\) \? mainWindow\.getNormalBounds\(\) : mainWindow\.getBounds\(\)/)
+  assert.match(composer, /composerBounds\(main, screen\.getDisplayMatching\(main\)\.workArea\)/)
+  assert.match(composer, /if \(!mainWindow \|\| mainWindow\.isDestroyed\(\)\) return \{ \.\.\.COMPOSER_SIZE \}/)
+})
+
+// two displays side by side, the second one LEFT of the primary (negative x), both with a 40 px taskbar at the bottom
+const PRIMARY = { x: 0, y: 0, width: 1920, height: 1040 }
+const LEFT = { x: -1920, y: 0, width: 1920, height: 1040 }
+
+test('the composer opens centered on the main window, on the main window\'s display', () => {
+  // the main window in the middle of the left display: the composer's center is the main window's center
+  const main = { x: -1600, y: 150, width: 1100, height: 720 }
+  const b = composerBounds(main, LEFT)
+  assert.deepEqual(b, { x: -1500, y: 160, width: 900, height: 700 })
+  assert.equal(b.x + b.width / 2, main.x + main.width / 2)
+  assert.equal(b.y + b.height / 2, main.y + main.height / 2)
+  // the same on the primary display
+  assert.deepEqual(composerBounds({ x: 400, y: 100, width: 1100, height: 720 }, PRIMARY), { x: 500, y: 110, width: 900, height: 700 })
+  // an odd size rounds to a whole pixel
+  const odd = composerBounds({ x: 0, y: 0, width: 1101, height: 721 }, PRIMARY)
+  assert.ok(Number.isInteger(odd.x) && Number.isInteger(odd.y))
+})
+
+test('the composer stays inside the work area: a main window at an edge, smaller than the composer, or a maximized one', () => {
+  // a small main window in the left display's top-left corner: the composer is pushed in, not off the screen
+  assert.deepEqual(composerBounds({ x: -1920, y: 0, width: 400, height: 300 }, LEFT), { x: -1920, y: 0, width: 900, height: 700 })
+  // at the bottom-right corner of the primary: it ends at the work area's edge (above the taskbar)
+  assert.deepEqual(composerBounds({ x: 1700, y: 900, width: 220, height: 140 }, PRIMARY), { x: 1020, y: 340, width: 900, height: 700 })
+  // a main window half off the display (dragged): still fully on the display
+  const half = composerBounds({ x: 1500, y: 600, width: 1100, height: 720 }, PRIMARY)
+  assert.ok(half.x >= 0 && half.x + half.width <= 1920 && half.y >= 0 && half.y + half.height <= 1040, JSON.stringify(half))
+  // maximized: its bounds are the work area, the composer in the middle of it
+  assert.deepEqual(composerBounds(PRIMARY, PRIMARY), { x: 510, y: 170, width: 900, height: 700 })
+})
+
+test('a display smaller than the composer: it is shrunk to the work area, at its origin', () => {
+  const small = { x: 1920, y: 0, width: 800, height: 560 }
+  assert.deepEqual(composerBounds({ x: 1950, y: 20, width: 700, height: 500 }, small), { x: 1920, y: 0, width: 800, height: 560 })
 })
 
 test('the check itself: a raised pane minimum or a changed sidebar limit is found', () => {

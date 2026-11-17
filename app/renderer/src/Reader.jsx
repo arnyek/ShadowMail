@@ -18,6 +18,7 @@ import { SourceView } from './SourceView.jsx'
 import { readerText } from './control-marks.js'
 import { textBlocks } from '../../../core/mime/text-blocks.js'
 import { copyAsText } from './copy-text.js'
+import { archiveFor } from './reader-nav.js'
 
 const api = window.shadowMail
 const dateTimeFmt = new Intl.DateTimeFormat(locale, { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
@@ -227,6 +228,8 @@ export function Reader({ messageId, onOpen, onBack = null, onAction = null, onLo
     const roles = assignRoles(account.folders)
     return account.folders.filter(f => f.path !== message.folder).map(f => ({ path: f.path, role: roles.get(f.path) || null }))
   }, [account, message])
+  // the Archive button: only where the list has one too (the account has an Archive, the message is not in it)
+  const canArchive = useMemo(() => Boolean(account && message && archiveFor(account.folders, message.folder).archive), [account, message])
   // a message in its account's Drafts folder (the main process's own rule) opens again in the composer
   const isDraft = useMemo(() => Boolean(account && message && assignRoles(account.folders).get(message.folder) === 'drafts'), [account, message])
 
@@ -295,6 +298,7 @@ export function Reader({ messageId, onOpen, onBack = null, onAction = null, onLo
           {/* a draft: the edit button takes this place in the toolbar (a 360 px reader has no room for both); below it stays */}
           {!isDraft && <IconButton icon="replyAll" label={t.replyModes.replyAll} onClick={() => compose('replyAll')} />}
           <IconButton icon="forward" label={t.replyModes.forward} onClick={() => compose('forward')} />
+          {canArchive && <IconButton icon="archive" className="reader-archive" label={t.actions.archive} onClick={() => act('archive')} />}
           <IconButton icon="trash" label={t.actions.delete} onClick={() => act('delete')} />
           {moveTargets.length > 0 && (
             <MenuButton
