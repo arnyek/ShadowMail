@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import path from 'node:path'
 import { tempDir, onCleanup } from './helpers/tmp.js'
+import { memoryIndex, addAccount } from './helpers/fixtures.js'
 import { openDatabase, openMailDatabase } from '../core/db/index.js'
 import { migrate, currentVersion, backupPath } from '../core/db/migrate.js'
 import { MIGRATIONS } from '../core/db/schema.js'
@@ -134,8 +135,8 @@ test('MCP settings: a v3 database (0.10.1) migrates to 4: the settings table is 
   }
 })
 
-test('the migration list: 1..12 without a gap or a repeat; 6 the signature image, 7 the partial unread index, 8 the folder order, 9 the folder role, 10 the chosen role, 11 the archive mode, 12 the kept folders', () => {
-  assert.deepEqual(MIGRATIONS.map(m => m.version), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12])
+test('the migration list: 1..14 without a gap or a repeat; 6 the signature image, 7 the partial unread index, 8 the folder order, 9 the folder role, 10 the chosen role, 11 the archive mode, 12 the kept folders, 13 the scheduled messages, 14 the Bcc recipients', () => {
+  assert.deepEqual(MIGRATIONS.map(m => m.version), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14])
   assert.match(MIGRATIONS[5].name, /signature image/)
   assert.match(MIGRATIONS[6].name, /partial index of the unread rows/)
   assert.match(MIGRATIONS[6].up.toString(), /CREATE INDEX idx_messages_unread ON messages \(account_id, folder\) WHERE instr\(flags, '\\\\Seen'\) = 0/)
@@ -150,9 +151,13 @@ test('the migration list: 1..12 without a gap or a repeat; 6 the signature image
   assert.match(MIGRATIONS[11].name, /kept without a subscription/)
   assert.match(MIGRATIONS[11].up.toString(), /ALTER TABLE folders ADD COLUMN kept INTEGER DEFAULT 0'/)
   assert.match(MIGRATIONS[11].up.toString(), /UPDATE folders SET kept = NULL WHERE is_local = 0'/)
+  assert.match(MIGRATIONS[12].name, /scheduled/)
+  assert.match(MIGRATIONS[12].up.toString(), /CREATE TABLE scheduled/)
+  assert.match(MIGRATIONS[13].name, /Bcc recipients/)
+  assert.match(MIGRATIONS[13].up.toString(), /ALTER TABLE messages ADD COLUMN bcc_addrs TEXT'/)
 })
 
-test('a schema 7 database migrates to the latest (8, 9, 10, 11, 12): the .bak-7 is made, every folder has no manual order, the folder trees and the account list are byte for byte the old ones', t => {
+test('a schema 7 database migrates to the latest (8 .. 14): the .bak-7 is made, every folder has no manual order, the folder trees and the account list are byte for byte the old ones', t => {
   const dir = tempDir(t)
   const file = path.join(dir, 'mail.sqlite')
   const key = Buffer.alloc(32, 7)
@@ -181,7 +186,7 @@ test('a schema 7 database migrates to the latest (8, 9, 10, 11, 12): the .bak-7 
 
   const { db, migration } = openMailDatabase(file, { key })
   try {
-    assert.deepEqual(migration, { from: 7, to: 12, backup: backupPath(file, 7) })
+    assert.deepEqual(migration, { from: 7, to: 14, backup: backupPath(file, 7) })
     assert.ok(fs.existsSync(`${file}.bak-7`), 'the pre-migration copy')
     assert.equal(db.prepare('SELECT COUNT(*) FROM folders WHERE sort_order IS NOT NULL').pluck().get(), 0, 'no manual order anywhere')
     assert.equal(db.prepare('SELECT COUNT(*) FROM folders').pluck().get(), 25)
@@ -206,7 +211,7 @@ test('a schema 7 database migrates to the latest (8, 9, 10, 11, 12): the .bak-7 
   }
 })
 
-test('a 0.12.0 database (schema 5, encrypted) migrates to the latest: the .bak-5 is made, 6 to 12 are applied, the data stays', t => {
+test('a 0.12.0 database (schema 5, encrypted) migrates to the latest: the .bak-5 is made, 6 to 14 are applied, the data stays', t => {
   const dir = tempDir(t)
   const file = path.join(dir, 'mail.sqlite')
   const key = Buffer.alloc(32, 9)
@@ -218,7 +223,7 @@ test('a 0.12.0 database (schema 5, encrypted) migrates to the latest: the .bak-5
   old.close()
   const { db, migration } = openMailDatabase(file, { key })
   try {
-    assert.deepEqual(migration, { from: 5, to: 12, backup: backupPath(file, 5) })
+    assert.deepEqual(migration, { from: 5, to: 14, backup: backupPath(file, 5) })
     assert.ok(fs.existsSync(`${file}.bak-5`), 'the pre-migration copy')
     assert.ok(db.prepare("SELECT name FROM pragma_table_info('accounts')").pluck().all().includes('signature_image'), 'migration 6')
     assert.equal(db.prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'idx_messages_unread'").pluck().get(), 'idx_messages_unread', 'migration 7')
@@ -228,6 +233,9 @@ test('a 0.12.0 database (schema 5, encrypted) migrates to the latest: the .bak-5
     assert.equal(db.prepare('SELECT role_manual FROM folders WHERE account_id = ?').pluck().get(acc), 0, 'migration 10')
     assert.equal(db.prepare('SELECT archive_mode FROM accounts WHERE id = ?').pluck().get(acc), null, 'migration 11')
     assert.ok(db.prepare("SELECT name FROM pragma_table_info('folders')").pluck().all().includes('kept'), 'migration 12')
+    // migration 14: the old rows' Bcc is not known (NULL), the sync fills only the Sent / Drafts rows that need it
+    assert.ok(db.prepare("SELECT name FROM pragma_table_info('messages')").pluck().all().includes('bcc_addrs'), 'migration 14')
+    assert.equal(db.prepare('SELECT COUNT(*) FROM messages WHERE bcc_addrs IS NOT NULL').pluck().get(), 0, 'migration 14: unknown')
   } finally {
     db.close()
   }
@@ -237,4 +245,16 @@ test('a 0.12.0 database (schema 5, encrypted) migrates to the latest: the .bak-5
   } finally {
     bak.close()
   }
+})
+
+test('migration 13: the scheduled table is empty after the upgrade, its account goes with the account (CASCADE), the due index is there', t => {
+  const { db } = memoryIndex(t)
+  assert.equal(currentVersion(db), 14)
+  assert.equal(db.prepare('SELECT count(*) AS n FROM scheduled').get().n, 0)
+  const acc = addAccount(db).id
+  db.prepare("INSERT INTO scheduled (account_id, send_at, created_at, payload_path) VALUES (?, 1, 1, 'x')").run(acc)
+  assert.equal(db.prepare('SELECT state, attempts, claude FROM scheduled').get().state, 'waiting')
+  db.prepare('DELETE FROM accounts WHERE id = ?').run(acc)
+  assert.equal(db.prepare('SELECT count(*) AS n FROM scheduled').get().n, 0, 'CASCADE')
+  assert.ok(db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = 'idx_scheduled_due'").get())
 })

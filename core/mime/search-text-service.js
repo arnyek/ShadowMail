@@ -14,22 +14,24 @@
 // here (searchTextOf).
 import { Worker } from 'node:worker_threads'
 import { simpleParser } from 'mailparser'
-import { searchTextOf, latePreviewOf, SEARCH_PARSE, LATE_PARSE } from './text.js'
+import { searchTextInfo, latePreviewOf, SEARCH_PARSE, LATE_PARSE } from './text.js'
+import { utf8Headers } from './raw-headers.js'
 
 export const MAX_PENDING_BYTES = 16 * 1024 * 1024
 export const WORKER_URL = new URL('./search-text-worker.js', import.meta.url)
 
 /**
- * What the worker makes, here (no worker): { text, preview }. text: 'body' = searchTextOf, 'message' = headers + body
- * (local-search). preview: only for an HTML over the main thread's cap (latePreviewOf), else null. No mailparser HTML ->
+ * What the worker makes, here (no worker): { text, preview, complex }. text: 'body' = searchTextOf, 'message' = headers + body
+ * (local-search). preview: only for an HTML over the main thread's cap (latePreviewOf), else null. complex: the HTML was
+ * too complex to filter, the body is empty (the refiner tries such a message once more, later). No mailparser HTML ->
  * text conversion in the parse (SEARCH_PARSE; for a body LATE_PARSE, which over the cap makes the old-rule text with our
  * linear htmlToPlain): searchTextOf reads the HTML itself, and the conversion was the quadratic step.
  */
 export async function searchResultHere(bytes, kind = 'body') {
-  const p = await simpleParser(Buffer.from(bytes), kind === 'body' ? LATE_PARSE : SEARCH_PARSE)
-  const body = searchTextOf(p)
+  const p = await simpleParser(kind === 'message' ? utf8Headers(Buffer.from(bytes)) : Buffer.from(bytes), kind === 'body' ? LATE_PARSE : SEARCH_PARSE)
+  const { text: body, complex } = searchTextInfo(p)
   const text = kind === 'message' ? [p.subject, p.from && p.from.text, p.to && p.to.text, p.cc && p.cc.text, body].filter(Boolean).join('\n') : body
-  return { text, preview: kind === 'body' ? latePreviewOf(p) : null }
+  return { text, preview: kind === 'body' ? latePreviewOf(p) : null, complex }
 }
 
 /** The search text alone (searchResultHere's text). */
@@ -105,7 +107,7 @@ export class SearchTextService {
 
   /**
    * The search text of a message ->
-   *   { text }            made;
+   *   { text, preview, complex }  made (complex: the HTML was too complex to filter, text is empty);
    *   { failed: code }    not for THIS message (unparsable, e.g. EMAXLEN: over 1000 MIME parts; unreadable; it made the
    *                       worker fail): the caller goes on without it (the re-index must not stop there);
    *   null                dropped (stopped: lock / quit; the worker broken): the caller tries it another time.
@@ -204,7 +206,7 @@ export class SearchTextService {
     const item = this.current
     this.current = null
     if (!m.ok) this.log(`search text: message skipped (${m.code})`)
-    this.#finish(item, this.stopped ? null : m.ok ? { text: m.text, preview: m.preview ?? null } : { failed: m.code || 'parse_failed' })
+    this.#finish(item, this.stopped ? null : m.ok ? { text: m.text, preview: m.preview ?? null, complex: m.complex === true } : { failed: m.code || 'parse_failed' })
     this.#next()
   }
 
@@ -229,6 +231,11 @@ export class SearchTextService {
     this.restarts++
     this.log(`search text: worker failed (${code}), restarted`)
     this.#next()
+  }
+
+  /** Nothing waits and nothing is in work: a quiet moment for the refiner's retries. */
+  idle() {
+    return !this.current && !this.queue.length && !this.waiters.length && this.reserved === 0
   }
 
   /**

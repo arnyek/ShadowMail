@@ -2,7 +2,12 @@
 // IMAP envelope / BODYSTRUCTURE helpers.
 // Derived from an earlier internal tool by the same author.
 
-export const fmtAddr = a => (a && a.name ? `${a.name} <${a.address}>` : (a && a.address) || '')
+// A name holding a character that ends or splits a list item is written as an RFC 5322 quoted string, so a stored
+// "a@x, Real" <r@x> reads back as one recipient (recipient-label.js parseAddrList). Other names stay as they were.
+const NEEDS_QUOTES = /[",<>\\]/
+const fmtName = name => (NEEDS_QUOTES.test(name) ? `"${name.replace(/["\\]/g, '\\$&')}"` : name)
+
+export const fmtAddr = a => (a && a.name ? `${fmtName(a.name)} <${a.address}>` : (a && a.address) || '')
 export const fmtAddrs = list => (list || []).map(fmtAddr).join(', ')
 
 /** Walks a BODYSTRUCTURE: attachments and the first text/plain and text/html parts. */

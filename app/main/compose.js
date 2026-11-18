@@ -30,6 +30,10 @@ import { ActionError } from './sync-manager.js'
 import { errCode } from '../../core/log-safe.js'
 import { SIG_CID_RE, unwrapSignature } from '../../core/smtp/signature.js'
 import { SIGNATURE_TYPES } from '../../core/accounts/signature-image.js'
+import { checkSendAt } from '../../core/db/scheduled.js'
+
+// the session image of a scheduled message: its html names this instead of a session id (a new session sends it)
+const SCHEDULED_SESSION = 'scheduled-session'
 
 export const MAX_ATTACHMENTS_BYTES = 25 * 1024 * 1024 // most servers refuse bigger messages
 const EMAIL = /^[^\s@<>()",;:\\[\]]+@[^\s@<>()",;:\\[\]]+\.[^\s@<>()",;:\\[\]]+$/
@@ -81,6 +85,9 @@ export const CLAUDE_KEYWORD = '$ShadowMailClaude'
 const draftKeyOf = (accountId, messageId) => `${accountId}\u0000${String(messageId).replace(/^<|>$/g, '')}`
 
 export class Composer {
+  // scheduled ids being turned back into drafts ("Időzítés törlése"): held from the scheduler
+  #unscheduling = new Set()
+
   /**
    * @param index, store (getRow, list, passwordsFor), contacts (Contacts)
    * @param storeDir        data/store (POP3 drafts and sent copies; removing them)
@@ -90,7 +97,9 @@ export class Composer {
    * @param onChange        ({ accountId, folders }) after a local (POP3) change
    * @param send            sendRaw (injected in tests)
    */
-  constructor({ index, store, contacts, storeDir, sealed = null, dataDir = null, withConnection, reader = null, requestSync = () => {}, onChange = () => {}, send = sendRaw, now = () => Date.now(), log = () => {}, searchText = null }) {
+  constructor({ index, store, contacts, storeDir, sealed = null, dataDir = null, withConnection, reader = null, requestSync = () => {}, onChange = () => {}, send = sendRaw, now = () => Date.now(), log = () => {}, searchText = null, scheduled = null, onScheduledChange = () => {} }) {
+    this.scheduled = scheduled // core/db/scheduled.js Scheduled ("Küldés később"), or null
+    this.onScheduledChange = onScheduledChange // () a scheduled row changed from a composer (the list reloads)
     this.searchText = searchText // the worker thread's refiner, or null (the visible text made here)
     this.dataDir = dataDir ? path.resolve(dataDir) : null
     this.reader = reader // the original of a reply / forward (MessageReader.source)
@@ -126,19 +135,23 @@ export class Composer {
 
   /**
    * The open session editing this saved draft (index id): the same account and Message-ID, not sent yet; or null.
-   * One draft, one composer: two windows would overwrite each other's saves.
+   * One draft, one composer: two windows would overwrite each other's saves. `except`: a session not to count (the
+   * caller's own, e.g. MCP update_draft's, which holds the same draft).
    */
-  sessionOfDraft(id) {
+  sessionOfDraft(id, except = null) {
     const key = this.draftKey(id)
     if (!key) return null
     for (const s of this.sessions.values()) {
-      if (!s.sent && s.messageId && draftKeyOf(s.draftAccountId, s.messageId) === key) return s.id
+      if (s.id !== except && !s.sent && s.messageId && draftKeyOf(s.draftAccountId, s.messageId) === key) return s.id
     }
     return null
   }
 
   close(id) {
+    const s = this.sessions.get(id)
     this.sessions.delete(id)
+    // a scheduled message's composer closed: the list shows it free again
+    if (s && s.scheduledId && !s.sent) this.onScheduledChange()
   }
 
   #session(id) {
@@ -490,7 +503,7 @@ export class Composer {
     const now = this.now()
     this.index.insertMany([{
       account_id: account.id, folder, uid: null, pop3_uidl: null, message_id: msg.messageId, in_reply_to: p.inReplyTo, refs: p.references.join(' ') || null,
-      from_addr: account.email, from_name: account.display_name || '', to_addrs: fmtAddrs(p.to), cc_addrs: fmtAddrs(p.cc), subject: p.subject,
+      from_addr: account.email, from_name: account.display_name || '', to_addrs: fmtAddrs(p.to), cc_addrs: fmtAddrs(p.cc), bcc_addrs: fmtAddrs(p.bcc), subject: p.subject,
       date: now, idate: now, flags, size: msg.sentCopy.length, has_attachments: p.attachments.some(a => !a.inline) ? 1 : 0, attachments: null,
       store_path: rel, body_state: 0, sender_text: fmtAddrs(p.from), recipients_text: fmtAddrs([...p.to, ...p.cc]),
     }])
@@ -545,10 +558,29 @@ export class Composer {
     this.requestSync(accountId, [folder])
   }
 
+  // a composer opened from the scheduled list saves into the scheduled message (its sealed payload), not into Drafts
+  async #saveScheduled(s, form) {
+    const { account, recipients } = await this.#compose(s, form, { draft: true })
+    // it is still to go out at its time: without a recipient it would only fail then
+    if (!recipients.length) throw new ActionError('no_recipients')
+    const old = this.scheduled.get(s.scheduledId)
+    if (!old) throw new ActionError('not_found')
+    const rel = this.#writePayload(s, form, account.id)
+    // saved by the user in a composer: from now on the user's scheduled message, whoever scheduled it first
+    if (!this.scheduled.setPayload(s.scheduledId, { accountId: account.id, payloadPath: rel, subject: form.subject || '', recipients: recipients.map(r => r.address || r).join(', ').slice(0, 2000), claude: false })) {
+      this.#removeSealed(rel)
+      throw new ActionError('not_found')
+    }
+    if (old.payload_path !== rel) this.#removeSealed(old.payload_path)
+    this.onScheduledChange()
+    return { savedAt: this.now(), oldDraftLeft: false, scheduled: true }
+  }
+
   /** Removes the session's draft ("Elvetés" in the composer); after a save still running, not before it. */
   async discardDraft(sessionId) {
     const s = this.#session(sessionId)
-    return this.#exclusive(s, () => this.#discard(s))
+    // opened from the scheduled list: "Elvetés" removes the scheduled message (it has no Drafts copy)
+    return this.#exclusive(s, () => (s.scheduledId && !s.sent ? this.#dropScheduled(s) : this.#discard(s)))
   }
 
   async #discard(s, { afterSend = false } = {}) {
@@ -655,6 +687,8 @@ export class Composer {
   async #saveDraft(s, form, { afterSend = false } = {}) {
     // the message went out: a save would make a draft of it
     if (s.sent && !afterSend) throw new ActionError('already_sent')
+    // opened from the scheduled list: the save updates the scheduled message (same time), Drafts stays untouched
+    if (s.scheduledId && !s.sent) return this.#saveScheduled(s, form)
     const claude = Boolean(s.claude)
     const { account, msg } = await this.#compose(s, form, { claude, draft: true })
     // The draft moved to another account (From changed): the new copy is saved FIRST, the old one goes
@@ -679,12 +713,179 @@ export class Composer {
    * On failure: the message is kept as a draft (best effort) and ActionError(code) is thrown with
    * `draftSaved` telling whether that worked.
    */
-  async sendNow(sessionId, form) {
+  async sendNow(sessionId, form, { addPeople = true, draftOnFail = true } = {}) {
     const s = this.#session(sessionId)
-    return this.#exclusive(s, () => this.#sendNow(s, form))
+    return this.#exclusive(s, () => this.#sendNow(s, form, { addPeople, draftOnFail }))
   }
 
-  async #sendNow(s, form) {
+  /**
+   * "Küldés később": the message waits locally (the scheduled row + its sealed payload: the form, the attachments
+   * byte for byte, the original's flag, the session's signature image, Claude's mark) until the scheduler sends it.
+   * The draft goes from Drafts (it lives only in the scheduled list now), the session is done. -> { id, warnings }
+   */
+  async schedule(sessionId, form, sendAt, { byClaude = false } = {}) {
+    const s = this.#session(sessionId)
+    return this.#exclusive(s, () => this.#schedule(s, form, sendAt, byClaude))
+  }
+
+  // the row's claude mark says WHO scheduled it (Claude over MCP, or the user in a composer), not where the draft came
+  // from: a Claude draft the user scheduled in the app is the user's (cancel_scheduled asks, the address book grows)
+  async #schedule(s, form, sendAt, byClaude) {
+    if (s.sent) throw new ActionError('already_sent')
+    if (!this.scheduled || !this.sealed) throw new ActionError('not_available')
+    try {
+      checkSendAt(sendAt, this.now())
+    } catch (err) {
+      throw new ActionError(err.code || 'bad_time')
+    }
+    // the same checks as a send (the account, the addresses), nothing goes out
+    const { account, recipients } = await this.#compose(s, form)
+    if (!recipients.length) throw new ActionError('no_recipients')
+    const rel = this.#writePayload(s, form, account.id)
+    let id
+    try {
+      id = this.scheduled.add({ accountId: account.id, sendAt, subject: form.subject || '', recipients: recipients.map(r => r.address || r).join(', ').slice(0, 2000), claude: Boolean(byClaude), payloadPath: rel, now: this.now() })
+    } catch (err) {
+      this.#removeSealed(rel)
+      throw err
+    }
+    s.sent = true // the session saves and sends nothing more
+    // opened from the scheduled list and scheduled again: the new row replaces the old one
+    this.#dropScheduled(s)
+    const warnings = []
+    try {
+      await this.#discard(s, { afterSend: true })
+    } catch (err) {
+      warnings.push(`draft_not_removed:${err.code || 'unknown'}`)
+    }
+    this.log(`scheduled message ${id} saved`)
+    return { scheduled: true, id, warnings }
+  }
+
+  /** A scheduled message as a new session (to send it, or to save it back as a draft). -> { sessionId, form } */
+  restoreScheduled(id) {
+    const payload = this.#readPayload(id)
+    const sid = this.open()
+    return { sessionId: sid, form: this.#fillFromPayload(this.#session(sid), payload) }
+  }
+
+  /**
+   * "Megnyitás" in the scheduled list: the message in this composer session. Its saves update the scheduled message
+   * (not Drafts); a send or a new schedule replaces the row; "Elvetés" removes it; closing leaves it as it was. While
+   * the session holds it, the scheduler does not send it (holdsScheduled). -> the composer's starting form
+   */
+  openScheduled(sessionId, id) {
+    const s = this.#session(sessionId)
+    // one being sent now may already be out: not opened for editing
+    const row = this.scheduled && this.scheduled.get(id)
+    if (row && row.state === 'sending') throw new ActionError('scheduled_sending')
+    const payload = this.#readPayload(id)
+    const form = this.#fillFromPayload(s, payload)
+    s.scheduledId = id
+    s.initial = { accountId: form.accountId, to: form.to, cc: form.cc, bcc: form.bcc, subject: form.subject, draftHtml: form.html, inReplyTo: form.inReplyTo, references: form.references }
+    // an interrupted or uncertain send may have gone out: the composer says so and asks before sending it again
+    if (row && row.state === 'failed' && ['interrupted', 'uncertain'].includes(row.last_error)) s.initial.mayHaveGone = row.last_error
+    this.onScheduledChange() // the list shows it held
+    return s.initial
+  }
+
+  /** The session holding this scheduled message (open in a composer), or null. */
+  sessionOfScheduled(id) {
+    for (const s of this.sessions.values()) if (s.scheduledId === id && !s.sent) return s.id
+    return null
+  }
+
+  /** The ids of the scheduled messages open in a composer or being turned back into a draft (the scheduler leaves them alone). */
+  heldScheduled() {
+    return [...this.sessions.values()].filter(s => s.scheduledId && !s.sent).map(s => s.scheduledId).concat([...this.#unscheduling])
+  }
+
+  #readPayload(id) {
+    const row = this.scheduled && this.scheduled.get(id)
+    if (!row) throw new ActionError('not_found')
+    try {
+      return JSON.parse(this.sealed.read(row.payload_path).toString('utf8'))
+    } catch (err) {
+      throw new ActionError(err && err.code === 'store_corrupt' ? 'store_corrupt' : 'not_available')
+    }
+  }
+
+  #writePayload(s, form, accountId) {
+    const html = String(form.html || '').split(`sig-img://session/${s.id}"`).join(`sig-img://session/${SCHEDULED_SESSION}"`)
+    const payload = {
+      v: 1,
+      form: { accountId, to: form.to || '', cc: form.cc || '', bcc: form.bcc || '', subject: form.subject || '', html, inReplyTo: form.inReplyTo || null, references: form.references || [] },
+      attachments: [...s.attachments.values()].map(a => ({ filename: a.filename, contentType: a.contentType, content: Buffer.from(a.content).toString('base64') })),
+      origin: s.origin || null,
+      signatureImage: s.signatureImage ? { type: s.signatureImage.type, bytes: Buffer.from(s.signatureImage.bytes).toString('base64') } : null,
+      claude: Boolean(s.claude),
+    }
+    const rel = `${accountId}/scheduled-${crypto.randomUUID()}`
+    this.sealed.write(rel, Buffer.from(JSON.stringify(payload), 'utf8'))
+    return rel
+  }
+
+  // the scheduled row this session was opened from goes (sent, scheduled anew, or discarded), with its file
+  #dropScheduled(s) {
+    if (!s.scheduledId || !this.scheduled) return
+    const rel = this.scheduled.remove(s.scheduledId)
+    if (rel) this.#removeSealed(rel)
+    s.scheduledId = null
+    this.onScheduledChange()
+  }
+
+  #fillFromPayload(s, payload) {
+    const sid = s.id
+    for (const a of payload.attachments || []) {
+      const att = { id: crypto.randomUUID(), filename: a.filename, contentType: a.contentType, content: Buffer.from(a.content, 'base64') }
+      s.attachments.set(att.id, att)
+    }
+    s.origin = payload.origin || null
+    s.claude = Boolean(payload.claude)
+    s.signatureImage = payload.signatureImage ? { type: payload.signatureImage.type, bytes: Buffer.from(payload.signatureImage.bytes, 'base64') } : null
+    return { ...payload.form, html: String(payload.form.html || '').split(`sig-img://session/${SCHEDULED_SESSION}"`).join(`sig-img://session/${sid}"`) }
+  }
+
+  /** "Időzítés törlése": back to a draft in the account's Drafts; the row and its file go. -> the draft save's answer */
+  async unscheduleToDraft(id) {
+    const row = this.scheduled && this.scheduled.get(id)
+    if (!row) throw new ActionError('not_found')
+    // one being sent now may already be out; one open in a composer is that window's
+    if (row.state === 'sending') throw new ActionError('scheduled_sending')
+    if (this.sessionOfScheduled(id) !== null || this.#unscheduling.has(id)) throw new ActionError('scheduled_open')
+    // held while the draft is saved: the scheduler does not pick it meanwhile
+    this.#unscheduling.add(id)
+    let sessionId = null
+    try {
+      const restored = this.restoreScheduled(id)
+      sessionId = restored.sessionId
+      const r = await this.saveDraft(sessionId, restored.form)
+      const rel = this.scheduled.remove(id)
+      if (rel) this.#removeSealed(rel)
+      this.onScheduledChange()
+      return r
+    } finally {
+      this.#unscheduling.delete(id)
+      if (sessionId) this.close(sessionId)
+    }
+  }
+
+  /** The scheduled row went (sent, or removed): its sealed payload too. */
+  forgetScheduled(rel) {
+    if (rel) this.#removeSealed(rel)
+  }
+
+  #removeSealed(rel) {
+    try {
+      this.sealed.remove(rel)
+    } catch (err) {
+      this.log(`scheduled payload not removed: ${errCode(err)}`)
+    }
+  }
+
+  // addPeople false (an MCP send): the recipients are not added to the address book (the send-confirmation switch
+  // lets mail go without the Modal only to the book; it must grow only from the user's own decisions)
+  async #sendNow(s, form, { addPeople = true, draftOnFail = true } = {}) {
     // Once sent (even with refused recipients) the session sends nothing again: a second send would go
     // to everyone again, with a new Message-ID.
     if (s.sent) throw new ActionError('already_sent')
@@ -700,16 +901,22 @@ export class Composer {
       const code = err.code === 'NO_PASSWORD' ? 'no_password' : err.code === 'no_recipient_accepted' ? 'no_recipient_accepted' : classifyError(err)
       this.log(`send failed (${code})`)
       let draftSaved = false
-      try {
-        await this.#saveDraft(s, form)
-        draftSaved = true
-      } catch (e) {
-        this.log(`draft after a failed send not saved: ${errCode(e)}`)
+      // a scheduled message stays in the scheduled list with its error: no draft from each try
+      if (draftOnFail) {
+        try {
+          await this.#saveDraft(s, form)
+          draftSaved = true
+        } catch (e) {
+          this.log(`draft after a failed send not saved: ${errCode(e)}`)
+        }
       }
-      throw Object.assign(new ActionError(code), { draftSaved })
+      // afterData: the whole message was handed over before the error; it may have gone out
+      throw Object.assign(new ActionError(code), { draftSaved, afterData: Boolean(err && err.afterData) })
     }
     // sent: from here on nothing may turn it into a failure (the message is out)
     s.sent = true
+    // opened from the scheduled list and sent now: the scheduled row goes
+    this.#dropScheduled(s)
     const warnings = []
     let sentCopy = false
     try {
@@ -748,7 +955,7 @@ export class Composer {
     }
     // a refused address is not a contact; the page shows the refused ones
     const refused = new Set(rejected.map(a => String(a).toLowerCase()))
-    this.contacts.recordSent(recipients.filter(r => !refused.has(String(r.address || r).toLowerCase())), this.now())
+    this.contacts.recordSent(recipients.filter(r => !refused.has(String(r.address || r).toLowerCase())), this.now(), { addPeople })
     return { sent: true, warnings, rejected }
   }
 }

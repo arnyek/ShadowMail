@@ -731,6 +731,24 @@ main.app > .error {
   padding-right: var(--space-4);
 }
 
+/* Sent / Drafts: "Name +2": the name is cut, the count stays */
+.msg-row .col-recipient {
+  display: flex;
+  align-items: baseline;
+}
+
+.col-recipient .recipient-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.col-recipient .recipient-more {
+  flex: none;
+  white-space: pre;
+}
+
 .col-preview {
   color: var(--c-text-2);
   font-weight: var(--fw-normal);
@@ -1140,12 +1158,92 @@ main.app > .error {
   display: flex;
 }
 
+/* A plain-text body scrolls inside its own box, like the HTML frame: the box is only as tall as the space left, so
+   without this the long text ran out of it under the reply pills. The pills stay at the bottom. */
+.reader-body-text {
+  overflow: auto;
+}
+
 .mail-frame {
   flex: 1;
   border: 0;
   width: 100%;
   min-height: 160px;
   background: var(--c-mail-bg);
+}
+
+/* The link-target bar: a browser-like status bubble over the message's bottom-left corner. Fixed, because
+   the reader scrolls; never takes the pointer (it would steal the hover from the link under it). */
+.link-target {
+  position: fixed;
+  z-index: 30;
+  pointer-events: none;
+  box-sizing: border-box;
+  width: max-content;
+  min-width: 0;
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius-s);
+  background: var(--c-bg);
+  color: var(--c-text);
+  box-shadow: var(--shadow-1);
+  font-size: 12px;
+  line-height: 1.4;
+}
+.link-target-warn {
+  border: 2px solid var(--c-danger);
+}
+.link-target-warning {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  color: var(--c-danger);
+  font-weight: 600;
+}
+.link-target-warning svg {
+  flex: none;
+  width: 16px;
+  height: 16px;
+}
+.link-target-warn .link-target-detail {
+  color: var(--c-danger);
+}
+.link-target-detail {
+  overflow-wrap: anywhere;
+}
+/* one line: the head (scheme, user part, host) always shows whole, and wraps only if it alone is wider than the bar;
+   the middle of the rest is cut, its end stays */
+.link-target-url {
+  display: flex;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+}
+.lt-head {
+  flex: none;
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.lt-scheme,
+.lt-user {
+  color: var(--c-text-2);
+}
+.lt-tail {
+  flex: none;
+}
+.lt-domain {
+  font-weight: 700;
+}
+.lt-rest {
+  flex: 0 1000 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.lt-rest,
+.lt-tail {
+  color: var(--c-text-2);
 }
 
 .mail-text {
@@ -2458,3 +2556,146 @@ section.contacts {
 }
 /* a page header inside the settings card column: the column gap already separates it from the first card */
 .settings-cards > .page-head { margin-bottom: 0; }
+
+/* "Küldés később": the composer's dialog (Composer.jsx ScheduleDialog) */
+.compose-schedule-choices {
+  border: 0;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.compose-schedule-choice {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.compose-schedule-custom {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-4);
+  margin-top: var(--space-3);
+}
+.compose-schedule-custom label {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+.compose-schedule-note {
+  margin-top: var(--space-3);
+}
+
+/* "Küldés később": the "Időzített" entry at the top of the sidebar (like a folder row) and its list (Scheduled.jsx) */
+.scheduled-entry {
+  display: flex;
+  box-sizing: border-box;
+  width: calc(100% - var(--space-2));
+  height: var(--folder-h);
+  align-items: center;
+  gap: var(--space-3);
+  margin-bottom: var(--space-2);
+  padding: 0 var(--space-3) 0 var(--space-5);
+  border: 0;
+  border-radius: 0 var(--radius-pill) var(--radius-pill) 0;
+  background: none;
+  color: var(--c-text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.scheduled-entry .icon {
+  color: var(--c-text-2);
+}
+
+.scheduled-entry:hover {
+  background: var(--c-hover);
+}
+
+.scheduled-entry.selected,
+.scheduled-entry.selected:hover {
+  background: var(--c-surface-2);
+  font-weight: var(--fw-strong);
+}
+
+.scheduled-entry.selected .icon {
+  color: var(--c-accent);
+}
+
+.sidebar.collapsed .scheduled-entry {
+  width: 56px;
+  margin: 0 auto var(--space-2);
+  padding: 0;
+  justify-content: center;
+  border-radius: var(--radius-pill);
+}
+
+.sidebar.collapsed .scheduled-entry-label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+.scheduled-pane {
+  overflow: auto;
+}
+
+.scheduled-list {
+  padding: var(--space-4) var(--space-5);
+}
+
+.scheduled-rows {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.scheduled-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-4);
+  padding: var(--space-3) 0;
+  border-bottom: 1px solid var(--c-border);
+}
+
+.scheduled-main {
+  display: grid;
+  flex: 1 1 320px;
+  min-width: 0;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 2px var(--space-3);
+}
+
+.scheduled-when {
+  font-weight: var(--fw-strong);
+  white-space: nowrap;
+}
+
+.scheduled-subject,
+.scheduled-recipients {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.scheduled-recipients,
+.scheduled-account,
+.scheduled-state {
+  grid-column: 2;
+  color: var(--c-text-2);
+  font-size: var(--fs-s);
+}
+
+.scheduled-state.warn {
+  color: var(--c-danger);
+}
+
+.scheduled-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}

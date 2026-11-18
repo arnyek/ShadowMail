@@ -5,7 +5,7 @@
 // Everything here is React text: message content is never HTML. The main process runs what IT stored, never anything
 // from this page: the page only says yes or no.
 import { useEffect, useRef, useState } from 'react'
-import { t } from '../i18n/index.js'
+import { t, locale } from '../i18n/index.js'
 import { Button, Modal } from './ui/index.js'
 
 export const APPROVE_DELAY_MS = 1500
@@ -29,6 +29,22 @@ function SendView({ v }) {
   const long = text.length > TEXT_START
   return (
     <>
+      {v.sendAt && (
+        <p className="confirm-send-at">
+          <strong>{`${ct.sendAt}: ${new Intl.DateTimeFormat(locale, { dateStyle: 'full', timeStyle: 'short' }).format(new Date(v.sendAt))}`}</strong>
+          {` ${ct.sendAtNote}`}
+        </p>
+      )}
+      {v.unknown && v.unknown.length > 0 && (
+        <div className="confirm-warning confirm-unknown">
+          <p>{ct.unknownRecipients(v.unknown.length)}</p>
+          <ul className="confirm-list">
+            {v.unknown.map(a => (
+              <li key={a}>{a}</li>
+            ))}
+          </ul>
+        </div>
+      )}
       <dl className="confirm-fields">
         <Field label={ct.from}>{v.from.name ? `${v.from.name} <${v.from.address}>` : v.from.address}</Field>
         <Field label={ct.to}>{join(v.to) || ct.empty}</Field>
@@ -133,6 +149,47 @@ function UpdateAccountView({ v }) {
   )
 }
 
+// update_draft: the fields that change (old -> new) and the new own text, as text
+function UpdateDraftView({ v }) {
+  const label = { subject: ct.subject, to: ct.to, cc: ct.cc, bcc: ct.bcc }
+  return (
+    <>
+      <AccountLine account={v.account} />
+      {v.changes.length > 0 && (
+        <>
+          <p className="confirm-label">{ct.changesHead}</p>
+          <dl className="confirm-fields confirm-changes">
+            {v.changes.map(c => (
+              <Field key={c.field} label={label[c.field]}>
+                <span className="confirm-old">{c.old || ct.empty}</span>
+                {' -> '}
+                <span className="confirm-new">{c.new || ct.empty}</span>
+              </Field>
+            ))}
+          </dl>
+        </>
+      )}
+      {v.unknown && v.unknown.length > 0 && (
+        <div className="confirm-warning confirm-unknown">
+          <p>{ct.unknownRecipients(v.unknown.length)}</p>
+          <ul className="confirm-list">
+            {v.unknown.map(a => (
+              <li key={a}>{a}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+      {v.text !== null && v.text !== undefined && (
+        <>
+          <p className="confirm-label">{ct.newText}</p>
+          <pre className="confirm-text confirm-draft-text">{v.text || ct.noText}</pre>
+        </>
+      )}
+      <p>{ct.draftNotSent}</p>
+    </>
+  )
+}
+
 function AccountLine({ account }) {
   return (
     <dl className="confirm-fields">
@@ -159,6 +216,20 @@ function Body({ v }) {
       )
     case 'updateAccount':
       return <UpdateAccountView v={v} />
+    case 'updateDraft':
+      return <UpdateDraftView v={v} />
+    case 'cancelScheduled':
+      return (
+        <>
+          <AccountLine account={v.account} />
+          <dl className="confirm-fields confirm-cancel-scheduled">
+            <Field label={ct.subject}>{v.subject || ct.noSubject}</Field>
+            <Field label={ct.recipients}>{v.recipients || ct.empty}</Field>
+            <Field label={ct.sendAt}>{new Intl.DateTimeFormat(locale, { dateStyle: 'full', timeStyle: 'short' }).format(new Date(v.sendAt))}</Field>
+          </dl>
+          <p>{ct.cancelScheduledNote}</p>
+        </>
+      )
     case 'deleteAccount':
       return (
         <>

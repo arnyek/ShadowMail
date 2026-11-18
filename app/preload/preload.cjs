@@ -97,6 +97,9 @@ contextBridge.exposeInMainWorld('shadowMail', {
     // the user's decision on a request of Claude (only the main window's is accepted); the waiting requests
     confirm: (id, approve) => ipcRenderer.invoke('mcp:confirm', { id, approve }),
     confirmations: () => ipcRenderer.invoke('mcp:confirmations'),
+    // the confirmation switches: -> { settings: [{ op, on }] }; set only from the main window
+    confirmSettings: () => ipcRenderer.invoke('mcp:confirmSettings'),
+    setConfirm: (op, on) => ipcRenderer.invoke('mcp:setConfirm', { op, on }),
     // the "Claude-hozzáférés" page (read only, and a Másolás of one of the two config snippets)
     recent: () => ipcRenderer.invoke('mcp:recent'),
     connectInfo: () => ipcRenderer.invoke('mcp:connectInfo'),
@@ -125,6 +128,7 @@ contextBridge.exposeInMainWorld('shadowMail', {
     removeAttachment: (sessionId, id) => ipcRenderer.invoke('compose:removeAttachment', sessionId, id),
     saveDraft: (sessionId, form) => ipcRenderer.invoke('compose:saveDraft', sessionId, form),
     send: (sessionId, form) => ipcRenderer.invoke('compose:send', sessionId, form),
+    schedule: (sessionId, form, sendAt) => ipcRenderer.invoke('compose:schedule', sessionId, form, sendAt),
     discard: sessionId => ipcRenderer.invoke('compose:discard', sessionId),
     close: sessionId => ipcRenderer.invoke('compose:close', sessionId),
     // the composer holds its starting body (the main process's watchdog waits for it)
@@ -152,6 +156,8 @@ contextBridge.exposeInMainWorld('shadowMail', {
     create: request => ipcRenderer.invoke('folder:create', request),
     rename: request => ipcRenderer.invoke('folder:rename', request),
     remove: request => ipcRenderer.invoke('folder:delete', request),
+    // the delete warning's count: { accountId, path } -> { count, exact } (exact false: the local count, at least)
+    deleteCount: request => ipcRenderer.invoke('folder:deleteCount', request),
     // the manual order of one displayed sibling list: { accountId, parentKey (null = top level), paths } -> { count }
     reorder: request => ipcRenderer.invoke('folders:reorder', request),
     resetOrder: request => ipcRenderer.invoke('folders:resetOrder', request),
@@ -161,6 +167,15 @@ contextBridge.exposeInMainWorld('shadowMail', {
     // setSubscribed: { accountId, path, subscribed } (a role folder cannot be unsubscribed: role_folder)
     subscriptions: request => ipcRenderer.invoke('folders:subscriptions', request),
     setSubscribed: request => ipcRenderer.invoke('folders:setSubscribed', request),
+  },
+  // the "Időzített" list (main window only). list -> { rows }; reschedule(id, sendAt); sendNow(id); cancel(id) (back
+  // to Drafts). A row open in a composer: scheduled_open; one being sent: scheduled_sending. Changes come as
+  // { kind: 'scheduledList' } on onStatus.
+  scheduled: {
+    list: () => ipcRenderer.invoke('scheduled:list'),
+    reschedule: (id, sendAt) => ipcRenderer.invoke('scheduled:reschedule', id, sendAt),
+    sendNow: id => ipcRenderer.invoke('scheduled:sendNow', id),
+    cancel: id => ipcRenderer.invoke('scheduled:cancel', id),
   },
   // search. local -> { rows, truncated, headersOnly, scope: { imap, pop3 } }; server / pop3Old -> { jobId }, then
   // { kind: 'search', jobId, source, progress?, hits?, finished? } on onStatus.

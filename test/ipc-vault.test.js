@@ -106,11 +106,11 @@ test('the preload bridge exposes exactly these calls, each mapped to one IPC cha
   assert.deepEqual(list.sort(), [
     'accounts.list', 'accounts.remove', 'accounts.reorder', 'accounts.save', 'accounts.signatureImage', 'accounts.signatureImagePick', 'accounts.signatureImageRemove', 'accounts.test',
     'compose.accounts', 'compose.addFiles', 'compose.checked', 'compose.close', 'compose.discard', 'compose.initial', 'compose.lockDone', 'compose.onCloseRequested', 'compose.onLockRequested', 'compose.open', 'compose.ready',
-    'compose.removeAttachment', 'compose.saveDraft', 'compose.send', 'compose.suggest', 'compose.suspect',
+    'compose.removeAttachment', 'compose.saveDraft', 'compose.schedule', 'compose.send', 'compose.suggest', 'compose.suspect',
     'contacts.addFromMessage', 'contacts.count', 'contacts.delete', 'contacts.export', 'contacts.get', 'contacts.importApply', 'contacts.importPreview', 'contacts.list', 'contacts.lookup', 'contacts.save',
-    'flushPrefs', 'folders.create', 'folders.remove', 'folders.rename', 'folders.reorder', 'folders.resetOrder', 'folders.setRole', 'folders.setSubscribed', 'folders.subscriptions',
+    'flushPrefs', 'folders.create', 'folders.deleteCount', 'folders.remove', 'folders.rename', 'folders.reorder', 'folders.resetOrder', 'folders.setRole', 'folders.setSubscribed', 'folders.subscriptions',
     'hello', 'mail.action', 'mail.allowImages', 'mail.folders', 'mail.ids', 'mail.list', 'mail.open', 'mail.openAttachment', 'mail.render', 'mail.saveAttachment', 'mail.saveSource', 'mail.source',
-    'mail.status', 'mail.sync', 'mail.thread', 'mcp.confirm', 'mcp.confirmations', 'mcp.connectInfo', 'mcp.copy', 'mcp.openAck', 'mcp.recent', 'mcp.setEnabled', 'mcp.status', 'onStatus', 'search.cancel', 'search.local', 'search.pop3Old', 'search.server', 'setLanguage', 'taskbar.setEnabled', 'taskbar.status', 'vault.change', 'vault.confirmRecovery', 'vault.copyRecoveryCode', 'vault.create', 'vault.finishReset', 'vault.lock', 'vault.lockNotice', 'vault.newRecoveryCode', 'vault.recover', 'vault.reset', 'vault.saveRecoveryCode', 'vault.status', 'vault.unlock',
+    'mail.status', 'mail.sync', 'mail.thread', 'mcp.confirm', 'mcp.confirmSettings', 'mcp.confirmations', 'mcp.connectInfo', 'mcp.copy', 'mcp.openAck', 'mcp.recent', 'mcp.setConfirm', 'mcp.setEnabled', 'mcp.status', 'onStatus', 'scheduled.cancel', 'scheduled.list', 'scheduled.reschedule', 'scheduled.sendNow', 'search.cancel', 'search.local', 'search.pop3Old', 'search.server', 'setLanguage', 'taskbar.setEnabled', 'taskbar.status', 'vault.change', 'vault.confirmRecovery', 'vault.copyRecoveryCode', 'vault.create', 'vault.finishReset', 'vault.lock', 'vault.lockNotice', 'vault.newRecoveryCode', 'vault.recover', 'vault.reset', 'vault.saveRecoveryCode', 'vault.status', 'vault.unlock',
   ])
 
   // the language: one synchronous ask at load, a plain value (not a call), only 'en' or 'hu'
@@ -169,6 +169,7 @@ test('the preload bridge exposes exactly these calls, each mapped to one IPC cha
   exposed.api.compose.removeAttachment(sid, 'x')
   exposed.api.compose.saveDraft(sid, {})
   exposed.api.compose.send(sid, {})
+  exposed.api.compose.schedule(sid, {}, 1)
   exposed.api.compose.discard(sid)
   exposed.api.compose.close(sid)
   exposed.api.compose.lockDone(sid, true)
@@ -178,11 +179,16 @@ test('the preload bridge exposes exactly these calls, each mapped to one IPC cha
   exposed.api.folders.create({ accountId: 1, name: 'x' })
   exposed.api.folders.rename({ accountId: 1, path: 'x', name: 'y' })
   exposed.api.folders.remove({ accountId: 1, path: 'y' })
+  exposed.api.folders.deleteCount({ accountId: 1, path: 'y' })
   exposed.api.folders.reorder({ accountId: 1, parentKey: null, paths: ['y'] })
   exposed.api.folders.resetOrder({ accountId: 1 })
   exposed.api.folders.setRole({ accountId: 1, role: 'sent', path: null })
   exposed.api.folders.subscriptions({ accountId: 1 })
   exposed.api.folders.setSubscribed({ accountId: 1, path: 'Régi', subscribed: false })
+  exposed.api.scheduled.list()
+  exposed.api.scheduled.reschedule(1, 2)
+  exposed.api.scheduled.sendNow(1)
+  exposed.api.scheduled.cancel(1)
   exposed.api.mail.action({ ids: [1], action: 'read' })
   exposed.api.mail.ids({ accountId: 1, folder: 'INBOX' })
   exposed.api.search.local({ query: 'x' })
@@ -196,6 +202,8 @@ test('the preload bridge exposes exactly these calls, each mapped to one IPC cha
   exposed.api.mcp.recent()
   exposed.api.mcp.connectInfo()
   exposed.api.mcp.copy('code')
+  exposed.api.mcp.confirmSettings()
+  exposed.api.mcp.setConfirm('send', true)
   exposed.api.contacts.list({ q: 'a' })
   exposed.api.contacts.get(1)
   exposed.api.contacts.save({})
@@ -214,11 +222,12 @@ test('the preload bridge exposes exactly these calls, each mapped to one IPC cha
     'mail:folders', 'mail:list', 'mail:status', 'mail:sync',
     'mail:open', 'mail:thread', 'mail:allowImages', 'mail:render', 'mail:saveAttachment', 'mail:openAttachment', 'mail:source', 'mail:saveSource',
     'compose:open', 'compose:initial', 'compose:accounts', 'compose:suggest', 'compose:addFiles', 'compose:removeAttachment',
-    'compose:saveDraft', 'compose:send', 'compose:discard', 'compose:close', 'compose:lockDone', 'compose:ready', 'compose:checked', 'compose:suspect',
-    'folder:create', 'folder:rename', 'folder:delete', 'folders:reorder', 'folders:resetOrder', 'folders:setRole', 'folders:subscriptions', 'folders:setSubscribed',
+    'compose:saveDraft', 'compose:send', 'compose:schedule', 'compose:discard', 'compose:close', 'compose:lockDone', 'compose:ready', 'compose:checked', 'compose:suspect',
+    'folder:create', 'folder:rename', 'folder:delete', 'folder:deleteCount', 'folders:reorder', 'folders:resetOrder', 'folders:setRole', 'folders:subscriptions', 'folders:setSubscribed',
+    'scheduled:list', 'scheduled:reschedule', 'scheduled:sendNow', 'scheduled:cancel',
     'mail:action', 'mail:ids',
     'search:local', 'search:server', 'search:pop3Old', 'search:cancel',
-    'mcp:status', 'mcp:setEnabled', 'mcp:confirm', 'mcp:confirmations', 'mcp:recent', 'mcp:connectInfo', 'mcp:copy',
+    'mcp:status', 'mcp:setEnabled', 'mcp:confirm', 'mcp:confirmations', 'mcp:recent', 'mcp:connectInfo', 'mcp:copy', 'mcp:confirmSettings', 'mcp:setConfirm',
     'contacts:list', 'contacts:get', 'contacts:save', 'contacts:delete', 'contacts:addFromMessage', 'contacts:count',
     'contacts:importPreview', 'contacts:importApply', 'contacts:export', 'contacts:lookup',
   ])

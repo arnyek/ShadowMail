@@ -3,6 +3,8 @@
 // Every argument is checked here; the list's ORDER BY comes from a whitelist (MailIndex.LIST_SORTS).
 import { LIST_SORTS, listFilterSql, parseListFilter } from '../../../core/db/mail-index.js'
 import { errCode } from '../../../core/log-safe.js'
+import { assignRoles } from '../../../core/imap/folders.js'
+import { RECIPIENT_ROLES } from '../../../core/mime/recipient-label.js'
 
 export const MAIL_CHANNELS = Object.freeze(['mail:folders', 'mail:list', 'mail:status', 'mail:sync'])
 export const MAX_PAGE = 500
@@ -12,6 +14,16 @@ const isId = v => Number.isInteger(v) && v > 0
 const isFolder = v => typeof v === 'string' && v.length > 0 && v.length <= 1000
 
 class BadRequest extends Error {}
+
+/**
+ * The order the list really uses: in a Sent or Drafts folder (assignRoles, so the hand-picked role counts too) the
+ * "from" column shows the recipient, and sorting by it sorts by the recipient. The list and its ids (mail:ids) both
+ * come through here, so "select all" and Shift-click take the order the user sees.
+ */
+export function listSortFor(index, accountId, folder, sort) {
+  if (sort !== 'from') return sort
+  return RECIPIENT_ROLES.has(assignRoles(index.folderList(accountId)).get(folder)) ? 'recipient' : sort
+}
 
 /**
  * @param store    AccountStore
@@ -51,7 +63,7 @@ export function registerMailIpc({ ipcMain, store, index, manager, isTrustedSende
     return {
       total: listFilterSql(filter).shape ? index.countFolder(q.accountId, q.folder, filter) : folderTotal,
       folderTotal,
-      rows: index.listFolder({ accountId: q.accountId, folder: q.folder, sort, dir, offset, limit, filter }),
+      rows: index.listFolder({ accountId: q.accountId, folder: q.folder, sort: listSortFor(index, q.accountId, q.folder, sort), dir, offset, limit, filter }),
     }
   })
 

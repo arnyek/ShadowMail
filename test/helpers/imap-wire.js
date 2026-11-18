@@ -18,9 +18,11 @@ export function mutf7(s) {
 /**
  * folders: [{ path, flags?: ['\\Sent', ...], messages?: n }]; specialUse: announce the SPECIAL-USE capability;
  * subscribed: the paths LSUB lists (default: every folder); lsub: 'no' answers LSUB with a tagged NO (imapflow takes that
- * as transient and says "subscribed" of every folder). -> { port, log, subscribed (a live Set), setLsub(mode), close() }
+ * as transient and says "subscribed" of every folder); status: 'ok', 'hang' or 'slow:<ms>' (also setStatus(mode)).
+ * -> { port, log, subscribed (a live Set), setLsub(mode), setStatus(mode), close() }
  */
-export async function startImapWire({ folders, delimiter = '.', specialUse = false, subscribed = null, lsub = 'ok' }) {
+export async function startImapWire({ folders, delimiter = '.', specialUse = false, subscribed = null, lsub = 'ok', status = 'ok' }) {
+  let statusMode = status
   const subs = new Set(subscribed || folders.map(f => f.path))
   let lsubMode = lsub
   const caps = `IMAP4rev1 LITERAL+ NAMESPACE${specialUse ? ' SPECIAL-USE' : ''}`
@@ -65,6 +67,12 @@ export async function startImapWire({ folders, delimiter = '.', specialUse = fal
           const f = byWire.get(unquote(rest.trim()))
           if (f) c === 'SUBSCRIBE' ? subs.add(f.path) : subs.delete(f.path)
           ok(`${c} done`)
+        } else if (c === 'STATUS' && statusMode === 'hang') {
+          // the command is taken and never answered
+        } else if (c === 'STATUS' && statusMode.startsWith('slow:')) {
+          const name = unquote(rest.slice(0, rest.lastIndexOf(' (')))
+          const f = byWire.get(name)
+          setTimeout(() => socket.write(`* STATUS "${name}" (MESSAGES ${(f && f.messages) || 0})\r\n${tag} OK STATUS done\r\n`), Number(statusMode.slice(5)))
         } else if (c === 'STATUS') {
           const name = unquote(rest.slice(0, rest.lastIndexOf(' (')))
           const f = byWire.get(name)
@@ -92,6 +100,10 @@ export async function startImapWire({ folders, delimiter = '.', specialUse = fal
     subscribed: subs,
     setLsub: mode => {
       lsubMode = mode
+    },
+    // STATUS: 'ok', 'hang' (taken, never answered) or 'slow:<ms>'
+    setStatus: mode => {
+      statusMode = mode
     },
     close: () =>
       new Promise(resolve => {

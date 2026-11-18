@@ -12,6 +12,8 @@ import { SyncManager } from '../app/main/sync-manager.js'
 import { FolderActions, checkFolderName } from '../app/main/folders.js'
 import { MessageReader } from '../app/main/reader.js'
 import { registerFolderIpc, FOLDER_CHANNELS } from '../app/main/ipc/folders.js'
+import { ImapFlow } from 'imapflow'
+import { startImapWire } from './helpers/imap-wire.js'
 
 const NOW = Date.UTC(2026, 10, 12, 9, 0, 0)
 const sleep = ms => new Promise(r => setTimeout(r, ms))
@@ -162,6 +164,97 @@ test('a folder name with "_" and "%"-like neighbours: the subtree match is exact
   assert.ok(s.local().includes('z/c'))
 })
 
+test('the delete warning count: the server\'s STATUS when it answers, else the local count as "at least"; POP3 exact', async t => {
+  const s = await setup(t)
+  await s.idle()
+  const p = s.p('Régi')
+  // the server holds more than the index knows (not synced yet)
+  s.server.addMessages(p, [msg(3), msg(4), msg(5)])
+  assert.equal(s.index.countFolder(s.row.id, p), 2)
+  s.server.statusLog.length = 0
+  assert.deepEqual(await s.folders.deleteCount({ accountId: s.row.id, path: p }), { count: 5, exact: true })
+  assert.deepEqual(s.server.statusLog.map(x => [x.path, x.query]), [[p, { messages: true }]], 'one STATUS (MESSAGES) on that folder')
+  assert.deepEqual(s.server.actionLog, [], 'reads only')
+  // the server refuses: the local count, as a lower bound
+  s.server.refuseStatus.add(p)
+  assert.deepEqual(await s.folders.deleteCount({ accountId: s.row.id, path: p }), { count: 2, exact: false })
+  // the role folders and an unknown path: the same answer as the delete itself
+  await assert.rejects(s.folders.deleteCount({ accountId: s.row.id, path: s.p('Trash') }), { code: 'protected_folder' })
+  await assert.rejects(s.folders.deleteCount({ accountId: s.row.id, path: 'Nincs ilyen' }), { code: 'not_found' })
+
+  // no answer in time, or no connection at all (a stopped account): the local count, and the call does not wait on
+  const logs = []
+  const hanging = new FolderActions({ index: s.index, store: { getRow: id => s.row.id === id && s.row }, storeDir: s.storeDir, withConnection: () => new Promise(() => {}), countTimeoutMs: 60, log: l => logs.push(l) })
+  const t0 = Date.now()
+  assert.deepEqual(await hanging.deleteCount({ accountId: s.row.id, path: p }), { count: 2, exact: false })
+  assert.ok(Date.now() - t0 < 1000, `${Date.now() - t0} ms`)
+  const { ActionError } = await import('../app/main/sync-manager.js')
+  const stopped = new FolderActions({ index: s.index, store: { getRow: () => s.row }, storeDir: s.storeDir, withConnection: async () => { throw new ActionError('sync_stopped') }, log: l => logs.push(l) })
+  assert.deepEqual(await stopped.deleteCount({ accountId: s.row.id, path: p }), { count: 2, exact: false })
+  const odd = new FolderActions({ index: s.index, store: { getRow: () => s.row }, storeDir: s.storeDir, withConnection: async () => false })
+  assert.deepEqual(await odd.deleteCount({ accountId: s.row.id, path: p }), { count: 2, exact: false }, 'imapflow\'s false (no answer) is no count')
+  assert.deepEqual(logs, ['folder delete count: no answer in time, the connection is closed', 'folder delete count: server count unavailable (sync_stopped)'], 'a code, no folder name')
+})
+
+// real imapflow on a TCP mini server: it runs one command at a time on a connection, so a STATUS that never comes back
+// would hold the account's interactive connection for imapflow's 5-minute socket timeout
+async function wireSetup(t, status) {
+  const wire = await startImapWire({ folders: [{ path: 'INBOX' }, { path: 'Trash', flags: ['\\Trash'] }, { path: 'Regi', messages: 7 }], specialUse: true, status })
+  onCleanup(t, () => wire.close())
+  const { db, index } = memoryIndex(t)
+  const row = addAccount(db, { in_host: '127.0.0.1', in_port: wire.port, in_security: 'none' })
+  const store = { list: () => db.prepare('SELECT * FROM accounts ORDER BY id').all(), getRow: id => db.prepare('SELECT * FROM accounts WHERE id = ?').get(id) }
+  const storeDir = path.join(tempDir(t), 'store')
+  const connect = async () => {
+    const c = new ImapFlow({ host: '127.0.0.1', port: wire.port, secure: false, doSTARTTLS: false, auth: { user: 'u', pass: 'p' }, logger: false })
+    await c.connect()
+    return c
+  }
+  const manager = new SyncManager({ store, index, sealed: sealedStore(storeDir), connect, throttleMs: 5, syncerOptions: { retryDelaysMs: [60000] }, idleOptions: { retryDelaysMs: [60000] } })
+  onCleanup(t, () => manager.stopAll())
+  manager.startAll()
+  await until(() => index.folderList(row.id).some(f => f.path === 'Regi'), 8000)
+  await until(() => !manager.entries.get(row.id).syncer.current, 8000)
+  const logs = []
+  const folders = new FolderActions({ index, store, storeDir, withConnection: (id, fn) => manager.withConnection(id, fn), requestSync: () => {}, countTimeoutMs: 500, log: l => logs.push(l) })
+  return { wire, row, index, manager, folders, logs }
+}
+
+test('a STATUS that never comes back: past the net the connection is closed, the Delete and other calls go through at once', async t => {
+  const s = await wireSetup(t, 'hang')
+  assert.deepEqual(await s.folders.deleteCount({ accountId: s.row.id, path: 'Regi' }), { count: 0, exact: false })
+  assert.deepEqual(s.logs, ['folder delete count: no answer in time, the connection is closed'])
+  const t0 = Date.now()
+  const [removed, listed] = await Promise.all([
+    s.folders.remove({ accountId: s.row.id, path: 'Regi', confirmed: true }),
+    s.manager.withConnection(s.row.id, c => c.list()),
+  ])
+  const ms = Date.now() - t0
+  assert.deepEqual(removed, { path: 'Regi' })
+  assert.ok(listed.length >= 2)
+  assert.ok(ms < 5000, `the delete and a LIST took ${ms} ms (5 minutes before)`)
+  assert.ok(s.wire.log.some(l => /^DELETE "?Regi/.test(l)), s.wire.log.filter(l => /STATUS|DELETE/.test(l)).join(' | '))
+  assert.ok(!s.index.folderList(s.row.id).some(f => f.path === 'Regi'))
+})
+
+test('a slow STATUS within the net: the server count, the connection kept', async t => {
+  const s = await wireSetup(t, 'slow:150')
+  assert.deepEqual(await s.folders.deleteCount({ accountId: s.row.id, path: 'Regi' }), { count: 7, exact: true })
+  const before = s.wire.log.filter(l => /^LOGIN/.test(l)).length
+  await s.manager.withConnection(s.row.id, c => c.list())
+  assert.equal(s.wire.log.filter(l => /^LOGIN/.test(l)).length, before, 'no new login: the connection stayed')
+  assert.deepEqual(s.logs, [])
+})
+
+test('the delete warning count of a POP3 local folder: the local count, exact, no server', async t => {
+  const s = await setup(t, { type: 'pop3' })
+  s.index.ensureLocalFolders(s.row.id, [{ path: 'INBOX' }, { path: 'Trash', specialUse: '\\Trash' }])
+  await s.folders.create({ accountId: s.row.id, name: 'Számlák' })
+  s.index.insertMany([1, 2, 3].map(n => ({ account_id: s.row.id, folder: 'Számlák', uid: null, pop3_uidl: `u${n}`, message_id: null, in_reply_to: null, refs: null, from_addr: 'a', from_name: '', to_addrs: '', cc_addrs: '', subject: 'Számla', date: NOW, idate: NOW, flags: '', size: 1, has_attachments: 0, attachments: null, body_state: 1, sender_text: '', recipients_text: '' })))
+  assert.deepEqual(await s.folders.deleteCount({ accountId: s.row.id, path: 'Számlák' }), { count: 3, exact: true })
+  assert.deepEqual(s.server.statusLog, [])
+})
+
 test('IPC: arguments checked, error codes passed on', async t => {
   const s = await setup(t)
   const handlers = new Map()
@@ -175,5 +268,10 @@ test('IPC: arguments checked, error codes passed on', async t => {
   assert.deepEqual(await call('folder:create', { accountId: s.row.id, name: 'IPC-mappa' }), { ok: true, path: 'IPC-mappa' })
   assert.deepEqual(await call('folder:delete', { accountId: s.row.id, path: 'IPC-mappa' }), { ok: false, error: 'confirm_needed' })
   assert.deepEqual(await call('folder:delete', { accountId: s.row.id, path: 'IPC-mappa', confirmed: 'igen' }), { ok: false, error: 'bad_request' })
+  assert.deepEqual(await call('folder:deleteCount', { accountId: s.row.id, path: 'IPC-mappa' }), { ok: true, count: 0, exact: true })
+  for (const bad of [null, { accountId: s.row.id }, { accountId: s.row.id, path: '' }, { accountId: s.row.id, path: 'IPC-mappa', extra: 1 }]) {
+    assert.deepEqual(await call('folder:deleteCount', bad), { ok: false, error: 'bad_request' })
+  }
+  assert.deepEqual(await call('folder:deleteCount', { accountId: s.row.id, path: 'Trash' }), { ok: false, error: 'protected_folder' })
   assert.deepEqual(await call('folder:delete', { accountId: s.row.id, path: 'IPC-mappa', confirmed: true }), { ok: true, path: 'IPC-mappa' })
 })

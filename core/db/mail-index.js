@@ -25,9 +25,13 @@ export const LIST_SORTS = Object.freeze({
   date: 'm.date',
   from: "COALESCE(NULLIF(m.from_name, ''), m.from_addr, '') COLLATE NOCASE",
   subject: "COALESCE(m.subject, '') COLLATE NOCASE",
+  // the Sent and Drafts lists' "from" column shows the recipient (core/mime/recipient-label.js): the IPC maps 'from'
+  // to this there (listSortFor); recipient_key is registered on every connection (core/db/index.js)
+  recipient: 'recipient_key(m.to_addrs, m.cc_addrs, m.bcc_addrs) COLLATE NOCASE',
 })
 // + preview (one line of the text under the subject; empty until the body is indexed)
-export const LIST_COLUMNS = 'm.id, m.uid, m.folder, m.from_name, m.from_addr, m.subject, m.date, m.flags, m.has_attachments, m.preview'
+// + the recipients (the Sent and Drafts lists show them in the sender's place)
+export const LIST_COLUMNS = 'm.id, m.uid, m.folder, m.from_name, m.from_addr, m.to_addrs, m.cc_addrs, m.bcc_addrs, m.subject, m.date, m.flags, m.has_attachments, m.preview'
 
 // the folder list's filter (since 0.10.1). The list, its count and every id (the "select all") are built
 // from this one function, so they always see the same set. Whitelisted fields, every value a parameter.
@@ -115,10 +119,10 @@ export class MailIndex {
       deleteFolder: p('DELETE FROM folders WHERE account_id = ? AND path = ?'),
       folderPaths: p('SELECT path FROM folders WHERE account_id = ? AND is_local = 0'),
       insertMsg: p(`INSERT OR IGNORE INTO messages (account_id, folder, uid, pop3_uidl, message_id, in_reply_to, refs,
-          from_addr, from_name, to_addrs, cc_addrs, subject, date, idate, flags, size, has_attachments, attachments,
+          from_addr, from_name, to_addrs, cc_addrs, bcc_addrs, subject, date, idate, flags, size, has_attachments, attachments,
           store_path, body_state)
         VALUES (@account_id, @folder, @uid, @pop3_uidl, @message_id, @in_reply_to, @refs,
-          @from_addr, @from_name, @to_addrs, @cc_addrs, @subject, @date, @idate, @flags, @size, @has_attachments, @attachments,
+          @from_addr, @from_name, @to_addrs, @cc_addrs, @bcc_addrs, @subject, @date, @idate, @flags, @size, @has_attachments, @attachments,
           @store_path, @body_state)`),
       insertFts: p('INSERT INTO messages_fts (rowid, subject, sender, recipients, body) VALUES (?, ?, ?, ?, ?)'),
       setBody: p('UPDATE messages_fts SET body = ? WHERE rowid = ?'),
@@ -147,6 +151,20 @@ export class MailIndex {
         WHERE account_id = @account_id AND body_state = 3 AND (@cutoff IS NULL OR idate IS NULL OR idate >= @cutoff)`),
       setPinned: p('UPDATE messages SET body_pinned = ? WHERE id = ?'),
       setStorePath: p('UPDATE messages SET store_path = ? WHERE id = ?'),
+      // rows stored before 0.15.1 whose To and Cc give no recipient (empty, or only a group name such as
+      // "undisclosed-recipients <>": the list's own rule, recipient_key): their Bcc (the column's fallback) is not known yet
+      bccUnknown: p(`SELECT id, uid, store_path FROM messages
+        WHERE account_id = @account_id AND folder = @folder AND bcc_addrs IS NULL
+          AND recipient_key(to_addrs, cc_addrs, NULL) = ''`),
+      setBcc: p('UPDATE messages SET bcc_addrs = ? WHERE id = ?'),
+      // rows whose header columns hold U+FFFD (raw 8-bit fields read as UTF-8 before 0.15.1); folder null = every folder,
+      // local = only rows without a UID (POP3)
+      brokenHeaders: p(`SELECT id, uid, folder, store_path FROM messages
+        WHERE account_id = @account_id AND (@folder IS NULL OR folder = @folder) AND (@local = 0 OR uid IS NULL)
+          AND (instr(subject, @bad) > 0 OR instr(from_name, @bad) > 0 OR instr(to_addrs, @bad) > 0 OR instr(cc_addrs, @bad) > 0)`),
+      setHeaders: p(`UPDATE messages SET subject = @subject, from_name = @from_name, to_addrs = @to_addrs, cc_addrs = @cc_addrs
+        WHERE id = @id`),
+      setFtsHeaders: p('UPDATE messages_fts SET subject = @subject, sender = @sender_text, recipients = @recipients_text WHERE rowid = @id'),
       setFlagsById: p('UPDATE messages SET flags = ? WHERE id = ?'),
       moveRow: p('UPDATE messages SET folder = ?, uid = ? WHERE id = ?'),
       // a folder and its subfolders (path = p, or starts with p + delimiter; substr, not LIKE: _ and % are legal in names)
@@ -201,10 +219,21 @@ export class MailIndex {
     this.deleteIds = db.transaction(ids => {
       for (const id of ids) this.s.delMsg.run(id) // the FTS row goes with it (trigger)
     })
+    this.setBccTx = db.transaction(items => {
+      let n = 0
+      for (const { id, bcc } of items) n += this.s.setBcc.run(bcc || '', id).changes
+      return n
+    })
+    this.setHeadersTx = db.transaction((id, h) => {
+      const row = { id, subject: h.subject || '', from_name: h.from_name || null, to_addrs: h.to_addrs || '', cc_addrs: h.cc_addrs || '' }
+      if (!this.s.setHeaders.run(row).changes) return false
+      this.s.setFtsHeaders.run({ id, subject: row.subject, sender_text: h.sender_text || '', recipients_text: h.recipients_text || '' })
+      return true
+    })
     this.insertMany = db.transaction(rows => {
       let n = 0
       for (const r of rows) {
-        const info = this.s.insertMsg.run({ pop3_uidl: null, store_path: null, body_state: 0, ...r })
+        const info = this.s.insertMsg.run({ pop3_uidl: null, store_path: null, body_state: 0, bcc_addrs: null, ...r })
         if (info.changes) {
           this.s.insertFts.run(info.lastInsertRowid, r.subject || '', r.sender_text || '', r.recipients_text || '', '')
           n++
@@ -428,6 +457,29 @@ export class MailIndex {
 
   pinOpened(id, { text, preview }) {
     this.pinOpenedTx(id, text, preview)
+  }
+
+  /** [{ id, uid, store_path }] of the folder's rows with no To / Cc recipient whose Bcc is not known (stored before 0.15.1). */
+  bccUnknownRows(accountId, folder) {
+    return this.s.bccUnknown.all({ account_id: accountId, folder })
+  }
+
+  /** The Bcc line of the given rows: [{ id, bcc }] ('' = none). One transaction. -> rows written */
+  setBccMany(items) {
+    return this.setBccTx(items)
+  }
+
+  /** [{ id, uid, folder, store_path }] of the rows with a U+FFFD header column; folder null = every folder; local: POP3 rows only. */
+  brokenHeaderRows(accountId, { folder = null, local = false } = {}) {
+    return this.s.brokenHeaders.all({ account_id: accountId, folder, local: local ? 1 : 0, bad: '\uFFFD' })
+  }
+
+  /**
+   * The header columns decoded anew (headerColumns): subject, sender name, recipients, and the FTS row's subject, sender
+   * and recipients. The address (from_addr) stays. -> written?
+   */
+  setHeaders(id, h) {
+    return this.setHeadersTx(id, h)
   }
 
   // Downloaded full message (.eml), relative to the data folder's store directory.

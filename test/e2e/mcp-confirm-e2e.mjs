@@ -43,7 +43,7 @@ const USER = 'm3b@example.invalid'
 const SMTP_PASSWORD = 'jo-smtp-jelszo-M3B'
 const WRONG = 'rossz-jelszo-M3B'
 // words that must never reach the main.log (subjects, recipients, texts of this run)
-const SECRET_WORDS = ['Kuldott-targy-77', 'cimzett-anna-77', 'masolat-bela-77', 'titkos-cili-77', 'Kuldott-szoveg-77', 'Piszkozat-targy-77', 'Varakozo-targy-77']
+const SECRET_WORDS = ['Auto-targy-77', 'ismert-dora-77', 'Kuldott-targy-77', 'cimzett-anna-77', 'masolat-bela-77', 'titkos-cili-77', 'Kuldott-szoveg-77', 'Piszkozat-targy-77', 'Varakozo-targy-77']
 
 const results = []
 const check = (name, ok, detail = '') => {
@@ -359,6 +359,24 @@ try {
   check('reply: the quoted link shows its real target in the Modal', linkText.includes('https://netbank.otp.hu/fizetes -> https://phish.evil.invalid/pay'), linkText.slice(linkText.indexOf(ct.links), linkText.indexOf(ct.links) + 200))
   await reject.click()
   check('reply rejected: nothing sent', (await call)._meta['shadowmail/data'].error === 'rejected' && received.length === 3)
+
+  // --- the user's send switch OFF: to the address book at once, an unknown address still asks and is named --------
+  await page.evaluate(() => window.shadowMail.contacts.save({ displayName: 'Ismert Dóra', emails: ['ismert-dora-77@example.invalid'] }))
+  const off = await page.evaluate(() => window.shadowMail.mcp.setConfirm('send', false))
+  check('the send switch OFF (main window IPC)', off.ok && off.settings.find(x => x.op === 'send').on === false, JSON.stringify(off))
+  const auto = await c.tool('send_message', { account_id: accountId, to: 'ISMERT-DORA-77@example.invalid', subject: 'Auto-targy-77', text: 'x' })
+  check('switch OFF, a known recipient: sent at once, no Modal', auto && !auto.isError && auto._meta['shadowmail/data'].status === 'auto' && received.length === 4 && (await page.locator('.claude-confirm').count()) === 0, JSON.stringify(auto && auto._meta['shadowmail/data']))
+  // the address Claude sent to earlier WITH the user's approval: still not in the book, so it asks, and names it
+  call = c.tool('send_message', { account_id: accountId, to: 'ismert-dora-77@example.invalid', cc: 'cimzett-anna-77@example.invalid', subject: 'Auto-targy-77', text: 'x' })
+  await waitModal('send')
+  const unknownText = await modal.locator('.confirm-unknown').innerText()
+  check('switch OFF, one unknown recipient: the Modal names only it', unknownText.includes('cimzett-anna-77@example.invalid') && !unknownText.includes('ismert-dora-77'), unknownText)
+  await reject.click()
+  check('unknown recipient rejected: nothing sent', (await call)._meta['shadowmail/data'].error === 'rejected' && received.length === 4)
+  const recentAuto = (await page.evaluate(() => window.shadowMail.mcp.recent())).calls.find(x => x.kind === 'auto')
+  check('the recent list shows the send without confirmation', recentAuto && recentAuto.tool === 'send_message' && recentAuto.result === 'ok', JSON.stringify(recentAuto))
+  await page.evaluate(() => window.shadowMail.mcp.setConfirm('send', true))
+  check('main.log: the switch and the run without the Modal are logged, without content', /mcp confirm setting send off/.test(logText()) && /mcp confirm setting send on/.test(logText()) && /mcp auto tool=send_message result=ok items=1/.test(logText()))
 
   // --- the Modal's way out: two waiting requests, then "Mind elutasítása, Claude-hozzáférés ki" ---------
   const endpoint = path.join(dataDir, 'mcp', 'endpoint.json')

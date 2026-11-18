@@ -17,16 +17,22 @@ const FORBID_ATTR = ['action', 'formaction', 'ping', 'srcdoc', 'background', 'po
 const LINK_SCHEMES = /^(https?:|mailto:)/i
 const DATA_IMAGE = /^data:image\/(png|jpe?g|gif|webp|bmp);base64,[a-z0-9+/=\s]+$/i
 const REMOTE = /^\s*(https?:)?\/\//i
+// the link list for the link-target bar (link-target.js): at most this many links, this much text each
+export const MAX_LINKS = 5000
+const MAX_LINK_TEXT = 300
 
 /**
  * @param purify          a DOMPurify instance (DOMPurify(window))
  * @param html            the message's raw HTML
  * @param messageId       database id of the message (for cid-img://m<id>/<cid>)
  * @param imagesAllowed   "Képek betöltése" was pressed for this message
- * @returns { html, externalImages }  externalImages: how many external images the body has (shown or not)
+ * @returns { html, externalImages, links }  externalImages: how many external images the body has (shown or not);
+ *          links: [{ href, text }] of the kept links (at most MAX_LINKS), text = the link's text after cleaning
+ *          (an area's alt), whitespace collapsed, at most MAX_LINK_TEXT characters
  */
 export function sanitizeMail(purify, html, { messageId, imagesAllowed = false }) {
   let externalImages = 0
+  const linkNodes = []
   const fixUrl = (el, attr) => {
     const v = el.getAttribute(attr)
     if (v === null) return
@@ -51,6 +57,7 @@ export function sanitizeMail(purify, html, { messageId, imagesAllowed = false })
       // every link opens as a popup, which the main process hands to the system browser (or drops)
       node.setAttribute('target', '_blank')
       node.setAttribute('rel', 'noopener noreferrer')
+      if (node.hasAttribute('href') && linkNodes.length < MAX_LINKS) linkNodes.push(node)
     }
     if (tag === 'img') {
       fixUrl(node, 'src')
@@ -84,7 +91,12 @@ export function sanitizeMail(purify, html, { messageId, imagesAllowed = false })
       ADD_TAGS: ['style'],
       FORCE_BODY: true,
     })
-    return { html: out, externalImages }
+    // read after the whole tree is clean: a link's text is what is left of it (the nodes stay usable after serializing)
+    const links = linkNodes.map(n => ({
+      href: n.getAttribute('href').trim(),
+      text: (n.nodeName.toLowerCase() === 'area' ? n.getAttribute('alt') || '' : n.textContent).slice(0, MAX_LINK_TEXT * 4).replace(/\s+/g, ' ').trim().slice(0, MAX_LINK_TEXT),
+    }))
+    return { html: out, externalImages, links }
   } finally {
     purify.removeHook('afterSanitizeAttributes', afterAttributes)
   }

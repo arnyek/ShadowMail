@@ -408,11 +408,11 @@ export const en = {
     moved: 'If you moved the ShadowMail folder, copy it in again: Claude looks for the program in the old place.',
     rulesTitle: 'What can Claude do?',
     freeTitle: 'Without confirmation:',
-    free: 'reading and searching (a message does not become read), marking (read, star), moving, moving to Trash, creating and renaming folders, writing drafts (into Drafts, with a "Claude" mark), refreshing, testing an account’s connection.',
+    free: 'reading and searching (a message does not become read), marking (read, star), moving, moving to Trash, creating and renaming folders, writing and editing drafts (into Drafts, with a "Claude" mark; editing can be tied to your approval with the switch below), refreshing, testing an account’s connection.',
     confirmTitle: 'Only with your confirmation, in this window:',
-    confirm: 'sending a message, deleting permanently, deleting a folder or an account, changing account settings, restarting the sign-in of a stopped account.',
+    confirm: 'sending a message, deleting permanently, deleting a folder or an account, changing account settings, restarting the sign-in of a stopped account. Each can be turned off under Confirmations below (sending only to addresses in your address book).',
     neverTitle: 'Never:',
-    never: 'passwords, the master password and the recovery code, the content of attachments, attaching a local file, and this switch.',
+    never: 'passwords, the master password and the recovery code, the content of attachments, attaching a local file, and none of the switches on this page.',
     threat: 'The protection is against other programs on your computer and instructions hidden in messages; it does not protect against malware running as your user.',
     webTools: 'Suggestion: in Claude, keep the approval prompts for web and other tools on, because an instruction hidden in a message could try to take data out through them.',
     recentTitle: 'Recent Claude calls',
@@ -424,6 +424,36 @@ export const en = {
     colItems: 'Items',
     result: r => ({ ok: 'OK', pending_confirmation: 'waiting for confirmation', dropped: 'interrupted' })[r] || `error (${r})`,
     confirmResult: r => `confirmation: ${({ approved: 'approved', rejected: 'rejected', expired: 'expired', failed: 'failed' })[r] || r}`,
+    autoResult: r => `without confirmation: ${r === 'ok' ? 'done' : `failed (${r})`}`,
+    confirmsTitle: 'Confirmations',
+    confirmsIntro: 'For these actions Claude needs your approval. All are on by default except editing a draft; turned off, the action runs at once, without the window, and shows in the list below. None of them can be undone.',
+    confirmOps: {
+      send: 'Sending a message',
+      deleteMessages: 'Deleting messages permanently',
+      deleteFolder: 'Deleting a folder',
+      updateAccount: 'Changing account settings',
+      deleteAccount: 'Deleting an account',
+      restartLogin: 'Restarting the sign-in of a stopped account',
+      updateDraft: 'Editing a draft',
+    },
+    confirmOpDesc: {
+      send: 'Turned off, Claude may send without confirmation to addresses in your address book: the ones you added by hand, the imported ones and the people you wrote to yourself. If any recipient is not in the address book, or the address has an accented or other non-English letter, the window comes up as before and shows that address.',
+      deleteMessages: 'Deleting messages for good, in the Trash or in an account without one.',
+      deleteFolder: 'Deleting a folder with the messages in it.',
+      updateAccount: 'Changing the name, the signature or any other account setting. The sign-in details (server, port, encryption, user name, certificate check) are not covered by this switch: changing them always asks first.',
+      deleteAccount: 'Removing an account from this computer, with all of its local data.',
+      restartLogin: 'Signing in again to an account stopped by a rejected sign-in. Turned off, Claude tries once per account on its own; after that it asks again until you act (Refresh, saving the account or a successful connection test).',
+      updateDraft: 'Changing the text, subject or recipients of a message in Drafts. It sends nothing (sending follows the Sending a message switch), so it is off by default; turned on, it asks before every change.',
+    },
+    confirmOffWarning: op => op === 'send'
+      ? 'Turned off: the text of an incoming message may try to make Claude send mail in your name to addresses in your address book; without the confirmation nothing stops it.'
+      : 'Turned off: the text of an incoming message may try to make Claude do this; without the confirmation nothing stops it, and it cannot be undone.',
+    confirmOffTitle: name => `Turn off the confirmation? (${name})`,
+    confirmOffNoUndo: 'You can turn the switch back on at any time. Actions run without confirmation cannot be undone.',
+    confirmOffCancel: 'Cancel',
+    confirmOffYes: 'Turn off',
+    confirmLoadFailed: 'The confirmation settings could not be loaded.',
+    confirmSwitchFailed: 'The switch could not be changed.',
   },
   passwordShow: 'Show password',
   passwordHide: 'Hide password',
@@ -467,11 +497,13 @@ export const en = {
   mcpTooMany: 'Two Claude connections to ShadowMail are already open (that is the most at a time). Close another Claude session and try again.',
   listLoadError: code => `The message list cannot be loaded: ${en.searchError(code)}`,
   clearFilters: 'Clear filters',
-  listSortField: { date: 'Date', from: 'Sender', subject: 'Subject' },
+  // recipient: the Sent and Drafts lists' sender column shows the recipient, and the order follows it
+  listSortField: { date: 'Date', from: 'Sender', subject: 'Subject', recipient: 'Recipient' },
   listSortChip: (sort, dir) => `Sort: ${en.listSortField[sort]}, ${dir === 'asc' ? 'ascending' : 'descending'}`,
   listColumns: { star: 'Star', attachment: 'Attachment', from: 'Sender', subject: 'Subject', date: 'Date' },
   noSubject: '(no subject)',
   unknownSender: '(unknown sender)',
+  noRecipient: '(no recipient)',
   flagged: 'Starred',
   hasAttachment: 'Has attachment',
   // Message list
@@ -481,7 +513,7 @@ export const en = {
   selectMenu: 'Selection options',
   selectMenuItems: { all: 'All', none: 'None', read: 'Read', unread: 'Unread' },
   moreMenu: 'More',
-  sortMenu: { date: 'Sort by date', from: 'Sort by sender', subject: 'Sort by subject', reverse: 'Reverse order' },
+  sortMenu: { date: 'Sort by date', from: 'Sort by sender', subject: 'Sort by subject', recipient: 'Sort by recipient', reverse: 'Reverse order' },
   starToggle: 'Star',
   listRange: (range, total) => `${range} (${count(total, 'message')} in total)`,
   syncPhases: {
@@ -514,6 +546,14 @@ export const en = {
   readerLoading: 'Loading the message…',
   readerHeaders: { from: 'From', to: 'To', cc: 'Cc', replyTo: 'Reply-To', date: 'Date' },
   readerFrameTitle: 'The message text',
+  // the link-target bar: where the link under the mouse or the keyboard focus really goes
+  linkTarget: {
+    label: 'Where the link really goes',
+    mismatch: 'Warning: the link goes somewhere else than its text shows',
+    realHost: 'Real target:',
+    textShows: 'its text shows:',
+    idn: 'International (punycode) address, in letters:',
+  },
   readerImagesBlocked: n => `The message has ${n === 1 ? 'an external image' : 'external images'}; for your safety ${n === 1 ? 'it was' : 'they were'} not loaded (so the sender cannot tell that you opened it).`,
   readerLoadImages: 'Load images',
   readerAttachments: n => `Attachments (${num(n)})`,
@@ -630,6 +670,57 @@ export const en = {
   close: 'Close',
   // Claude's drafts
   claudeDraftNotice: subject => `Claude made a draft: ${subject || '(no subject)'}`,
+  // "Send later": the main window's notice of a scheduled message (App.jsx); info: { when, lateMin, error }
+  scheduledNotice: (event, subject, info = {}) => {
+    const s = subject || '(no subject)'
+    if (event === 'scheduled') return `Scheduled (${info.when || ''}): ${s}`
+    if (event === 'sent') return info.lateMin >= 1 ? `The scheduled message went out ${count(info.lateMin, 'minute')} late: ${s}` : `The scheduled message went out: ${s}`
+    if (event === 'claudeCancelled') return `Claude cancelled the schedule: ${s}`
+    if (event === 'late') return `The scheduled message did not go out on its own, because ShadowMail was not running for more than a day at its time: ${s}`
+    if (event === 'interrupted') return `ShadowMail stopped while sending; the message may have gone out, but that is not certain (a Sent copy is made only after a successful send). It will not be sent again on its own: ${s}`
+    if (event === 'uncertain') return `After the scheduled message was handed over, the server did not answer or the connection broke; the message may have gone out, but that is not certain (a Sent copy is made only after a successful send). It will not be sent again on its own: ${s}`
+    return `The scheduled message did not go out (${en.composeErrors[info.error] || info.error || 'unknown error'}): ${s}`
+  },
+  // the Scheduled list (Scheduled.jsx): the sidebar entry and the view of the scheduled messages
+  scheduledList: {
+    entry: n => `Scheduled (${num(n)})`,
+    title: 'Scheduled messages',
+    subtitle: 'They go out only while ShadowMail is running and unlocked.',
+    empty: 'No scheduled messages.',
+    noSubject: '(no subject)',
+    noRecipients: '(no recipients)',
+    states: {
+      waiting: 'Waiting',
+      sending: 'Sending…',
+      late: 'Missed: ShadowMail was not running for more than a day at its time',
+      interrupted: 'The send was interrupted; it may have gone out',
+      uncertain: 'The server did not answer after the message was handed over; it may have gone out',
+      held: 'Open in a compose window',
+    },
+    retry: (when, error) => `Retrying: ${when} (${en.composeErrors[error] || error || 'unknown error'})`,
+    failed: error => `Not sent: ${en.composeErrors[error] || error || 'unknown error'}`,
+    open: 'Open',
+    reschedule: 'Change time',
+    rescheduleOk: 'Save',
+    sendNow: 'Send now',
+    cancel: 'Unschedule',
+    actionsOf: subject => `Actions: ${subject}`,
+    interruptedTitle: 'Send now?',
+    interruptedText: 'The earlier send did not finish properly: the message may have gone out, but that is not certain. There is no copy of it in the Sent folder in this case; ask the recipient if needed. If you send it now, it may arrive twice.',
+    interruptedYes: 'Send now',
+    interruptedNo: 'Cancel',
+    // the same question on the composer's Send later path: the yes schedules it again
+    interruptedLaterTitle: 'Schedule it again?',
+    interruptedLaterText: 'The earlier send did not finish properly: the message may have gone out, but that is not certain. There is no copy of it in the Sent folder in this case; ask the recipient if needed. If you schedule it again, it goes out again at the chosen time and may arrive twice.',
+    interruptedLaterYes: 'Schedule',
+    cancelled: subject => `Moved back to Drafts: ${subject || '(no subject)'}`,
+    errors: {
+      scheduled_open: 'This message is open in a compose window; finish it there.',
+      scheduled_sending: 'This message is being sent right now.',
+      not_found: 'This scheduled message no longer exists.',
+    },
+    error: code => en.scheduledList.errors[code] || en.composeErrors[code] || `It did not work (${code || 'unknown error'}).`,
+  },
   claudeDraftOpen: 'Open',
   claudeDraftNotYet: 'The draft has not reached the Drafts folder yet; try again in a few seconds.',
   claudeMark: 'Claude',
@@ -644,6 +735,8 @@ export const en = {
       updateAccount: 'Claude would change an account’s settings',
       deleteAccount: 'Claude would delete an account',
       restartLogin: 'Claude would restart an account’s sign-in',
+      updateDraft: 'Claude would change a draft',
+      cancelScheduled: 'Claude would cancel the schedule of a message',
     },
     unknownTitle: 'Claude’s request',
     reject: 'Reject',
@@ -657,6 +750,11 @@ export const en = {
     cc: 'Cc',
     bcc: 'Bcc',
     subject: 'Subject',
+    sendAt: 'Scheduled for',
+    sendAtNote: 'It does not go out now, but at that time, if ShadowMail is running and unlocked.',
+    recipients: 'Recipients',
+    cancelScheduledNote: 'You scheduled this message. If you approve, it does not go out: it goes back to the account\'s Drafts. If you reject, it stays scheduled.',
+    unknownRecipients: n => n === 1 ? 'This recipient is not in your address book, so your confirmation is needed:' : `These ${n} recipients are not in your address book, so your confirmation is needed:`,
     noSubject: '(no subject)',
     text: 'Text',
     noText: '(empty)',
@@ -680,6 +778,8 @@ export const en = {
     restartsLogin: 'This account’s sync is stopped now (because a sign-in was refused). Saving restarts it: one sign-in attempt is made. If the password is wrong, the server may temporarily block this computer.',
     restartReason: reason => `Why it stopped: ${en.syncError(reason)}`,
     restartWarning: 'If the password is still wrong, the server may temporarily block this computer. After you approve, one sign-in attempt is made.',
+    newText: 'Your new own text (the signature and the quote stay)',
+    draftNotSent: 'The draft is not sent: sending takes a request of its own and the sending rule.',
   },
   actionErrors: {
     server_refused: 'the server refused it.',
@@ -709,6 +809,21 @@ export const en = {
   composeLinkOk: 'Insert',
   composeSend: 'Send',
   composeSending: 'Sending…',
+  composeSendLater: 'Send later…',
+  composeMayHaveGone: 'The earlier send of this scheduled message did not finish properly: it may have gone out. If you send or schedule it again now, the recipient may get it twice.',
+  schedule: {
+    title: 'Send later',
+    today18: 'Today 18:00',
+    tomorrow8: 'Tomorrow 8:00',
+    monday8: 'Monday 8:00',
+    custom: 'Custom time',
+    date: 'Date',
+    time: 'Time',
+    note: 'It goes out only while ShadowMail is running and unlocked.',
+    ok: 'Schedule',
+    cancel: 'Cancel',
+    badTime: 'Invalid date or time.',
+  },
   composeSaveDraft: 'Save as draft',
   composeSaving: 'Saving…',
   composeAttach: 'Attach…',
@@ -775,6 +890,9 @@ export const en = {
     return parts.join(' ')
   },
   composeErrors: {
+    too_soon: 'Choose a time at least a minute from now.',
+    too_far: 'You can schedule at most a year ahead.',
+    bad_time: 'Invalid time.',
     no_recipients: 'Enter at least one recipient.',
     bad_address: 'Invalid address',
     bad_link: 'A link can only start with https://, http:// or mailto:.',
@@ -791,7 +909,7 @@ export const en = {
   // what: 'send' | 'save' | 'attach' | 'discard' -> the prefix says which step failed
   composeError: (code, detail, what = 'send') => {
     if (code === 'bad_address') return `${en.composeErrors.bad_address}: ${(detail || []).join(', ')}`
-    if (['no_recipients', 'bad_link', 'too_large', 'not_a_file', 'file_not_found', 'no_session', 'forbidden_path'].includes(code)) return en.composeErrors[code]
+    if (['no_recipients', 'bad_link', 'too_large', 'not_a_file', 'file_not_found', 'no_session', 'forbidden_path', 'too_soon', 'too_far', 'bad_time'].includes(code)) return en.composeErrors[code]
     // server_refused (an APPEND or a delete answered NO): the message-action text, not a connection error
     const text = en.composeErrors[code] || en.actionErrors[code] || en.searchError(code)
     const prefix = { send: 'Sending failed', save: 'Saving the draft failed', attach: 'Attaching failed', discard: 'Discarding failed, the draft may have been kept' }[what]
@@ -822,8 +940,14 @@ export const en = {
   folderRename: 'Rename',
   folderDelete: 'Delete folder',
   deleteFolderTitle: 'Delete folder',
-  confirmFolderDelete: (name, count) =>
-    `The folder “${name}” is deleted${count ? `, and with it the ${count === 1 ? 'message' : `${num(count)} messages`} in it, from the server too` : ''}. This cannot be undone.`,
+  // atLeast: the server did not give its count, this is the local one (a lower bound; 0 = not known)
+  confirmFolderDelete: (name, count, atLeast) =>
+    !atLeast
+      ? `The folder “${name}” is deleted${count ? `, and with it the ${count === 1 ? 'message' : `${num(count)} messages`} in it, from the server too` : ''}. This cannot be undone.`
+      : count
+        ? `The folder “${name}” is deleted, and with it at least ${count === 1 ? 'one message' : `${num(count)} messages`} in it, from the server too. This cannot be undone.`
+        : `The folder “${name}” is deleted, and with it every message it holds on the server (their number is not known right now). This cannot be undone.`,
+  folderDeleteChecking: 'Asking the server for the exact number of messages…',
   folderErrors: {
     bad_name: 'Invalid name (empty, too long, or it contains a forbidden character: % * " \\).',
     name_has_delimiter: 'The name cannot contain a separator character (/ or the server’s own separator, e.g. a dot). You can create a subfolder from the folder’s context menu.',

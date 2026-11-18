@@ -9,7 +9,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import DOMPurify from 'dompurify'
 import { t, locale } from '../i18n/index.js'
 import { assignRoles } from '../../../core/imap/folders.js'
-import { sanitizeMail } from './sanitize.js'
+import { sanitizeMail, MAX_LINKS } from './sanitize.js'
 import { Icon } from './Icon.jsx'
 import { folderIcon } from './folder-icons.js'
 import { formatListDate } from './list-format.js'
@@ -19,6 +19,7 @@ import { readerText } from './control-marks.js'
 import { textBlocks } from '../../../core/mime/text-blocks.js'
 import { copyAsText } from './copy-text.js'
 import { archiveFor } from './reader-nav.js'
+import { linkTarget, linkTexts, matchFor } from './link-target.js'
 
 const api = window.shadowMail
 const dateTimeFmt = new Intl.DateTimeFormat(locale, { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
@@ -139,6 +140,58 @@ function AddSender({ messageId, known }) {
   return null
 }
 
+// the URL's end that stays visible when the middle is cut (the host always stays)
+const REST_TAIL = 18
+
+/**
+ * The link-target bar: where the link under the mouse or the keyboard focus really goes, floating over the
+ * bottom-left corner of the visible part of the message (like a browser's status bubble); never takes the pointer.
+ * A red warning when the link's text shows another registered domain. `place`: { left, bottom, maxWidth } in px.
+ */
+function LinkTargetBar({ info, place }) {
+  const warn = Boolean(info.mismatch)
+  const long = info.rest.length > REST_TAIL * 2
+  const head = long ? info.rest.slice(0, info.rest.length - REST_TAIL) : info.rest
+  const tail = long ? info.rest.slice(info.rest.length - REST_TAIL) : ''
+  return (
+    <div
+      className={`link-target${warn ? ' link-target-warn' : ''}`}
+      role="status"
+      aria-label={t.linkTarget.label}
+      style={{ left: place.left, bottom: place.bottom, maxWidth: place.maxWidth }}
+    >
+      {warn && (
+        <div className="link-target-warning">
+          <Icon name="warning" />
+          <span>{t.linkTarget.mismatch}</span>
+        </div>
+      )}
+      {warn && (
+        <div className="link-target-detail">
+          {t.linkTarget.realHost} <b className="link-target-real" dir="ltr">{info.host}</b> ({t.linkTarget.textShows} <span dir="ltr">{info.mismatch}</span>)
+        </div>
+      )}
+      <div className="link-target-url" dir="ltr">
+        <span className="lt-head">
+          <span className="lt-scheme">{info.scheme}</span>
+          {info.user && <span className={info.kind === 'web' ? 'lt-user' : 'lt-mailbox'}>{info.user}</span>}
+          <span className="lt-host">
+            {info.sub && <span className="lt-sub">{info.sub}</span>}
+            <b className="lt-domain">{info.domain}</b>
+          </span>
+        </span>
+        {head && <span className="lt-rest">{head}</span>}
+        {tail && <span className="lt-tail">{tail}</span>}
+      </div>
+      {info.unicode && (
+        <div className="link-target-detail link-target-idn">
+          {t.linkTarget.idn} <span dir="ltr">{info.unicode}</span>
+        </div>
+      )}
+    </div>
+  )
+}
+
 export function Reader({ messageId, onOpen, onBack = null, onAction = null, onLoaded = null, accounts = [], flagEvent = null }) {
   const [message, setMessage] = useState(null)
   const [error, setError] = useState(null)
@@ -150,7 +203,10 @@ export function Reader({ messageId, onOpen, onBack = null, onAction = null, onLo
   const [blockedImages, setBlockedImages] = useState(0)
   const [sourceTab, setSourceTab] = useState(null) // null | 'headers' | 'original': the source view is open
   const [flags, setFlags] = useState('')
+  const [hovered, setHovered] = useState(null) // the link-target bar: { info, place } or null
   const current = useRef(null)
+  const linksRef = useRef(new Map()) // the shown message's links: linkKey(href) -> visible texts
+  const frameRef = useRef(null)
   const accountsRef = useRef(accounts)
   accountsRef.current = accounts
   const loadedRef = useRef(onLoaded)
@@ -167,6 +223,8 @@ export function Reader({ messageId, onOpen, onBack = null, onAction = null, onLo
     setShowDetails(false)
     setBlockedImages(0)
     setSourceTab(null)
+    setHovered(null)
+    linksRef.current = new Map()
     loadedRef.current && loadedRef.current(null)
     if (!messageId) return
     api.mail.open(messageId).then(async res => {
@@ -193,7 +251,9 @@ export function Reader({ messageId, onOpen, onBack = null, onAction = null, onLo
   // (re)build the frame's document whenever the message or the image permission changes
   useEffect(() => {
     if (!message || !message.html) return
-    const { html, externalImages } = sanitizeMail(DOMPurify, message.html, { messageId: message.id, imagesAllowed })
+    const { html, externalImages, links } = sanitizeMail(DOMPurify, message.html, { messageId: message.id, imagesAllowed })
+    linksRef.current = linkTexts(links)
+    linksRef.current.cut = links.length >= MAX_LINKS
     setBlockedImages(imagesAllowed ? 0 : externalImages)
     let live = true
     api.mail.render(message.id, html).then(res => {
@@ -204,6 +264,41 @@ export function Reader({ messageId, onOpen, onBack = null, onAction = null, onLo
       live = false
     }
   }, [message, imagesAllowed])
+
+  // the link-target bar: the main process reports the link under the mouse or the keyboard focus in any frame of the
+  // window. Only the shown message's own links count (the sanitizer's list; all of them if the list was cut). The
+  // page gets no mouse event while the pointer is in the frame (measured), so any mouse move or focus on the page
+  // itself means the pointer or the focus left the frame: the bar goes.
+  useEffect(() => {
+    if (!message || !message.html) return
+    let shown = false
+    const hide = () => {
+      if (shown) setHovered(null)
+      shown = false
+    }
+    const off = api.onStatus(ev => {
+      if (!ev || ev.kind !== 'linkTarget') return
+      const frame = frameRef.current
+      if (!ev.url || !frame) return hide()
+      // not one of the message's links (the page's own, or a key that does not match): the old bar must not stay. A cut
+      // report is shown only through the message's own full link (matchFor), never parsed itself.
+      let match = matchFor(linksRef.current, ev.url, ev.cut)
+      if (!match && !ev.cut && linksRef.current.cut) match = { target: ev.url, texts: [] }
+      if (!match || !match.target) return hide()
+      const info = linkTarget(match.target, match.texts)
+      if (!info) return hide()
+      shown = true
+      setHovered({ info, place: barPlace(frame) })
+    })
+    const onPage = e => e.target !== frameRef.current && hide()
+    document.addEventListener('mousemove', onPage, { capture: true, passive: true })
+    document.addEventListener('focusin', onPage, true)
+    return () => {
+      off()
+      document.removeEventListener('mousemove', onPage, { capture: true })
+      document.removeEventListener('focusin', onPage, true)
+    }
+  }, [message])
 
   // the star follows a change made on the list (or goes back when the change failed)
   useEffect(() => {
@@ -362,7 +457,7 @@ export function Reader({ messageId, onOpen, onBack = null, onAction = null, onLo
         </Banner>
       )}
       <Attachments message={message} onError={setActionError} />
-      <div className="reader-body">
+      <div className={message.html ? 'reader-body' : 'reader-body reader-body-text'}>
         {message.html ? (
           frameUrl && (
             <iframe
@@ -372,6 +467,7 @@ export function Reader({ messageId, onOpen, onBack = null, onAction = null, onLo
               src={frameUrl}
               sandbox="allow-popups allow-popups-to-escape-sandbox"
               referrerPolicy="no-referrer"
+              ref={frameRef}
             />
           )
         ) : (
@@ -385,6 +481,7 @@ export function Reader({ messageId, onOpen, onBack = null, onAction = null, onLo
           </pre>
         )}
       </div>
+      {hovered && <LinkTargetBar info={hovered.info} place={hovered.place} />}
       {sourceTab && <SourceView messageId={message.id} initialTab={sourceTab} onClose={() => setSourceTab(null)} />}
       <div className="reader-replies">
         {isDraft && (
@@ -398,4 +495,15 @@ export function Reader({ messageId, onOpen, onBack = null, onAction = null, onLo
       </div>
     </section>
   )
+}
+
+/** Where the bar floats: the bottom-left corner of the frame's visible part (the reader may be scrolled). */
+function barPlace(frame) {
+  const r = frame.getBoundingClientRect()
+  const scroller = frame.closest('.reader')
+  const v = scroller ? scroller.getBoundingClientRect() : { top: 0, bottom: window.innerHeight, left: 0, right: window.innerWidth }
+  const bottom = Math.min(r.bottom, v.bottom, window.innerHeight)
+  const left = Math.max(r.left, v.left, 0)
+  const right = Math.min(r.right, v.right, window.innerWidth)
+  return { left: left + 4, bottom: Math.max(window.innerHeight - bottom + 4, 0), maxWidth: Math.max(right - left - 8, 120) }
 }

@@ -13,6 +13,9 @@ export const LIMITS = Object.freeze({ name: 200, note: 10_000, label: 50, phone:
 const SOURCES = new Set(['auto', 'manual', 'import'])
 const collator = new Intl.Collator('hu', { sensitivity: 'base' })
 
+// any character outside ASCII (unknownOf)
+const NON_ASCII = /[^\x00-\x7f]/
+
 export class PeopleError extends Error {
   constructor(code, extra = {}) {
     super(code)
@@ -404,6 +407,28 @@ export class People {
     }
     // the sender's name is cleaned as the migration and the automatic adding do
     return { id: this.save({ displayName: cleanName(name), emails: [a] }), created: true }
+  }
+
+  /**
+   * The addresses of `list` that are NOT in the address book (any source: manual, import, auto), compared as addrKey of
+   * the NFKC form (case-free, the name does not count). An address with any non-ASCII character (local part or an IDN
+   * not in punycode) is always unknown, shown as given: lowercasing maps some of them onto an ASCII address (the Kelvin
+   * sign U+212A -> k) while the server delivers to another mailbox. Each once, in order.
+   */
+  unknownOf(list) {
+    const out = []
+    const seen = new Set()
+    for (const raw of list) {
+      const given = String(raw || '').trim()
+      const a = addrKey(given.normalize('NFKC'))
+      if (!a) continue
+      const odd = NON_ASCII.test(given)
+      const key = odd ? given : a
+      if (seen.has(key)) continue
+      seen.add(key)
+      if (odd || !this.s.byAddress.get(a)) out.push(key)
+    }
+    return out
   }
 
   /**

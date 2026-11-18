@@ -2,10 +2,12 @@
 // MCP: the "Claude-hozzáférés" settings page. The switch (OFF by default), the state
 // (Kikapcsolva / Várakozik / Kapcsolódva: N), the config snippets with the program's CURRENT path (the app never writes
 // a Claude config; Másolás puts the snippet the main process makes on the clipboard), the last 20 Claude calls (in
-// memory only: time, tool, result, count; never an argument) and what Claude can and cannot do.
+// memory only: time, tool, result, count; never an argument) and what Claude can and cannot do. The confirmation
+// switches (one per confirmed action, all ON by default): turning one OFF asks first, in a Modal of its own, and an OFF
+// switch keeps a red warning below it; the main process (confirm-policy.js) holds them, no MCP tool can change them.
 import { useCallback, useEffect, useState } from 'react'
 import { t } from '../i18n/index.js'
-import { Button, Checkbox, PageHeader, SettingList, SettingRow } from './ui/index.js'
+import { Button, Checkbox, Modal, PageHeader, SettingList, SettingRow } from './ui/index.js'
 
 const api = window.shadowMail
 const ca = t.claudeAccess
@@ -34,6 +36,71 @@ function Snippet({ id, title, text, copied, onCopy }) {
       </div>
       <pre className="claude-snippet-text">{text}</pre>
     </div>
+  )
+}
+
+/** The confirmation switches (mcp:confirmSettings / mcp:setConfirm). */
+export function ConfirmSettings() {
+  const [settings, setSettings] = useState(null)
+  const [asking, setAsking] = useState(null) // the op whose OFF waits for the second confirmation
+  const [error, setError] = useState(null)
+  useEffect(() => {
+    api.mcp.confirmSettings().then(r => (r && r.ok ? setSettings(r.settings) : setError(ca.confirmLoadFailed)), () => setError(ca.confirmLoadFailed))
+  }, [])
+  const set = async (op, on) => {
+    setError(null)
+    const r = await api.mcp.setConfirm(op, on)
+    if (r && r.ok) setSettings(r.settings)
+    else setError(ca.confirmSwitchFailed)
+  }
+  // turning OFF a switch that starts ON asks first; a switch that starts OFF (editing a draft: it sends nothing) does not
+  const change = (op, on, defaultOn) => (on || !defaultOn ? set(op, on) : setAsking(op))
+  return (
+    <section className="settings-card claude-confirms">
+      <h2>{ca.confirmsTitle}</h2>
+      <p>{ca.confirmsIntro}</p>
+      {settings && (
+        <SettingList>
+          {settings.map(({ op, on, defaultOn }) => (
+            <SettingRow key={op} label={ca.confirmOps[op]} labelId={`claude-confirm-${op}-label`} description={ca.confirmOpDesc[op]} className="claude-confirm-row">
+              <Checkbox id={`claude-confirm-${op}`} switch hideLabel checked={on} onChange={e => change(op, e.target.checked, defaultOn)} label={ca.confirmOps[op]} />
+              {!on && defaultOn && (
+                <p className="danger claude-confirm-off" data-op={op}>
+                  {ca.confirmOffWarning(op)}
+                </p>
+              )}
+            </SettingRow>
+          ))}
+        </SettingList>
+      )}
+      {error && <p className="error" role="alert">{error}</p>}
+      {asking && (
+        <Modal
+          title={ca.confirmOffTitle(ca.confirmOps[asking])}
+          role="alertdialog"
+          className="claude-confirm-off-modal"
+          onClose={() => setAsking(null)}
+          actions={[
+            <Button key="no" variant="text" data-autofocus onClick={() => setAsking(null)}>{ca.confirmOffCancel}</Button>,
+            <Button
+              key="yes"
+              variant="danger"
+              className="claude-confirm-off-yes"
+              onClick={() => {
+                const op = asking
+                setAsking(null)
+                set(op, false)
+              }}
+            >
+              {ca.confirmOffYes}
+            </Button>,
+          ]}
+        >
+          <p className="danger">{ca.confirmOffWarning(asking)}</p>
+          <p>{ca.confirmOffNoUndo}</p>
+        </Modal>
+      )}
+    </section>
   )
 }
 
@@ -109,6 +176,8 @@ export function ClaudeAccess() {
         <p>{ca.webTools}</p>
       </section>
 
+      <ConfirmSettings />
+
       <section className="settings-card">
         <h2>{ca.recentTitle}</h2>
         {calls.length === 0 ? (
@@ -128,7 +197,7 @@ export function ClaudeAccess() {
                 <tr key={`${c.at}-${i}`} data-tool={c.tool} data-result={c.result} data-kind={c.kind}>
                   <td>{timeOf(c.at)}</td>
                   <td>{c.tool}</td>
-                  <td>{c.kind === 'confirm' ? ca.confirmResult(c.result) : ca.result(c.result)}</td>
+                  <td>{c.kind === 'confirm' ? ca.confirmResult(c.result) : c.kind === 'auto' ? ca.autoResult(c.result) : ca.result(c.result)}</td>
                   <td>{c.items}</td>
                 </tr>
               ))}

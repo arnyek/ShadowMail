@@ -9,6 +9,29 @@ import { EventEmitter } from 'node:events'
 import { foldForSearch } from '../../core/mime/text.js'
 import { simpleParser } from 'mailparser'
 
+/** The raw header fields `names` of a message (folded lines kept, bytes untouched) + CRLF, as a server answers HEADER.FIELDS. */
+export function headerFields(source, names) {
+  const want = new Set(names.map(n => n.toLowerCase()))
+  const lines = []
+  let keep = false
+  let at = 0
+  while (at < source.length) {
+    let nl = source.indexOf(0x0a, at)
+    if (nl < 0) nl = source.length - 1
+    const line = source.subarray(at, nl + 1)
+    at = nl + 1
+    if (line.length <= 2 && (line[0] === 0x0a || (line[0] === 0x0d && line[1] === 0x0a))) break
+    if (line[0] === 0x20 || line[0] === 0x09) {
+      if (keep) lines.push(line)
+      continue
+    }
+    const colon = line.indexOf(0x3a)
+    keep = colon > 0 && want.has(line.subarray(0, colon).toString('latin1').trim().toLowerCase())
+    if (keep) lines.push(line)
+  }
+  return Buffer.concat([...lines, Buffer.from('\r\n')])
+}
+
 export function rawMessage({ from, to, subject, date, messageId, body }) {
   return Buffer.from(
     [
@@ -262,7 +285,7 @@ class FakeImapClient extends EventEmitter {
     } else {
       uids = range
     }
-    const kind = query.source ? 'source' : query.envelope ? 'meta' : 'flags'
+    const kind = query.source ? 'source' : query.envelope ? 'meta' : query.headers ? 'headers' : 'flags'
     this.server.fetchLog.push({ path: mb.path, uids: [...uids], kind })
     for (const uid of uids) {
       const m = mb.messages.get(uid)
@@ -270,6 +293,9 @@ class FakeImapClient extends EventEmitter {
       if (kind === 'source') {
         const max = query.source.maxLength || m.source.length
         yield { uid, source: m.source.subarray(0, max) }
+      } else if (kind === 'headers') {
+        // BODY.PEEK[HEADER.FIELDS (...)]: the named fields of the raw message, byte for byte, and the blank line
+        yield { uid, headers: headerFields(m.source, query.headers) }
       } else if (kind === 'flags') {
         yield { uid, flags: m.flags }
       } else {

@@ -20,6 +20,8 @@ import { errCode } from '../../core/log-safe.js'
 
 export const MAX_FOLDER_NAME = 200
 const LOCAL_DELIMITER = '/'
+// how long the delete warning waits for the server's count (STATUS MESSAGES) before it falls back to the local one
+export const DELETE_COUNT_TIMEOUT_MS = 8000
 
 /** A folder name typed by the user: trimmed, no delimiter, no control or IMAP wildcard characters. */
 export function checkFolderName(name, delimiter) {
@@ -40,7 +42,8 @@ export class FolderActions {
    * @param onChange        ({ accountId, folders }) the folder tree changed
    * @param requestSync     (accountId, folders | undefined) a sync after a server change
    */
-  constructor({ index, store, storeDir, withConnection, onChange = () => {}, requestSync = () => {}, log = () => {} }) {
+  constructor({ index, store, storeDir, withConnection, onChange = () => {}, requestSync = () => {}, log = () => {}, countTimeoutMs = DELETE_COUNT_TIMEOUT_MS }) {
+    this.countTimeoutMs = countTimeoutMs
     this.index = index
     this.store = store
     this.storeDir = path.resolve(storeDir)
@@ -115,6 +118,64 @@ export class FolderActions {
     if (ctx.isImap) this.requestSync(accountId) // a full run: the server may give the moved folders a new UIDVALIDITY
     this.onChange({ accountId, folders: [from, renamed] })
     return { path: renamed }
+  }
+
+  /**
+   * The number of messages the delete warning names. IMAP: the server's own count (STATUS MESSAGES; the local index
+   * may hold fewer, e.g. a folder not fully synced yet) -> { count, exact: true }; when the server does not answer in
+   * countTimeoutMs (the interactive connection is then closed), refuses, or the account cannot connect, the local count
+   * as a lower bound -> { count, exact: false }.
+   * POP3: the local folder is the folder -> exact. Reads only; the same checks as remove() come first.
+   */
+  async deleteCount({ accountId, path: p }) {
+    const ctx = this.#context(accountId)
+    this.#folder(ctx, p)
+    if (ctx.roles.has(p)) throw new ActionError('protected_folder')
+    const local = this.index.countFolder(accountId, p)
+    if (!ctx.isImap) return { count: local, exact: true }
+    // a STATUS left unanswered would hold the account's shared interactive connection (imapflow runs its commands in
+    // turn, and gives up only after its 5-minute socket timeout): the Delete pressed in the dialog, an open, a move
+    // would wait behind it. So past the net the connection is closed; the next withConnection logs in again.
+    const TIMED_OUT = Symbol('timed out')
+    let timer
+    let gaveUp = false
+    let used = null
+    const giveUp = () => {
+      gaveUp = true
+      if (!used) return
+      try {
+        used.close()
+      } catch {
+        // already closed
+      }
+    }
+    const timeout = new Promise(resolve => {
+      timer = setTimeout(() => resolve(TIMED_OUT), this.countTimeoutMs)
+    })
+    const asked = this.withConnection(accountId, client => {
+      used = client
+      // the net ran out while the connection was still being made: no STATUS on it any more
+      if (gaveUp) return giveUp(), null
+      return client.status(p, { messages: true })
+    }).then(
+      st => (st && Number.isInteger(st.messages) && st.messages >= 0 ? st.messages : null),
+      err => {
+        if (!gaveUp) this.log(`folder delete count: server count unavailable (${err instanceof ActionError ? err.code : errCode(err)})`)
+        return null
+      },
+    )
+    try {
+      const server = await Promise.race([asked, timeout])
+      if (server === TIMED_OUT) {
+        giveUp()
+        this.log('folder delete count: no answer in time, the connection is closed')
+        return { count: local, exact: false }
+      }
+      if (server === null) return { count: local, exact: false }
+      return { count: server, exact: true }
+    } finally {
+      clearTimeout(timer)
+    }
   }
 
   /** Deletes a folder (and, locally, its messages and their files). confirmed must be true. */

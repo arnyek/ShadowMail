@@ -18,9 +18,11 @@ import { Syncer, isFatalSyncError } from '../imap/sync.js'
 import { classifyError } from '../accounts/probe.js'
 import { applyBodyLimit, DAY_MS } from '../db/body-limit.js'
 import { BODY_STATE } from '../db/mail-index.js'
-import { parseMessage } from '../mime/message.js'
+import { parseMessage, hasBrokenHeader, headerColumns } from '../mime/message.js'
 import { bodyFromSource } from '../mime/text.js'
 import { fmtAddrs } from '../mime/envelope.js'
+import { assignRoles } from '../imap/folders.js'
+import { RECIPIENT_ROLES } from '../mime/recipient-label.js'
 
 export const POP3_LOCAL_FOLDERS = Object.freeze([
   { path: 'INBOX', specialUse: null },
@@ -148,6 +150,58 @@ export class Pop3Fetcher extends Syncer {
     return done
   }
 
+  /**
+   * The local Sent / Drafts rows stored before 0.15.1 without To and Cc: their Bcc from their own .eml (no network),
+   * once per instance. -> any row got a Bcc?
+   */
+  async #localBcc() {
+    if (this.bccFillDone.has('')) return false
+    this.bccFillDone.add('')
+    const accountId = this.account.id
+    let shown = false
+    for (const [folder, role] of assignRoles(this.index.folderList(accountId))) {
+      if (!RECIPIENT_ROLES.has(role)) continue
+      const items = []
+      for (const r of this.index.bccUnknownRows(accountId, folder)) {
+        if (!r.store_path) continue
+        this._checkStopped()
+        try {
+          const p = await parseMessage(this.sealed.read(r.store_path))
+          items.push({ id: r.id, bcc: fmtAddrs(p.bcc) })
+        } catch {
+          // the file is gone or damaged: the Bcc stays unknown, the list shows no recipient
+        }
+      }
+      if (this.index.setBccMany(items) && items.some(i => i.bcc)) {
+        shown = true
+        this._changed([folder])
+      }
+    }
+    return shown
+  }
+
+  /**
+   * Rows stored before 0.15.1 whose raw 8-bit header was read as UTF-8 (U+FFFD): decoded anew from their .eml, without the
+   * network, once per instance. -> the folders that changed
+   */
+  async #localHeaders() {
+    if (this.localHeadersDone) return []
+    this.localHeadersDone = true
+    const folders = new Set()
+    for (const r of this.index.brokenHeaderRows(this.account.id, { local: true })) {
+      this._checkStopped()
+      if (!r.store_path) continue
+      let cols = null
+      try {
+        cols = await headerColumns(this.sealed.read(r.store_path), { allSenders: true })
+      } catch {
+        continue // the file is gone or damaged: the row keeps its headers
+      }
+      if (!hasBrokenHeader(cols) && this.index.setHeaders(r.id, cols)) folders.add(r.folder)
+    }
+    return [...folders]
+  }
+
   async _run() {
     this._checkStopped() // a stopped fetcher never logs in (as the IMAP Syncer)
     const t0 = Date.now()
@@ -169,6 +223,9 @@ export class Pop3Fetcher extends Syncer {
       st.lastCleared = limit.cleared
       st.lastRequeued = limit.requeued
       if (await this.#localBodies()) this._changed(['INBOX'])
+      await this.#localBcc()
+      const repaired = await this.#localHeaders()
+      if (repaired.length) this._changed(repaired)
 
       this._setState({ phase: 'connecting', progress: null })
       client = await this.connect()
@@ -245,6 +302,7 @@ export class Pop3Fetcher extends Syncer {
             from_name: from.name || null,
             to_addrs: parsed ? fmtAddrs(parsed.to) : '',
             cc_addrs: parsed ? fmtAddrs(parsed.cc) : '',
+            bcc_addrs: parsed ? fmtAddrs(parsed.bcc) : '',
             subject: parsed ? parsed.subject : '',
             date: Number.isFinite(headerDate) ? headerDate : downloadedAt,
             idate: pop3MessageAge(headerDate, downloadedAt),

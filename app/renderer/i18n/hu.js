@@ -402,11 +402,11 @@ export const hu = {
     moved: 'Ha áthelyezted a ShadowMail mappáját, másold be újra: a Claude a régi helyen keresi a programot.',
     rulesTitle: 'Mit tehet Claude?',
     freeTitle: 'Megerősítés nélkül:',
-    free: 'olvasás és keresés (a levél nem lesz olvasott), jelölés (olvasott, csillag), áthelyezés, Kukába helyezés, mappa létrehozása és átnevezése, piszkozat írása (a Piszkozatok mappába, "Claude" jellel), frissítés, a fiók kapcsolatának próbája.',
+    free: 'olvasás és keresés (a levél nem lesz olvasott), jelölés (olvasott, csillag), áthelyezés, Kukába helyezés, mappa létrehozása és átnevezése, piszkozat írása és módosítása (a Piszkozatok mappába, "Claude" jellel; a módosítás a lenti kapcsolóval megerősítéshez köthető), frissítés, a fiók kapcsolatának próbája.',
     confirmTitle: 'Csak a te megerősítéseddel, ebben az ablakban:',
-    confirm: 'levél küldése, végleges törlés, mappa és fiók törlése, fiók-beállítás módosítása, leállt fiók belépésének újraindítása.',
+    confirm: 'levél küldése, végleges törlés, mappa és fiók törlése, fiók-beállítás módosítása, leállt fiók belépésének újraindítása. Ezek egyenként kikapcsolhatók a lenti Megerősítések résznél (a küldés csak a névjegyzékben szereplő címekre).',
     neverTitle: 'Soha:',
-    never: 'jelszó, mesterjelszó és helyreállító kód, mellékletek tartalma, helyi fájl csatolása, és ez a kapcsoló.',
+    never: 'jelszó, mesterjelszó és helyreállító kód, mellékletek tartalma, helyi fájl csatolása, és ezen a lapon egyik kapcsoló sem.',
     threat: 'A védelem a gépeden futó más programok és a levelekbe rejtett utasítások ellen szól; egy, a te felhasználódként futó kártevő ellen ez a kapcsoló nem véd.',
     webTools: 'Javaslat: a Claude-ban a webes és egyéb eszközök jóváhagyás-kérése maradjon bekapcsolva, mert egy levélbe rejtett utasítás azokon át próbálhatna adatot kivinni.',
     recentTitle: 'Legutóbbi Claude-hívások',
@@ -418,6 +418,36 @@ export const hu = {
     colItems: 'Darab',
     result: r => ({ ok: 'rendben', pending_confirmation: 'megerősítésre vár', dropped: 'megszakadt' })[r] || `hiba (${r})`,
     confirmResult: r => `megerősítés: ${({ approved: 'jóváhagyva', rejected: 'elutasítva', expired: 'lejárt', failed: 'nem sikerült' })[r] || r}`,
+    autoResult: r => `megerősítés nélkül: ${r === 'ok' ? 'lefutott' : `nem sikerült (${r})`}`,
+    confirmsTitle: 'Megerősítések',
+    confirmsIntro: 'Ezeknél a műveleteknél Claude csak a te jóváhagyásoddal léphet. Alapból mind be van kapcsolva, kivéve a piszkozat módosítását; kikapcsolva a művelet ablak nélkül, azonnal lefut, és a lenti listában látszik. Egyik sem vonható vissza.',
+    confirmOps: {
+      send: 'Levél küldése',
+      deleteMessages: 'Levelek végleges törlése',
+      deleteFolder: 'Mappa törlése',
+      updateAccount: 'Fiók-beállítás módosítása',
+      deleteAccount: 'Fiók törlése',
+      restartLogin: 'Leállt fiók belépésének újraindítása',
+      updateDraft: 'Piszkozat módosítása',
+    },
+    confirmOpDesc: {
+      send: 'Kikapcsolva megerősítés nélkül küldhet a névjegyzékben szereplő címekre: a kézzel felvettek, az importáltak és azok, akiknek te magad írtál. Ha bármelyik címzett nincs a névjegyzékben, vagy a címben ékezetes vagy más nem angol betű van, az ablak ugyanúgy feljön, és megmutatja ezt a címet.',
+      deleteMessages: 'A Kukában lévő, vagy Kuka nélküli fiók leveleinek végleges törlése.',
+      deleteFolder: 'Egy mappa törlése a benne lévő levelekkel együtt.',
+      updateAccount: 'A név, az aláírás és a többi fiók-beállítás módosítása. A belépési adatokra (szerver, port, titkosítás, felhasználónév, tanúsítvány-ellenőrzés) ez a kapcsoló nem vonatkozik: azok módosítása előtt mindig megkérdez.',
+      deleteAccount: 'Egy fiók törlése a gépről, minden helyi adatával.',
+      restartLogin: 'Egy elutasított belépés miatt leállt fiók újbóli belépése. Kikapcsolva fiókonként egyszer próbál magától; utána ismét megkérdez, amíg te nem lépsz (Frissítés, a fiók mentése vagy egy sikeres kapcsolat-próba).',
+      updateDraft: 'Egy Piszkozatok-beli levél szövegének, tárgyának és címzettjeinek módosítása. Semmit nem küld (a küldésre a Levél küldése kapcsolója vonatkozik), ezért alapból ki van kapcsolva; bekapcsolva minden módosítás előtt megkérdez.',
+    },
+    confirmOffWarning: op => op === 'send'
+      ? 'Kikapcsolva: egy beérkező levél szövege megpróbálhatja rávenni Claude-ot, hogy a nevedben levelet küldjön a névjegyzékedben szereplő címekre; megerősítés nélkül ezt semmi nem állítja meg.'
+      : 'Kikapcsolva: egy beérkező levél szövege megpróbálhatja rávenni Claude-ot erre a műveletre; megerősítés nélkül ezt semmi nem állítja meg, és nem vonható vissza.',
+    confirmOffTitle: name => `Kikapcsolod a megerősítést? (${name})`,
+    confirmOffNoUndo: 'A kapcsoló bármikor visszakapcsolható. A megerősítés nélkül lefutott műveletek nem vonhatók vissza.',
+    confirmOffCancel: 'Mégse',
+    confirmOffYes: 'Kikapcsolom',
+    confirmLoadFailed: 'A megerősítési beállítások nem tölthetők be.',
+    confirmSwitchFailed: 'A kapcsolót nem sikerült átállítani.',
   },
   passwordShow: 'Jelszó megjelenítése',
   passwordHide: 'Jelszó elrejtése',
@@ -461,11 +491,13 @@ export const hu = {
   mcpTooMany: 'A ShadowMailhez már két Claude-kapcsolat él (ennyi lehet egyszerre). Zárj be egy másik Claude-munkamenetet, és próbáld újra.',
   listLoadError: code => `A levéllista nem tölthető be: ${hu.searchError(code)}`,
   clearFilters: 'Szűrők törlése',
-  listSortField: { date: 'Dátum', from: 'Feladó', subject: 'Tárgy' },
+  // recipient: the Sent and Drafts lists' sender column shows the recipient, and the order follows it
+  listSortField: { date: 'Dátum', from: 'Feladó', subject: 'Tárgy', recipient: 'Címzett' },
   listSortChip: (sort, dir) => `Rendezés: ${hu.listSortField[sort]}, ${dir === 'asc' ? 'növekvő' : 'csökkenő'}`,
   listColumns: { star: 'Csillag', attachment: 'Melléklet', from: 'Feladó', subject: 'Tárgy', date: 'Dátum' },
   noSubject: '(nincs tárgy)',
   unknownSender: '(ismeretlen feladó)',
+  noRecipient: '(nincs címzett)',
   flagged: 'Csillagozott',
   hasAttachment: 'Van melléklet',
   // Message list
@@ -475,7 +507,7 @@ export const hu = {
   selectMenu: 'Kijelölési lehetőségek',
   selectMenuItems: { all: 'Mind', none: 'Egyik sem', read: 'Olvasottak', unread: 'Olvasatlanok' },
   moreMenu: 'További',
-  sortMenu: { date: 'Rendezés dátum szerint', from: 'Rendezés feladó szerint', subject: 'Rendezés tárgy szerint', reverse: 'Fordított sorrend' },
+  sortMenu: { date: 'Rendezés dátum szerint', from: 'Rendezés feladó szerint', subject: 'Rendezés tárgy szerint', recipient: 'Rendezés címzett szerint', reverse: 'Fordított sorrend' },
   starToggle: 'Csillag',
   listRange: (range, total) => `${range} (összesen ${total.toLocaleString('hu-HU')} levél)`,
   syncPhases: {
@@ -508,6 +540,14 @@ export const hu = {
   readerLoading: 'A levél betöltése…',
   readerHeaders: { from: 'Feladó', to: 'Címzett', cc: 'Másolat', replyTo: 'Válaszcím', date: 'Dátum' },
   readerFrameTitle: 'A levél szövege',
+  // the link-target bar: where the link under the mouse or the keyboard focus really goes
+  linkTarget: {
+    label: 'A link valódi célja',
+    mismatch: 'Figyelem: a link máshová visz, mint amit a szövege mutat',
+    realHost: 'Valódi cél:',
+    textShows: 'a szövege ezt mutatja:',
+    idn: 'Nemzetközi (punycode) cím, betűkkel:',
+  },
   readerImagesBlocked: n => `A levélben ${n > 1 ? 'külső képek vannak' : 'külső kép van'}, ezeket a biztonság kedvéért nem töltöttem be (a feladó így nem tudja meg, hogy megnyitottad).`,
   readerLoadImages: 'Képek betöltése',
   readerAttachments: n => `Mellékletek (${n})`,
@@ -627,6 +667,57 @@ export const hu = {
   close: 'Bezárás',
   // Claude's drafts
   claudeDraftNotice: subject => `Claude piszkozatot készített: ${subject || '(nincs tárgy)'}`,
+  // "Küldés később": the main window's notice of a scheduled message (App.jsx); info: { when, lateMin, error }
+  scheduledNotice: (event, subject, info = {}) => {
+    const s = subject || '(nincs tárgy)'
+    if (event === 'scheduled') return `Időzítve (${info.when || ''}): ${s}`
+    if (event === 'sent') return info.lateMin >= 1 ? `Az időzített levél ${info.lateMin} perc késéssel kiment: ${s}` : `Az időzített levél kiment: ${s}`
+    if (event === 'claudeCancelled') return `Claude visszavonta az időzítést: ${s}`
+    if (event === 'late') return `Az időzített levél nem ment ki magától, mert a ShadowMail az időpontban egy napnál tovább nem futott: ${s}`
+    if (event === 'interrupted') return `A küldés közben a ShadowMail leállt; a levél kimehetett, de ez nem biztos (Elküldött-másolat csak sikeres küldés után készül). Magától nem küldöm újra: ${s}`
+    if (event === 'uncertain') return `Az időzített levél átadása után nem jött válasz a szervertől, vagy megszakadt a kapcsolat; a levél kimehetett, de ez nem biztos (Elküldött-másolat csak sikeres küldés után készül). Magától nem küldöm újra: ${s}`
+    return `Az időzített levél nem ment ki (${hu.composeErrors[info.error] || info.error || 'ismeretlen hiba'}): ${s}`
+  },
+  // the "Időzített" list (Scheduled.jsx): the sidebar entry and the view of the scheduled messages
+  scheduledList: {
+    entry: n => `Időzített (${n})`,
+    title: 'Időzített levelek',
+    subtitle: 'Csak akkor mennek ki, ha a ShadowMail fut és fel van oldva.',
+    empty: 'Nincs időzített levél.',
+    noSubject: '(nincs tárgy)',
+    noRecipients: '(nincs címzett)',
+    states: {
+      waiting: 'Várakozik',
+      sending: 'Küldés…',
+      late: 'Lekésett: a ShadowMail az időpontban egy napnál tovább nem futott',
+      interrupted: 'A küldés megszakadt; lehet, hogy kiment',
+      uncertain: 'Az átadás után nem jött válasz a szervertől; lehet, hogy kiment',
+      held: 'Egy levélíró ablakban nyitva',
+    },
+    retry: (when, error) => `Újrapróbálás: ${when} (${hu.composeErrors[error] || error || 'ismeretlen hiba'})`,
+    failed: error => `Nem ment ki: ${hu.composeErrors[error] || error || 'ismeretlen hiba'}`,
+    open: 'Megnyitás',
+    reschedule: 'Időpont módosítása',
+    rescheduleOk: 'Mentés',
+    sendNow: 'Küldés most',
+    cancel: 'Időzítés törlése',
+    actionsOf: subject => `Műveletek: ${subject}`,
+    interruptedTitle: 'Küldés most?',
+    interruptedText: 'A korábbi küldés nem fejeződött be rendesen: a levél kimehetett, de ez nem biztos. Az Elküldött mappában ilyenkor nincs róla másolat; ha kell, kérdezd meg a címzettet. Ha most elküldöd, kétszer is megkaphatja.',
+    interruptedYes: 'Küldés most',
+    interruptedNo: 'Mégse',
+    // the same question on the composer's Küldés később path: the yes schedules it again
+    interruptedLaterTitle: 'Újra időzíted?',
+    interruptedLaterText: 'A korábbi küldés nem fejeződött be rendesen: a levél kimehetett, de ez nem biztos. Az Elküldött mappában ilyenkor nincs róla másolat; ha kell, kérdezd meg a címzettet. Ha újra időzíted, a megadott időpontban megint kimegy, és kétszer is megkaphatja.',
+    interruptedLaterYes: 'Időzítés',
+    cancelled: subject => `Visszakerült a Piszkozatok közé: ${subject || '(nincs tárgy)'}`,
+    errors: {
+      scheduled_open: 'Ez a levél egy levélíró ablakban nyitva van; ott fejezd be.',
+      scheduled_sending: 'Ez a levél éppen most megy ki.',
+      not_found: 'Ez az időzített levél már nincs meg.',
+    },
+    error: code => hu.scheduledList.errors[code] || hu.composeErrors[code] || `Nem sikerült (${code || 'ismeretlen hiba'}).`,
+  },
   claudeDraftOpen: 'Megnyitás',
   claudeDraftNotYet: 'A piszkozat még nem érkezett meg a Piszkozatok mappába; próbáld újra pár másodperc múlva.',
   claudeMark: 'Claude',
@@ -641,6 +732,8 @@ export const hu = {
       updateAccount: 'Claude módosítaná egy fiók beállításait',
       deleteAccount: 'Claude törölne egy fiókot',
       restartLogin: 'Claude újraindítaná egy fiók belépését',
+      updateDraft: 'Claude módosítana egy piszkozatot',
+      cancelScheduled: 'Claude visszavonná egy levél időzítését',
     },
     unknownTitle: 'Claude kérése',
     reject: 'Elutasítás',
@@ -654,6 +747,11 @@ export const hu = {
     cc: 'Másolat',
     bcc: 'Titkos másolat',
     subject: 'Tárgy',
+    sendAt: 'Időzítve',
+    sendAtNote: 'Nem most megy ki, hanem ekkor, ha a ShadowMail fut és fel van oldva.',
+    recipients: 'Címzettek',
+    cancelScheduledNote: 'Ezt a levelet te időzítetted. Jóváhagyás után nem megy ki: visszakerül a fiók Piszkozatai közé. Elutasításnál az időzítés marad.',
+    unknownRecipients: n => n === 1 ? 'Ez a címzett nincs a névjegyzékben, ezért kell a megerősítésed:' : `Ez a ${n} címzett nincs a névjegyzékben, ezért kell a megerősítésed:`,
     noSubject: '(nincs tárgy)',
     text: 'Szöveg',
     noText: '(üres)',
@@ -677,6 +775,8 @@ export const hu = {
     restartsLogin: 'A fiók szinkronja most le van állítva (elutasított belépés miatt). A mentés újraindítja: egy belépési kísérlet történik. Ha a jelszó rossz, a szerver ideiglenesen letilthatja a gépet.',
     restartReason: reason => `A leállítás oka: ${hu.syncError(reason)}`,
     restartWarning: 'Ha a jelszó továbbra is rossz, a szerver ideiglenesen letilthatja a gépet. Jóváhagyás után egy belépési kísérlet történik.',
+    newText: 'Az új saját szöveg (az aláírás és az idézet marad)',
+    draftNotSent: 'A piszkozat nem megy el: a küldéshez külön kérés és a küldés szabálya kell.',
   },
   actionErrors: {
     server_refused: 'a szerver elutasította.',
@@ -706,6 +806,21 @@ export const hu = {
   composeLinkOk: 'Beszúrás',
   composeSend: 'Küldés',
   composeSending: 'Küldés…',
+  composeSendLater: 'Küldés később…',
+  composeMayHaveGone: 'Ennek az időzített levélnek a korábbi küldése nem fejeződött be rendesen: kimehetett. Ha most elküldöd vagy újra időzíted, a címzett kétszer is megkaphatja.',
+  schedule: {
+    title: 'Küldés később',
+    today18: 'Ma 18:00',
+    tomorrow8: 'Holnap 8:00',
+    monday8: 'Hétfő 8:00',
+    custom: 'Egyéni időpont',
+    date: 'Dátum',
+    time: 'Idő',
+    note: 'Csak akkor megy ki, ha a ShadowMail fut és fel van oldva.',
+    ok: 'Időzítés',
+    cancel: 'Mégse',
+    badTime: 'Érvénytelen dátum vagy idő.',
+  },
   composeSaveDraft: 'Mentés piszkozatként',
   composeSaving: 'Mentés…',
   composeAttach: 'Melléklet…',
@@ -772,6 +887,9 @@ export const hu = {
   },
   composeErrors: {
     no_recipients: 'Adj meg legalább egy címzettet.',
+    too_soon: 'Legalább egy perccel későbbi időpontot válassz.',
+    too_far: 'Legfeljebb egy évre előre lehet időzíteni.',
+    bad_time: 'Érvénytelen időpont.',
     bad_address: 'Érvénytelen cím',
     bad_link: 'A link csak https://, http:// vagy mailto: kezdetű lehet.',
     too_large: 'A mellékletek együtt legfeljebb 25 MB-osak lehetnek (a legtöbb szerver nagyobbat nem fogad).',
@@ -787,7 +905,7 @@ export const hu = {
   // what: 'send' | 'save' | 'attach' | 'discard' -> the prefix says which step failed
   composeError: (code, detail, what = 'send') => {
     if (code === 'bad_address') return `${hu.composeErrors.bad_address}: ${(detail || []).join(', ')}`
-    if (['no_recipients', 'bad_link', 'too_large', 'not_a_file', 'file_not_found', 'no_session', 'forbidden_path'].includes(code)) return hu.composeErrors[code]
+    if (['no_recipients', 'bad_link', 'too_large', 'not_a_file', 'file_not_found', 'no_session', 'forbidden_path', 'too_soon', 'too_far', 'bad_time'].includes(code)) return hu.composeErrors[code]
     // server_refused (an APPEND or a delete answered NO): the message-action text, not a connection error
     const text = hu.composeErrors[code] || hu.actionErrors[code] || hu.searchError(code)
     const prefix = { send: 'A küldés nem sikerült', save: 'A piszkozat mentése nem sikerült', attach: 'A csatolás nem sikerült', discard: 'Az elvetés nem sikerült, a piszkozat megmaradhatott' }[what]
@@ -818,8 +936,14 @@ export const hu = {
   folderRename: 'Átnevezés',
   folderDelete: 'Mappa törlése',
   deleteFolderTitle: 'Mappa törlése',
-  confirmFolderDelete: (name, count) =>
-    `A(z) „${name}” mappa törlődik${count ? `, és vele együtt a benne lévő ${count.toLocaleString('hu-HU')} levél is, a szerverről is` : ''}. Nem állítható vissza.`,
+  // atLeast: the server did not give its count, this is the local one (a lower bound; 0 = not known)
+  confirmFolderDelete: (name, count, atLeast) =>
+    !atLeast
+      ? `A(z) „${name}” mappa törlődik${count ? `, és vele együtt a benne lévő ${count.toLocaleString('hu-HU')} levél is, a szerverről is` : ''}. Nem állítható vissza.`
+      : count
+        ? `A(z) „${name}” mappa törlődik, és vele együtt a benne lévő legalább ${count.toLocaleString('hu-HU')} levél is, a szerverről is. Nem állítható vissza.`
+        : `A(z) „${name}” mappa törlődik, és vele együtt a szerveren benne lévő összes levél is (a számukat most nem tudom). Nem állítható vissza.`,
+  folderDeleteChecking: 'A pontos levélszámot a szervertől kérdezem…',
   folderErrors: {
     bad_name: 'Érvénytelen név (üres, túl hosszú, vagy tiltott karaktert tartalmaz: % * " \\).',
     name_has_delimiter: 'A név nem tartalmazhat elválasztó karaktert (/ vagy a szerver saját elválasztóját, pl. pont). Almappát a mappa helyi menüjéből hozhatsz létre.',

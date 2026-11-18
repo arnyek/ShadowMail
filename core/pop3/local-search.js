@@ -9,6 +9,7 @@
 // app stays usable, and stops within one file of a cancel.
 import { simpleParser } from 'mailparser'
 import { foldForSearch, searchWords, searchTextOf, SEARCH_PARSE } from '../mime/text.js'
+import { utf8Headers } from '../mime/raw-headers.js'
 
 const tick = () => new Promise(resolve => setImmediate(resolve))
 
@@ -32,7 +33,7 @@ export function oldPop3Rows(db, accountIds) {
  * (the index search ANDs across its columns the same way).
  */
 export async function messageText(source) {
-  const p = await simpleParser(source, SEARCH_PARSE) // no HTML -> text: searchTextOf reads the HTML itself
+  const p = await simpleParser(utf8Headers(source), SEARCH_PARSE) // no HTML -> text: searchTextOf reads the HTML itself
   // the visible text, as the index (searchTextOf)
   const body = searchTextOf(p)
   return [p.subject, p.from && p.from.text, p.to && p.to.text, p.cc && p.cc.text, body].filter(Boolean).join('\n')

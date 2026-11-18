@@ -1,7 +1,7 @@
 {
   "name": "shadowmail",
   "productName": "ShadowMail",
-  "version": "0.15.0",
+  "version": "0.16.0",
   "private": true,
   "description": "Portable Windows mail client (IMAP/POP3/SMTP); all data lives next to the exe.",
   "license": "GPL-3.0-or-later",

@@ -4,6 +4,7 @@ import { ACTIONS } from '../actions.js'
 import { ActionError } from '../sync-manager.js'
 import { LIST_SORTS, parseListFilter } from '../../../core/db/mail-index.js'
 import { errCode } from '../../../core/log-safe.js'
+import { listSortFor } from './mail.js'
 
 export const ACTION_CHANNELS = Object.freeze(['mail:action', 'mail:ids'])
 export const MAX_SELECTION = 100_000
@@ -48,6 +49,6 @@ export function registerActionIpc({ ipcMain, actions, index, isTrustedSender, lo
     // the list's filter, so "select all" takes exactly the listed (filtered) set
     const filter = parseListFilter(q.filter)
     if (!filter) throw new BadRequest()
-    return { ids: index.listIds({ accountId: q.accountId, folder: q.folder, sort, dir, seen, filter }) }
+    return { ids: index.listIds({ accountId: q.accountId, folder: q.folder, sort: listSortFor(index, q.accountId, q.folder, sort), dir, seen, filter }) }
   })
 }

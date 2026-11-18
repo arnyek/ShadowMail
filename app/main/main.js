@@ -30,6 +30,7 @@ import { MailActions } from './actions.js'
 import { registerActionIpc, ACTION_CHANNELS } from './ipc/actions.js'
 import { FolderActions } from './folders.js'
 import { registerFolderIpc, FOLDER_CHANNELS } from './ipc/folders.js'
+import { registerScheduledIpc, SCHEDULED_CHANNELS } from './ipc/scheduled.js'
 import { Composer } from './compose.js'
 import { registerComposeIpc, guardComposerClose, COMPOSE_CHANNELS, readyTimeoutFrom } from './ipc/compose.js'
 import { Contacts } from '../../core/db/contacts.js'
@@ -47,11 +48,14 @@ import { createClipboardGuard, settleWithin, windowsWrite } from './clipboard-gu
 import { errCode } from '../../core/log-safe.js'
 import { runConnector } from './mcp/connector.js'
 import { createMcpService, registerMcpIpc, MCP_CHANNELS } from './mcp/service.js'
+import { createConfirmPolicy } from './mcp/confirm-policy.js'
 import { createMcpTools } from './mcp/tools.js'
 import { ConfirmationQueue } from './mcp/confirm.js'
 import { endpointFile } from './mcp/server.js'
 import { openSettings } from './settings.js'
 import { overlayApplier, startTaskbarBadge, registerTaskbarIpc, TASKBAR_CHANNELS } from './taskbar.js'
+import { Scheduled } from '../../core/db/scheduled.js'
+import { createScheduler } from './scheduler.js'
 import { SearchTextService } from '../../core/mime/search-text-service.js'
 import { createSearchRefiner, createFtsReindex } from './search-index.js'
 
@@ -77,6 +81,8 @@ const paths = electronPaths(dataDir)
 // Test hook: SHADOWMAIL_SMOKE=1 renders the window, records what it shows into
 // data/electron/logs/smoke.{json,png} and quits.
 const smoke = process.env.SHADOWMAIL_SMOKE === '1'
+// the link-target bar gets at most this much of a hovered link's URL (a message can carry a megabyte-long href)
+const LINK_TARGET_MAX = 8192
 // MCP: `ShadowMail.exe --mcp` is a stdio connector to the running app, not an
 // app instance. No window, no single-instance lock, no vault or database; the Electron folders in data\.
 const mcpConnector = process.argv.includes('--mcp')
@@ -122,6 +128,9 @@ let saveAllForLock = null // the open composers save before a lock (ipc/compose.
 let quitting = false
 let mcpService = null // MCP: Claude access of the unlocked session (pipe only while the switch is ON)
 let taskbar = null // the unread badge on the taskbar button of the unlocked session (taskbar.js)
+let scheduler = null // "Küldés később": sends the scheduled messages of the unlocked session (scheduler.js)
+// the lock waits this long for a scheduled send under way (its row is recorded while the database is open)
+const SCHEDULED_LOCK_WAIT_MS = 10_000
 // draws the badge on the main window (Windows only); the e2e watches the calls through SHADOWMAIL_TEST_OVERLAY_LOG
 const applyOverlay = overlayApplier({
   getWindow: () => mainWindow,
@@ -248,6 +257,12 @@ function createWindow() {
     if (!key) return
     event.preventDefault()
     wc.send('app:status', { kind: 'readerKey', key })
+  })
+  // the link under the mouse or with the keyboard focus, in any frame (Chromium's own status-bar URL; the message
+  // frame runs no script, so this is how its links reach the reader's link-target bar). '' = no link any more.
+  wc.on('update-target-url', (event, url) => {
+    const full = String(url || '')
+    wc.send('app:status', { kind: 'linkTarget', url: full.slice(0, LINK_TARGET_MAX), cut: full.length > LINK_TARGET_MAX })
   })
   mainWindow.once('ready-to-show', () => mainWindow.show())
   mainWindow.on('closed', () => {
@@ -420,7 +435,7 @@ function main() {
     })
     vault = new Vault(vaultPath(dataDir))
     routed = createRoutedIpc(ipcMain)
-    routed.reserve([...ACCOUNT_CHANNELS, ...MAIL_CHANNELS, ...ACTION_CHANNELS, ...FOLDER_CHANNELS, ...COMPOSE_CHANNELS, ...SEARCH_CHANNELS, ...READER_CHANNELS, ...MCP_CHANNELS, ...CONTACTS_CHANNELS, ...TASKBAR_CHANNELS])
+    routed.reserve([...ACCOUNT_CHANNELS, ...MAIL_CHANNELS, ...ACTION_CHANNELS, ...FOLDER_CHANNELS, ...COMPOSE_CHANNELS, ...SEARCH_CHANNELS, ...READER_CHANNELS, ...MCP_CHANNELS, ...CONTACTS_CHANNELS, ...TASKBAR_CHANNELS, ...SCHEDULED_CHANNELS])
     // the message frame's schemes live as long as the app; they ask the reader of the open session
     handleMailProtocols({
       protocol,
@@ -439,7 +454,14 @@ function main() {
       isTrustedSender,
       log,
       onUnlocked: openSession,
-      beforeLock: () => saveBeforeLock({ saveAll: saveAllForLock, log }),
+      // the composers save first; then a scheduled send under way may finish (at most 10 s): its row is recorded
+      // while the database is open. One that runs longer stays 'sending' and is settled as interrupted at the next
+      // unlock (it may have gone out, it is never sent again on its own)
+      beforeLock: async () => {
+        const failed = await saveBeforeLock({ saveAll: saveAllForLock, log })
+        if (scheduler) await settleWithin(scheduler.stop(), SCHEDULED_LOCK_WAIT_MS)
+        return failed
+      },
       saveCodeFile: saveRecoveryCodeFile,
       copyCode: code => codeClipboard.copy(code),
     })
@@ -548,6 +570,9 @@ function closeSession({ now = false } = {}) {
   // the waiting confirmations are rejected (M3B), the pipe closes, endpoint.json goes, the key is wiped
   if (mcpService) mcpService.stop(now ? 'quit' : 'locked')
   mcpService = null
+  // no scheduled send starts after the lock (one under way finishes; its row is settled at the next unlock)
+  if (scheduler) scheduler.stop()
+  scheduler = null
   // the badge goes and its triggers are dropped while the database is still open
   if (taskbar) taskbar.stop()
   taskbar = null
@@ -597,7 +622,7 @@ function buildServices(ipcMain) {
   const searchService = new SearchTextService({ log })
   const searchSettings = openSettings(db)
   const refiner = createSearchRefiner({ service: searchService, index, settings: searchSettings, sealed, log })
-  searchWork = { service: searchService, refiner, reindex: createFtsReindex({ index, store, sealed, settings: searchSettings, service: searchService, log }) }
+  searchWork = { service: searchService, refiner, reindex: createFtsReindex({ index, store, sealed, settings: searchSettings, service: searchService, log, onComplex: item => refiner.retryLater(item) }) }
   const sm = new SyncManager({ store, index, notify, log, sealed, searchText: refiner })
   syncManager = sm
   reader = new MessageReader({
@@ -657,7 +682,9 @@ function buildServices(ipcMain) {
   const people = new People(db)
   const contacts = new Contacts(db, { people })
   registerContactsIpc({ ipcMain, people, index, isTrustedSender, dialog, getWindow: () => mainWindow, log })
+  const scheduledRows = new Scheduled(db)
   const composer = new Composer({
+    scheduled: scheduledRows,
     index,
     store,
     contacts,
@@ -670,6 +697,12 @@ function buildServices(ipcMain) {
     onChange: change => sm.notifyChange(change),
     log,
     searchText: refiner,
+    // a composer opened from the "Időzített" list saved, sent or discarded it: the list reloads
+    onScheduledChange: () => {
+      notify({ kind: 'scheduledList' })
+      // a composer let a held row go (closed) or changed it: the scheduler looks again
+      if (scheduler) scheduler.poke()
+    },
   })
   signatureSource = (kind, ref) => composer.signatureImageOf(kind, ref)
   const composeIpc = registerComposeIpc({
@@ -686,6 +719,12 @@ function buildServices(ipcMain) {
     // not show anything). The test switch may only make T shorter.
     readyTimeoutMs: readyTimeoutFrom(process.env.SHADOWMAIL_TEST_COMPOSE_TIMEOUT_MS),
     omittedText: t.composeBodyOmitted,
+    // a new scheduled message: the scheduler looks again (its next wake-up may be sooner)
+    onScheduled: (id, { subject, sendAt } = {}) => {
+      notify({ kind: 'scheduled', event: 'scheduled', id, subject, sendAt })
+      notify({ kind: 'scheduledList' })
+      if (scheduler) scheduler.poke()
+    },
     askSuspect: async (win, { mode, limit, reason }) => {
       // without the quote: a reply or a forward only (a draft's body is not rewritten; a mailto link has no quote)
       const omit = ['reply', 'replyAll', 'forward'].includes(mode)
@@ -755,13 +794,20 @@ function buildServices(ipcMain) {
     })
     return { window: how, view }
   }
+  // the user's switches: which of the confirmed actions still ask (Settings / Claude access / Confirmations)
+  const confirmPolicy = createConfirmPolicy({ settings: openSettings(db), people, log })
   mcpTools = createMcpTools({
     appVersion: app.getVersion(),
     people, // search_contacts
     confirm,
-    // the editor's own save and delete; the page's account list and folder tree reload ('accounts')
+    policy: confirmPolicy,
+    // an action run without the Modal: in the "Legutóbbi Claude-hívások" list as such
+    onAutoRun: run => mcpService && mcpService.recordAuto(run),
+    log,
+    // the editor's own save and delete; the page's account list and folder tree reload ('accounts'). Claude's save
+    // restarts the sync but is NOT the user's step: it lifts neither the test_account lock nor the one-restart limit
     saveAccount: form => {
-      const account = saveAccount(form, { store, index, notify, log, onSaved: onAccountSaved })
+      const account = saveAccount(form, { store, index, notify, log, onSaved: id => sm.accountSaved(id) })
       notify({ kind: 'accounts', accountId: account.id })
       return account
     },
@@ -793,6 +839,14 @@ function buildServices(ipcMain) {
     openMessage: row => showInMainWindow({ kind: 'claudeOpen', messageId: row.id, accountId: row.account_id, folder: row.folder }),
     // the conditions go into the search box and the chips of the main window (as typed by the user)
     showSearch: conditions => showInMainWindow({ kind: 'claudeSearch', conditions }),
+    // "Küldés később": Claude's approved schedule or cancel; the main window says so, the list reloads, the scheduler looks
+    scheduled: scheduledRows,
+    onScheduled: (id, { subject, sendAt, cancelled } = {}) => {
+      if (id) notify({ kind: 'scheduled', event: 'scheduled', id, subject, sendAt })
+      if (cancelled) notify({ kind: 'scheduled', event: 'claudeCancelled', id: cancelled, subject })
+      notify({ kind: 'scheduledList' })
+      if (scheduler) scheduler.poke()
+    },
   })
   mcpService = createMcpService({ dataDir, settings: openSettings(db), appVersion: app.getVersion(), accountCount: () => store.list().length, tools: mcpTools, log, confirm })
   registerMcpIpc({
@@ -802,6 +856,7 @@ function buildServices(ipcMain) {
     log,
     confirm,
     isConfirmSender: event => Boolean(mainWindow) && !mainWindow.isDestroyed() && event.sender === mainWindow.webContents,
+    policy: confirmPolicy,
     onOpenAck: (seq, result) => {
       const done = openAcks.get(seq)
       if (!done) return
@@ -821,6 +876,23 @@ function buildServices(ipcMain) {
   // the unread badge: counts now, then after every write of this connection (TEMP triggers)
   taskbar = startTaskbarBadge({ db, settings: openSettings(db), apply: applyOverlay, log })
   registerTaskbarIpc({ ipcMain, taskbar, isTrustedSender, log })
+  // "Küldés később": only while unlocked; its notices go to the main window (sent, late, failed)
+  // the scheduler's own events (sent, retry, failed...) reload the list too
+  scheduler = createScheduler({ scheduled: scheduledRows, composer, log, notify: e => (notify(e), notify({ kind: 'scheduledList' })) })
+  scheduler.start()
+  // the "Időzített" list: the main window only; a change reloads the list and wakes the scheduler ("Küldés most")
+  registerScheduledIpc({
+    ipcMain,
+    scheduled: scheduledRows,
+    composer,
+    store,
+    isMainSender: event => Boolean(mainWindow) && !mainWindow.isDestroyed() && event.sender === mainWindow.webContents,
+    log,
+    onChanged: () => {
+      notify({ kind: 'scheduledList' })
+      if (scheduler) scheduler.poke()
+    },
+  })
 }
 
 main()

@@ -29,7 +29,7 @@ export function readyTimeoutFrom(value) {
 export const COMPOSE_CHANNELS = Object.freeze([
   'compose:open', 'compose:initial', 'compose:accounts', 'compose:suggest', 'compose:addFiles', 'compose:removeAttachment',
   'compose:saveDraft', 'compose:send', 'compose:discard', 'compose:close', 'compose:lockDone', 'compose:ready',
-  'compose:checked', 'compose:suspect',
+  'compose:checked', 'compose:suspect', 'compose:schedule',
 ])
 
 const isPlainObject = v => v !== null && typeof v === 'object' && !Array.isArray(v) && Object.getPrototypeOf(v) === Object.prototype
@@ -73,7 +73,7 @@ export function parseForm(f) {
  */
 export function registerComposeIpc({
   ipcMain, composer, store, contacts, openWindow, dialog, windowOf, isTrustedSender, log = () => {},
-  askSuspect = null, onStalled = () => {}, readyTimeoutMs = READY_TIMEOUT_MS, omittedText = '',
+  askSuspect = null, onStalled = () => {}, readyTimeoutMs = READY_TIMEOUT_MS, omittedText = '', onScheduled = () => {},
 }) {
   const windows = new Map() // sessionId -> window
   const waiting = new Map() // sessionId -> the watchdog's timer, until compose:ready
@@ -197,6 +197,26 @@ export function registerComposeIpc({
   const openingDrafts = new Map()
   handle('compose:open', async (event, request) => {
     const byRfcId = isPlainObject(request) && request.mode === 'draft' && isId(request.accountId) && typeof request.draftMessageId === 'string' && request.draftMessageId.length <= 1000
+    // "Megnyitás" in the scheduled list: the message in a composer (an open one comes forward, no second window)
+    if (isPlainObject(request) && request.mode === 'scheduled') {
+      if (!isId(request.scheduledId)) throw new BadRequest()
+      const open = composer.sessionOfScheduled(request.scheduledId)
+      const openWin = open ? windows.get(open) : null
+      if (openWin && !openWin.isDestroyed()) {
+        if (openWin.isMinimized()) openWin.restore()
+        openWin.show()
+        openWin.focus()
+        return { sessionId: open, existing: true }
+      }
+      const sessionId = composer.open()
+      try {
+        composer.openScheduled(sessionId, request.scheduledId)
+      } catch (err) {
+        composer.close(sessionId)
+        throw err
+      }
+      return openSession(sessionId)
+    }
     const toOne = isPlainObject(request) && request.mode === 'to' && typeof request.to === 'string' && request.to.length > 0 && request.to.length <= 320 && !/[\u0000-\u001f\u007f,;<>]/.test(request.to)
     if (toOne) {
       const sessionId = composer.open()
@@ -287,6 +307,15 @@ export function registerComposeIpc({
   handle('compose:send', async (_e, sessionId, form) => {
     if (!isSession(sessionId)) throw new BadRequest()
     return composer.sendNow(sessionId, parseForm(form))
+  })
+
+  // "Küldés később": the form as the send checks it, the time as a number of ms (the composer checks the range)
+  handle('compose:schedule', async (_e, sessionId, form, sendAt) => {
+    if (!isSession(sessionId) || typeof sendAt !== 'number' || !Number.isFinite(sendAt)) throw new BadRequest()
+    const f = parseForm(form)
+    const r = await composer.schedule(sessionId, f, sendAt)
+    onScheduled(r.id, { subject: f.subject, sendAt })
+    return r
   })
 
   handle('compose:discard', async (_e, sessionId) => {

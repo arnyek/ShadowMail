@@ -35,7 +35,7 @@ The interface is Hungarian by default; Settings / Appearance / Nyelv / Language 
 
 ![An open message: monogram, icon actions, attachment cards](docs/screenshots/readme-en-reader.png)
 
-![Writing a message: From, To, Subject, icon formatting, the blue Send button](docs/screenshots/readme-en-compose.png)
+![Writing a message: From, To, Subject, icon formatting, the blue Send button, next to it Send later](docs/screenshots/readme-en-compose.png)
 
 ### Keys with a message open
 
@@ -143,6 +143,69 @@ Changing the From account replaces only the signature block, the text you typed 
 - **Sort folders A-Z** in an account's right-click menu brings back the original order of its folders.
 - The order is kept only in ShadowMail: the server and other mail programs do not change. A renamed folder keeps its
   place, a new folder comes at the end of its list.
+
+### New in 0.16.0, known limits
+
+- **Send later:** the composer's **Send later…** button (today 18:00, tomorrow 8:00, Monday 8:00 or a time of your
+  own, in the computer's local time). A scheduled message waits locally, encrypted; its draft leaves Drafts, and it
+  goes out ONLY while ShadowMail is running and unlocked. The **Scheduled (N)** list at the top of the sidebar shows
+  the scheduled messages of every account: **Open** (edit it in the composer), **Change time**, **Send now**,
+  **Unschedule** (back to Drafts). After a temporary error it tries again after 1, 5 and 15 minutes. If the program
+  was not running for more than a day at its time (or the computer slept), the message is **missed**: it does not go
+  out on its own, you decide. If the program stopped while sending (**interrupted**), or the server did not answer
+  after taking the whole message (**uncertain**), the message may have gone out, but that is not certain (a Sent
+  copy is made only after a successful send): it is never sent again on its own; **Send now**, and sending it from
+  the composer, ask first.
+- **Deleting a folder with the server's count:** for an IMAP account the delete warning gives the number of
+  messages on the server ("at least N" until it answers); if the server does not answer, the local count stays, as a
+  lower bound.
+- **Claude's confirmations per action:** under Settings / Claude access / **Confirmations** the confirmation can be
+  turned off action by action. With sending turned off, Claude may send without asking only to addresses in your
+  address book; for an unknown address, or one with an accented or other non-English letter, the window comes up and
+  names it. The recipients of Claude's messages are not added to the address book. A change of the login details
+  (server, port, encryption, user name, certificate check) always asks. With the confirmation off, the login of a
+  stopped account is restarted on its own only once; after that it asks again until you act (Refresh, saving the
+  account, Test connection).
+- **Claude can change a draft** (recipients, subject, its own text): the signature, the quote, the forwarded part
+  and the attachments stay, and nothing is sent. It runs without confirmation by default (it can be turned on under
+  Confirmations); adding a recipient who is not in the address book always asks. A draft open in a compose window is
+  not touched.
+- **Claude can schedule:** sending a message or a draft can be asked with a time; the confirmation window shows the
+  time. Claude can list the scheduled messages and cancel a schedule (the message goes back to Drafts): one it
+  scheduled itself without asking, one you scheduled only with your confirmation (this cannot be turned off; one
+  Claude scheduled but you changed and saved in the composer counts as yours); a notice shows every cancel. It cannot change the time or the content.
+- **Recipient in the Sent and Drafts lists:** in these folders the sender column shows the first recipient's name
+  (without a name, the address), "Name +2" with more recipients, the full list under the mouse; with only a blind
+  copy (Bcc), that. Sorting there goes by recipient. A name with a comma or a quote is now stored quoted, so the list
+  shows it as one recipient.
+- **Accented sender and subject from old web forms:** some old form mailers send the sender and the subject without
+  encoding, as raw bytes; these showed with broken (�) letters in the list, the reader, the search and the reply's
+  quote. Now they are read with the message's own character set (without one, Central European, windows-1250); the
+  rows of messages already downloaded are fixed at the next sync.
+- **Where a link really goes:** over a link of an HTML message (or on it with Tab) a bar at the bottom left of the
+  message shows the real target; if the link's text shows another domain, the bar is a red warning. Details and
+  limits: Security in brief.
+- **Long plain-text message:** the text scrolls in its own box, the Reply buttons no longer cover it.
+- **Search on a loaded computer:** the time limit of the step that makes a large message's search text counts its own
+  processor time, not the time passed, so on a loaded computer a large message's text stays out of the search far
+  less often (a known limit of 0.15.0). If a downloaded message is still too complex, it is tried once more later, when
+  the computer is idle.
+
+Known limits of this release:
+
+- The new features were measured on Linux, not yet on Windows (on the package).
+- The handling of instructions hidden in messages (prompt injection) was measured through the program (end to end)
+  only with a POP3 account; for an IMAP account a unit test measures it.
+- If a scheduled message is being sent when you lock, the lock waits for it at most 10 seconds; if the send takes
+  longer, the message shows as interrupted after the next unlock.
+- The confirmation window of Claude's folder delete shows the local message count, not the server's.
+- In the Sent and Drafts rows stored before 0.16.0 the name is not quoted: a name holding a comma and an address
+  ("a@example.example, Real <r@x>") can still give a false first recipient in the list. The reader always shows the
+  real recipients.
+- The fix of raw-byte headers covers the sender, the subject and the recipients (To, Cc); the blind copy (Bcc) and
+  attachment names are not fixed.
+- The link bar gives no warning when the link's text is several words ("Log in: bank.example") or hidden; for an
+  e-mail (mailto) link the bar does not show the copy and text parts (`?cc=`, `body`).
 
 ### New in 0.15.0, known limits
 
@@ -370,6 +433,14 @@ from the server may be lost.
 
 - The HTML of a message shows in an isolated frame: no program (script) can run in it, external images load only
   on **Load images**, and only in that message.
+- **Where a link really goes**: with the mouse over a link of an HTML message (or the link focused with Tab) a small
+  bar at the bottom left of the message shows its real target, the domain in bold. If the link's text itself looks
+  like an address (`bank.example`, `https://...`) and points to another domain, the bar turns red: "Warning: the link
+  goes somewhere else than its text shows", with the real host. A subdomain of the same domain (`www.`, `login.`) is not
+  a difference; an international (punycode, `xn--`) address shows in letters too. Limits: the domain is compared with a
+  short built-in list of two-level endings (`co.uk`, `com.au`, `co.hu`...), not the full public list, so two sites under
+  a missing ending count as one; when several links of a message share a target, a text of any of them counts; a
+  plain-text message has no clickable links, so no bar either.
 - **Open** is offered only for these types: PDF (`.pdf`), image (`.jpg .jpeg .png .gif .bmp .webp .tif
   .tiff`), text (`.txt`), Office (`.doc .docx .xls .xlsx .ppt .pptx`), OpenDocument (`.odt .ods .odp`). **Everything
   else can only be saved** (for example Office files with macros, `.rtf`, `.csv`, the slide shows `.pps .ppsx`,
@@ -456,10 +527,14 @@ The setting's format is from the official documentation: Claude Desktop:
 
 - **Without confirmation:** reading and searching (a message does not become read by this), flags (read, star),
   moving, moving to the Trash, creating and renaming a folder, writing a draft (into Drafts, marked "Claude"; the
-  program shows a notice), refresh, testing an account's connection, showing a message or a search in the program's
-  window. These can be undone.
-- **Only with your confirmation:** sending a message, deleting for good, deleting a folder or an account, changing
-  an account's settings, restarting the login of a stopped account. Then the ShadowMail window comes to the front and
+  program shows a notice), changing a draft (it sends nothing; it can be made to ask under Confirmations), listing
+  the scheduled messages and cancelling a message Claude scheduled (back to Drafts, with a notice), refresh, testing an account's connection,
+  showing a message or a search in the program's window. These can be undone.
+- **Only with your confirmation:** sending or scheduling a message, deleting for good, deleting a folder or an
+  account, changing an account's settings, restarting the login of a stopped account, cancelling your own scheduled
+  message. Under **Confirmations** these
+  can be turned off action by action (see the rules in New in 0.16.0); a change of the login details and cancelling your own scheduled message always ask.
+  Then the ShadowMail window comes to the front and
   shows exactly what would happen (for a send: the recipients, the text and the real target of every link). The
   default button is **Reject** (Enter rejects too), **Approve** becomes active after one
   and a half seconds. The request expires after 10 minutes. From the confirmation window, **Lock** or

@@ -5,6 +5,7 @@
 // sender, recipients, date, subject, Message-ID (RFC 2047 decoded by mailparser) and the SPF / DKIM / DMARC results
 // the RECEIVING server wrote into its Authentication-Results header (the topmost one). The app checks no signature.
 import { simpleParser } from 'mailparser'
+import { utf8Headers } from './raw-headers.js'
 
 export const MAX_SOURCE_CHARS = 2 * 1024 * 1024 // 2 097 152 characters; the whole message goes out only by saving it
 export const AUTH_RESULTS = Object.freeze(['pass', 'fail', 'softfail', 'neutral', 'none', 'temperror', 'permerror', 'policy'])
@@ -129,7 +130,7 @@ export async function rawView(buf) {
   let parsed = null
   try {
     // only the header block: no body, no attachment is parsed
-    parsed = end > 0 ? await simpleParser(Buffer.concat([source.subarray(0, Math.min(end, MAX_SOURCE_CHARS * 4)), Buffer.from('\r\n\r\n')]), { skipHtmlToText: true, skipTextToHtml: true, skipImageLinks: true }) : null
+    parsed = end > 0 ? await simpleParser(utf8Headers(Buffer.concat([source.subarray(0, Math.min(end, MAX_SOURCE_CHARS * 4)), Buffer.from('\r\n\r\n')])), { skipHtmlToText: true, skipTextToHtml: true, skipImageLinks: true }) : null
   } catch {
     parsed = null
   }

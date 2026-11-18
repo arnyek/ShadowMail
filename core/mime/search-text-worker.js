@@ -8,8 +8,8 @@ import { searchResultHere } from './search-text-service.js'
 
 parentPort.on('message', async ({ seq, kind, bytes }) => {
   try {
-    const { text, preview } = await searchResultHere(bytes, kind)
-    parentPort.postMessage({ seq, ok: true, text, preview })
+    const { text, preview, complex } = await searchResultHere(bytes, kind)
+    parentPort.postMessage({ seq, ok: true, text, preview, complex })
   } catch (err) {
     parentPort.postMessage({ seq, ok: false, code: err && typeof err.code === 'string' ? err.code : 'parse_failed' })
   }

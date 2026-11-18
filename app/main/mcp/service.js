@@ -8,7 +8,7 @@ import { createDispatcher, createTools } from './protocol.js'
 export const MCP_SETTING = 'claude_access'
 // mcp:confirm (the user's yes / no, the main window only), mcp:confirmations (the waiting requests)
 // mcp:recent (the last Claude calls), mcp:connectInfo (the config snippets), mcp:copy (one of them to the clipboard)
-export const MCP_CHANNELS = Object.freeze(['mcp:status', 'mcp:setEnabled', 'mcp:confirm', 'mcp:confirmations', 'mcp:recent', 'mcp:connectInfo', 'mcp:copy', 'mcp:openAck'])
+export const MCP_CHANNELS = Object.freeze(['mcp:status', 'mcp:setEnabled', 'mcp:confirm', 'mcp:confirmations', 'mcp:recent', 'mcp:connectInfo', 'mcp:copy', 'mcp:openAck', 'mcp:confirmSettings', 'mcp:setConfirm'])
 // the "Legutóbbi Claude-hívások": the last RECENT_CALLS, in memory only (a lock or a restart empties it);
 // time, tool, result, item count: never an argument or a result
 export const RECENT_CALLS = 20
@@ -57,6 +57,8 @@ export function createMcpService({ dataDir, settings, appVersion, accountCount, 
     status: () => ({ enabled: enabled(), running: server.running, connections: server.connections }),
     /** A decided confirmation (M3B) in the list: approved / rejected / expired / failed. */
     recordConfirmation: view => record({ tool: view.tool, result: view.status, items: view.count, kind: 'confirm' }),
+    /** An action the user's switch let run without the Modal (confirm-policy.js): ok or its error code. */
+    recordAuto: ({ tool, result, count }) => record({ tool, result, items: count, kind: 'auto' }),
     recent: () => recent.map(x => ({ ...x })),
   }
 }
@@ -92,7 +94,7 @@ export function connectSnippets({ exe, args, env = null, platform = process.plat
  * @param connectInfo      () => { exe, args, env }: the program's own path for the config snippets
  * @param copyText         async (text) => void: the main process's clipboard (Másolás)
  */
-export function registerMcpIpc({ ipcMain, mcp, isTrustedSender, log = () => {}, confirm = null, isConfirmSender = () => false, connectInfo = null, copyText = null, onOpenAck = () => {} }) {
+export function registerMcpIpc({ ipcMain, mcp, isTrustedSender, log = () => {}, confirm = null, isConfirmSender = () => false, connectInfo = null, copyText = null, onOpenAck = () => {}, policy = null }) {
   const handle = (channel, fn, trusted = isTrustedSender) =>
     ipcMain.handle(channel, async (event, ...args) => {
       if (!trusted(event)) return { ok: false, error: 'untrusted_sender' }
@@ -126,6 +128,24 @@ export function registerMcpIpc({ ipcMain, mcp, isTrustedSender, log = () => {}, 
     e => isTrustedSender(e) && isConfirmSender(e),
   )
   handle('mcp:confirmations', async () => ({ requests: confirm ? confirm.pending() : [] }))
+  // the confirmation switches (confirm-policy.js): read on the settings page; changed only from the main window, never
+  // by an MCP tool (there is none for it)
+  handle('mcp:confirmSettings', async () => ({ settings: policy ? policy.list() : [] }))
+  handle(
+    'mcp:setConfirm',
+    async q => {
+      const ok = q !== null && typeof q === 'object' && Object.keys(q).length === 2 && typeof q.op === 'string' && typeof q.on === 'boolean'
+      if (!ok || !policy) throw Object.assign(new Error('bad request'), { badRequest: true })
+      try {
+        policy.set(q.op, q.on)
+      } catch (err) {
+        if (err && err.code === 'bad_request') throw Object.assign(new Error('bad request'), { badRequest: true })
+        throw err
+      }
+      return { settings: policy.list() }
+    },
+    e => isTrustedSender(e) && isConfirmSender(e),
+  )
   // the main window says what it did with Claude's open_message: opened, or only offered
   // (an editor with unsaved input was open); only the main window answers
   handle(

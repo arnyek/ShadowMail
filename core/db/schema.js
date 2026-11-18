@@ -307,4 +307,39 @@ export const MIGRATIONS = [
       db.exec('UPDATE folders SET kept = NULL WHERE is_local = 0')
     },
   },
+  {
+    version: 13,
+    name: 'scheduled: messages waiting to be sent later',
+    up(db) {
+      // 0.16.0: "Küldés később". A message waits here, locally only (the server has no such folder), until the
+      // scheduler sends it through the composer's own path. Its whole content (the form, the attachments, the original's
+      // flag, the signature image) is a sealed file in the store (payload_path, relative to the store); the row holds
+      // what the list shows. state: waiting | sending | failed | late. Times in ms (UTC). A new table: additive.
+      db.exec(`CREATE TABLE scheduled (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        account_id INTEGER NOT NULL REFERENCES accounts (id) ON DELETE CASCADE,
+        send_at INTEGER NOT NULL,
+        state TEXT NOT NULL DEFAULT 'waiting',
+        attempts INTEGER NOT NULL DEFAULT 0,
+        next_try_at INTEGER,
+        last_error TEXT,
+        created_at INTEGER NOT NULL,
+        subject TEXT NOT NULL DEFAULT '',
+        recipients TEXT NOT NULL DEFAULT '',
+        claude INTEGER NOT NULL DEFAULT 0,
+        payload_path TEXT NOT NULL
+      )`)
+      db.exec('CREATE INDEX idx_scheduled_due ON scheduled (state, send_at)')
+    },
+  },
+  {
+    version: 14,
+    name: 'messages: the Bcc recipients',
+    up(db) {
+      // 0.16.0 (written for 0.15.1, which was never released): the Bcc line of a message that keeps one (the Sent and
+      // Drafts copies), for the recipient column of those lists when To and Cc are empty. NULL = not known (a row
+      // stored before 0.16.0; the sync fills the ones that need it), '' = none. Additive: the older code ignores it.
+      db.exec('ALTER TABLE messages ADD COLUMN bcc_addrs TEXT')
+    },
+  },
 ]

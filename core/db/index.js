@@ -7,6 +7,7 @@
 // right after it tells a wrong key (SQLITE_NOTADB) from everything else. The -wal file and the
 // migration backups (VACUUM INTO) are encrypted with the same key (measured).
 import { addrKey } from './addr-key.js'
+import { recipientKey } from '../mime/recipient-label.js'
 import Database from 'better-sqlite3-multiple-ciphers'
 import { MIGRATIONS } from './schema.js'
 import { migrate } from './migrate.js'
@@ -42,6 +43,8 @@ export function openDatabase(file, key = null) {
     db.pragma('foreign_keys = ON')
     // the address key in SQL, the same rule as in JS (core/db/addr-key.js); NOCASE folds ASCII only
     db.function('addr_key', { deterministic: true }, addrKey)
+    // the recipient column's order in the Sent and Drafts lists (LIST_SORTS.recipient), the rule the list shows
+    db.function('recipient_key', { deterministic: true }, (to, cc, bcc) => recipientKey(to, cc, bcc))
     return db
   } catch (err) {
     db.close()

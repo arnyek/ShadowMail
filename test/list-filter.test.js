@@ -99,7 +99,7 @@ test('every filter and every pair: the list pages, the count and the ids give th
       }
     }
   }
-  assert.equal(checked, 17 * 6)
+  assert.equal(checked, 17 * 2 * 4) // 4 orders since 0.15.1 (recipient)
 })
 
 test('keepIds: an opened (now read) message stays in the Unread filter and is counted; it never brings in another folder', t => {

@@ -136,7 +136,7 @@ try {
   const inboxCount = async () => (await page.evaluate(id => window.shadowMail.mail.list({ accountId: id, folder: 'INBOX', limit: 200 }), accountId)).rows.length
 
   const names = (await c.ask('tools/list')).result.tools.map(t => t.name)
-  check('tools/list: the write tools', ['mark_messages', 'move_messages', 'trash_messages', 'create_folder', 'rename_folder', 'create_draft', 'create_reply_draft', 'prepare_account', 'test_account'].every(n => names.includes(n)), names.join(','))
+  check('tools/list: the write tools', ['mark_messages', 'move_messages', 'trash_messages', 'create_folder', 'rename_folder', 'create_draft', 'create_reply_draft', 'update_draft', 'prepare_account', 'test_account'].every(n => names.includes(n)), names.join(','))
 
   // mark, as the list's buttons
   const first = bySubject('Első levél')
@@ -187,13 +187,25 @@ try {
   await page.locator('.msg-row', { hasText: 'MCP-piszkozat' }).waitFor({ timeout: 10_000 })
   check('the Drafts list: the "Claude" mark on the row', (await page.locator('.msg-row', { hasText: 'MCP-piszkozat' }).locator('.claude-mark').count()) === 1)
 
+  // update_draft: the own text replaced above the signature, no Modal (its switch starts OFF), still one draft, nothing sent
+  const upd = await c.tool('update_draft', { draft_id: draftRow.id, text: 'Szia Anna,\nez egy piszkozat, javítva.' })
+  const drafts1b = await page.evaluate(id => window.shadowMail.mail.list({ accountId: id, folder: 'Drafts', limit: 50 }), accountId)
+  check('update_draft: saved without the Modal, still one draft, nothing sent', !upd.isError && upd._meta['shadowmail/data'].status === 'auto' && drafts1b.rows.filter(r => r.subject === 'MCP-piszkozat').length === 1 && received.length === 0 && (await page.locator('.claude-confirm').count()) === 0, upd.content[0].text)
+  // a stranger added to the Cc: the Modal (whatever the switch), naming the address; rejected, nothing written
+  const strangerCall = c.tool('update_draft', { draft_id: drafts1b.rows.find(r => r.subject === 'MCP-piszkozat').id, cc: 'cili@example.invalid' })
+  await page.locator('.claude-confirm[data-kind="updateDraft"] .claude-confirm-modal').waitFor({ timeout: 20_000 })
+  const named = await page.locator('.claude-confirm-modal .confirm-unknown li').allInnerTexts()
+  await page.locator('.claude-confirm-modal .confirm-reject').click()
+  const stranger = await strangerCall
+  check('update_draft adding a stranger to the Cc: the Modal names it, rejected', stranger.isError === true && stranger._meta['shadowmail/data'].error === 'rejected' && named.join(',') === 'cili@example.invalid', named.join(','))
+
   // Megnyitás -> the composer -> Küldés: out without the header
   const [win] = await Promise.all([app.waitForEvent('window', { timeout: 15_000 }), page.locator('.claude-draft-notice').getByRole('button', { name: t.claudeDraftOpen, exact: true }).click()])
   await win.setViewportSize({ width: 1000, height: 760 }) // headless: a new window starts 0 x 0
   await win.locator('#compose-subject').waitFor()
   await win.waitForFunction(() => document.querySelector('#compose-subject').value === 'MCP-piszkozat')
   const bodyText = await win.locator('.compose-editor, [contenteditable="true"]').first().innerText()
-  check('Megnyitás: the composer has the draft (subject, text, one signature)', bodyText.includes('ez egy piszkozat') && bodyText.split('Mérő Márta').length - 1 === 1, bodyText.slice(0, 120))
+  check('Megnyitás: the composer has the draft as update_draft left it (subject, the new text, one signature, no Cc: the rejected one was not written)', bodyText.includes('ez egy piszkozat, javítva') && bodyText.split('Mérő Márta').length - 1 === 1 && !(await win.evaluate(() => (document.querySelector('#compose-cc') || {}).value || '')).includes('cili@example.invalid'), bodyText.slice(0, 120))
   await Promise.all([win.waitForEvent('close', { timeout: 15_000 }), win.getByRole('button', { name: t.composeSend, exact: true }).click()])
   for (let i = 0; i < 50 && !received.length; i++) await sleep(100)
   const sent = received[0] ? await simpleParser(received[0].raw) : null
@@ -206,6 +218,70 @@ try {
   const drafts2 = await page.evaluate(id => window.shadowMail.mail.list({ accountId: id, folder: 'Drafts', limit: 50 }), accountId)
   check('create_reply_draft: "Re: Negyedik levél" in the Drafts, marked', !reply.isError && drafts2.rows.some(r => r.subject === 'Re: Negyedik levél' && /\$ShadowMailClaude/.test(r.flags)), reply.content[0].text)
   check('create_reply_draft: still nothing more went out', received.length === 1)
+
+  // "Küldés később" over MCP: send_at -> the Modal says when; approved -> scheduled (Claude's), nothing sent; the
+  // Időzített list shows it; list_scheduled; cancel_scheduled -> back to Drafts
+  const whenIso = new Date(Date.now() + 2 * 24 * 3600_000).toISOString()
+  const schedCall = c.tool('send_message', { account_id: accountId, to: 'cimzett@example.invalid', subject: 'Időzített MCP', text: 'Később.', send_at: whenIso })
+  await page.locator('.claude-confirm[data-kind="send"] .claude-confirm-modal').waitFor({ timeout: 20_000 })
+  const sendAtLine = await page.locator('.claude-confirm-modal .confirm-send-at').innerText().catch(() => '')
+  check('send_at: the Modal says when and that it does not go out now', sendAtLine.startsWith(`${t.claudeConfirm.sendAt}: `) && sendAtLine.includes(t.claudeConfirm.sendAtNote), sendAtLine)
+  await sleep(1700) // the approve button's delay
+  await page.locator('.claude-confirm-modal .confirm-approve').click()
+  const sched = await schedCall
+  const schedData = sched && sched._meta['shadowmail/data']
+  check('send_at approved: scheduled, nothing went out', sched && !sched.isError && schedData.scheduled === true && received.length === 1, sched && sched.content[0].text)
+  await page.locator('.scheduled-entry').waitFor({ timeout: 10_000 })
+  await page.locator('.scheduled-entry').click()
+  const schedRow = page.locator('.scheduled-row', { hasText: 'Időzített MCP' })
+  await schedRow.waitFor({ timeout: 10_000 })
+  check('the Időzített list shows it with the Claude mark', (await schedRow.locator('.claude-mark').count()) === 1)
+  const listedSched = await c.tool('list_scheduled', {})
+  const lsItems = listedSched._meta['shadowmail/data'].items
+  check('list_scheduled: the one row, waiting, at the asked time', !listedSched.isError && lsItems.length === 1 && lsItems[0].state === 'waiting' && Math.floor(Date.parse(lsItems[0].send_at) / 1000) === Math.floor(Date.parse(whenIso) / 1000) && !listedSched.content[0].text.includes('Később.'), listedSched.content[0].text)
+  const cancelled = await c.tool('cancel_scheduled', { scheduled_id: lsItems[0].id })
+  const draftsAfter = await page.evaluate(id => window.shadowMail.mail.list({ accountId: id, folder: 'Drafts', limit: 50 }), accountId)
+  check('cancel_scheduled: no Modal, back in Drafts, the list empty, nothing sent', !cancelled.isError && draftsAfter.rows.some(r => r.subject === 'Időzített MCP') && (await page.evaluate(() => window.shadowMail.scheduled.list())).rows.length === 0 && received.length === 1 && (await page.locator('.claude-confirm').count()) === 0, cancelled.content[0].text)
+  const cancelNotice = page.locator('.scheduled-notice', { hasText: t.scheduledNotice('claudeCancelled', 'Időzített MCP') })
+  check('cancel_scheduled (Claude\'s): the main window says Claude cancelled it', await cancelNotice.waitFor({ timeout: 5000 }).then(() => true, () => false))
+  await cancelNotice.locator('button').first().click().catch(() => {})
+
+  // the user's own scheduled message (written and scheduled in the composer): cancel_scheduled asks, whatever the switches
+  const [ownWin] = await Promise.all([app.waitForEvent('window', { timeout: 15_000 }), page.getByRole('button', { name: t.newMessage, exact: true }).click()])
+  await ownWin.setViewportSize({ width: 1000, height: 760 }) // headless: a new window starts 0 x 0
+  await ownWin.locator('#compose-to').waitFor()
+  await ownWin.locator('#compose-to').fill('cimzett@example.invalid')
+  await ownWin.locator('#compose-subject').fill('Saját időzített')
+  await ownWin.locator('.editor').click()
+  await ownWin.keyboard.type('Saját szöveg.')
+  await ownWin.locator('.compose-send-later').click()
+  await ownWin.locator('input[value="tomorrow8"]').check()
+  const ownClosed = ownWin.waitForEvent('close', { timeout: 15_000 })
+  await ownWin.locator('.compose-schedule-ok').click({ noWaitAfter: true }).catch(e => {
+    if (!ownWin.isClosed()) throw e
+  })
+  await ownClosed
+  const ownRow = (await page.evaluate(() => window.shadowMail.scheduled.list())).rows.find(r => r.subject === 'Saját időzített')
+  check('own: scheduled in the composer, not Claude\'s', ownRow && !ownRow.claude, JSON.stringify(ownRow))
+  const askOwn = async () => {
+    const call = c.tool('cancel_scheduled', { scheduled_id: ownRow.id })
+    await page.locator('.claude-confirm[data-kind="cancelScheduled"] .claude-confirm-modal').waitFor({ timeout: 20_000 })
+    return call
+  }
+  let ownCall = askOwn()
+  const ownText = await page.locator('.claude-confirm-modal').innerText()
+  check('own: cancel_scheduled asks; the Modal names it and says what approval means', ownText.includes('Saját időzített') && ownText.includes(t.claudeConfirm.cancelScheduledNote), ownText)
+  await page.locator('.claude-confirm-modal .confirm-reject').click()
+  let ownRes = await ownCall
+  check('own: rejected -> still scheduled, no cancel notice', ownRes._meta['shadowmail/data'].error === 'rejected' && (await page.evaluate(() => window.shadowMail.scheduled.list())).rows.some(r => r.id === ownRow.id) && (await page.locator('.scheduled-notice', { hasText: t.scheduledNotice('claudeCancelled', 'Saját időzített') }).count()) === 0, ownRes.content[0].text)
+  ownCall = askOwn()
+  await sleep(1700) // the approve button's delay
+  await page.locator('.claude-confirm-modal .confirm-approve').click()
+  ownRes = await ownCall
+  const draftsOwn = await page.evaluate(id => window.shadowMail.mail.list({ accountId: id, folder: 'Drafts', limit: 50 }), accountId)
+  check('own: approved -> back in Drafts, not sent', !ownRes.isError && draftsOwn.rows.some(r => r.subject === 'Saját időzített') && !(await page.evaluate(() => window.shadowMail.scheduled.list())).rows.some(r => r.id === ownRow.id) && received.length === 1, ownRes.content[0].text)
+  check('own: the main window says Claude cancelled it', await page.locator('.scheduled-notice', { hasText: t.scheduledNotice('claudeCancelled', 'Saját időzített') }).waitFor({ timeout: 5000 }).then(() => true, () => false))
+  await page.locator('.folder-tree .folder[data-path="INBOX"]').click()
 
   // prepare_account
   const accountsBefore = (await page.evaluate(() => window.shadowMail.accounts.list())).accounts.length

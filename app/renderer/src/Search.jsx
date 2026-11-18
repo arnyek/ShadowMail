@@ -9,6 +9,7 @@ import { Button, Chip, ChipMenu, ChipPanel, ChipSelect, IconButton, SearchField,
 import { RowText } from './RowText.jsx'
 import { Icon } from './Icon.jsx'
 import { assignRoles } from '../../../core/imap/folders.js'
+import { RECIPIENT_ROLES } from '../../../core/mime/recipient-label.js'
 
 const api = window.shadowMail
 export const SEARCH_DELAY_MS = 300
@@ -154,6 +155,8 @@ export function SearchChips({ accounts, filters, onChange, searching = true, vie
   const inboxOf = a => (a.folders.find(f => f.path.toUpperCase() === 'INBOX') || a.folders[0])?.path
   // the role's Hungarian name, as the tree and the Move menu show it ("Beérkezett (INBOX)" in the menu)
   const roles = folderView && account ? assignRoles(account.folders) : new Map()
+  // Sent / Drafts: the "from" order is by the recipient there (Mail.jsx isRecipientFolder), and the chip says so
+  const sortField = listSort && listSort.sort === 'from' && RECIPIENT_ROLES.has(roles.get(view?.folder)) ? 'recipient' : listSort?.sort
   const folderName = (path, withPath = false) => {
     const role = roles.get(path)
     if (!role) return path
@@ -228,10 +231,10 @@ export function SearchChips({ accounts, filters, onChange, searching = true, vie
         {folderView ? (
           <ChipMenu
             label={t.searchFilter.sort}
-            text={t.listSortChip(listSort.sort, listSort.dir)}
+            text={t.listSortChip(sortField, listSort.dir)}
             display={
               <>
-                {t.listSortField[listSort.sort]}
+                {t.listSortField[sortField]}
                 <Icon name={listSort.dir === 'asc' ? 'sortAsc' : 'sortDesc'} />
               </>
             }

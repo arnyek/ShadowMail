@@ -391,3 +391,19 @@ test('contacts:lookup: the person of an address (no case), null when nobody has 
   assert.deepEqual(await call('contacts:lookup', 'nem-cim'), { ok: true, personId: null })
   for (const bad of [5, null, 'x'.repeat(321)]) assert.deepEqual(await call('contacts:lookup', bad), { ok: false, error: 'bad_request' })
 })
+
+test('unknownOf: ASCII addresses by the address key (case and spaces free, the name does not count), every source counts; any non-ASCII address is unknown, shown as given (the Kelvin sign too); each once, in order', t => {
+  const { db } = memoryIndex(t)
+  const people = new People(db)
+  const contacts = new Contacts(db, { people })
+  people.save({ displayName: 'Kovács', emails: ['kovacs@pelda.example'] })
+  people.save({ displayName: 'Árvíz Tűrő', emails: ['árvíz.tűrő@pelda.example'] })
+  contacts.recordSent([{ address: 'auto@pelda.example', name: 'Auto' }], 1)
+  assert.deepEqual(people.unknownOf(['KOVACS@PELDA.EXAMPLE', ' Auto@Pelda.Example ']), [], 'known in any case, an automatic person too')
+  // the Kelvin sign lowercases to a plain k: the server would deliver it to another mailbox
+  assert.deepEqual(people.unknownOf(['Kovacs@pelda.example']), ['Kovacs@pelda.example'])
+  assert.deepEqual(people.unknownOf(['árvíz.tűrő@pelda.example', 'kovacs@példa.example']), ['árvíz.tűrő@pelda.example', 'kovacs@példa.example'], 'non-ASCII: always unknown, even when stored')
+  assert.deepEqual(people.unknownOf(['Uj@pelda.example', 'kovacs@pelda.example', 'uj@PELDA.example', 'masik@pelda.example', '']), ['uj@pelda.example', 'masik@pelda.example'])
+  contacts.recordSent([{ address: 'mcp@pelda.example', name: 'M' }], 2, { addPeople: false })
+  assert.deepEqual(people.unknownOf(['mcp@pelda.example']), ['mcp@pelda.example'], 'addPeople false adds nobody')
+})

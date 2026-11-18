@@ -33,7 +33,7 @@ Windows írja, nem a program. A Windows „Legutóbbi fájlok” listájába a S
 
 ![Egy megnyitott levél: monogram, ikonos műveletek, mellékletkártyák](docs/screenshots/readme-reader.png)
 
-![Levélírás: Feladó, Címzett, Tárgy, ikonos formázás, kék Küldés gomb](docs/screenshots/readme-compose.png)
+![Levélírás: Feladó, Címzett, Tárgy, ikonos formázás, kék Küldés gomb, mellette Küldés később](docs/screenshots/readme-compose.png)
 
 ### Billentyűk megnyitott levélnél
 
@@ -137,6 +137,68 @@ hivatkozásként). A Feladó-fiók váltása csak az aláírás blokkját cseré
 - A fiók jobb gombos menüjének **Mappák betűrendbe** pontja visszaadja a mappái eredeti sorrendjét.
 - A sorrendet csak a ShadowMail tartja: a szerveren és más levelezőprogramokban nem változik semmi. Az átnevezett
   mappa a helyén marad, az új mappa a listája végére kerül.
+
+### Újdonságok a 0.16.0-ban, ismert korlátok
+
+- **Küldés később:** a levélírás **Küldés később…** gombja (ma 18:00, holnap 8:00, hétfő 8:00 vagy egyéni időpont,
+  a gép helyi idejében). Az időzített levél titkosítva, helyben vár, a piszkozata lekerül a Piszkozatokból, és CSAK
+  akkor megy ki, ha a ShadowMail fut és fel van oldva. A bal sáv tetején az **Időzített (N)** lista minden fiók
+  időzített leveleit mutatja: **Megnyitás** (levélíróban szerkeszthető), **Időpont módosítása**, **Küldés most**,
+  **Időzítés törlése** (vissza a Piszkozatok közé). Átmeneti hiba után 1, 5 és 15 perc múlva újra próbál. Ha az
+  időpontban a program egy napnál tovább nem futott (vagy a gép aludt), a levél **lekésett**: magától nem megy ki,
+  te döntesz. Ha a küldés közben a program leállt (**megszakadt**), vagy a szerver a teljes levél átvétele után nem
+  válaszolt (**bizonytalan**), a levél kimehetett, de ez nem biztos (Elküldött-másolat csak sikeres küldés után
+  készül): magától soha nem küldi újra; a **Küldés most** és a levélíróban megnyitott levél küldése ilyenkor előbb
+  rákérdez.
+- **Mappatörlés a szerver levélszámával:** IMAP-fióknál a törlés figyelmeztetése a szerveren lévő levelek számát
+  mondja (a válaszig "legalább N"); ha a szerver nem válaszol, a helyi szám marad, alsó korlátként.
+- **Claude megerősítései műveletenként:** a Beállítások / Claude-hozzáférés / **Megerősítések** alatt műveletenként
+  kikapcsolható a megerősítés. Kikapcsolt küldésnél Claude kérdés nélkül csak a névjegyzékben lévő címekre küldhet;
+  ismeretlen, ékezetes vagy más nem angol betűs címnél az ablak megjön, és megnevezi a címet. Claude leveleinek
+  címzettjei nem kerülnek a névjegyzékbe. A belépési adatok (szerver, port, titkosítás, felhasználónév,
+  tanúsítvány-ellenőrzés) módosítása mindig kérdez. Egy leállt fiók belépését kikapcsolt megerősítésnél is csak
+  egyszer indítja újra magától, utána újra kérdez, amíg te nem lépsz (Frissítés, a fiók mentése, Kapcsolat próbája).
+- **Claude módosíthat egy piszkozatot** (címzettek, tárgy, a saját szövege): az aláírás, az idézet, a továbbított
+  rész és a mellékletek maradnak, és semmi nem megy ki. Alapból megerősítés nélkül fut (a Megerősítések alatt
+  bekapcsolható); a névjegyzékben nem szereplő új címzett felvétele mindig kérdez. Levélíró ablakban nyitott
+  piszkozathoz nem nyúl.
+- **Claude időzíthet:** a levél küldése és a piszkozat elküldése időponttal is kérhető, a megerősítő ablak kiírja az
+  időpontot. Claude listázhatja az időzített leveleket, és visszavonhat egy időzítést (a levél visszakerül a
+  Piszkozatok közé): a saját maga által időzítettet kérdés nélkül, a te saját időzítésedet csak a megerősítéseddel
+  (ez nem kapcsolható ki; a te időzítésednek számít az is, amit Claude időzített, de te a levélíróban átírtál és
+  elmentettél); minden visszavonásáról sáv jelenik meg. Az időpontot és a tartalmat nem módosíthatja.
+- **Címzett az Elküldött és a Piszkozatok listájában:** ezekben a mappákban a feladó helyén az első címzett neve
+  (név híján a címe) áll, több címzettnél "Név +2", az egérmutató alatt a teljes lista; ha csak titkos másolat (Bcc)
+  van, az. A rendezés itt címzett szerint megy. A vesszőt vagy idézőjelet tartalmazó nevet a program mostantól idézve
+  tárolja, így a lista egy címzettnek mutatja.
+- **Ékezetes feladó és tárgy régi webes űrlapokról:** egyes régi űrlap-levelezők a feladót és a tárgyat kódolás
+  nélkül, nyers bájtokkal küldik; ezek eddig hibás (�) betűkkel látszottak a listában, az olvasóban, a keresőben és a
+  válasz idézetében. Most a levél saját karakterkészletével (ennek híján közép-európaival, windows-1250) olvassa; a
+  már letöltött levelek sorai a következő szinkronkor javulnak.
+- **Hová visz valójában egy link:** egy HTML-levél linkje fölött (vagy Tab-bal a linkre lépve) a levél bal alsó
+  sarkában sáv mutatja a valódi célcímet; ha a link szövege más domaint mutat, a sáv piros figyelmeztetés. Részletek
+  és korlátok: Biztonság röviden.
+- **Hosszú sima szöveges levél:** a szöveg a saját dobozában görget, a Válasz gombsora nem takarja el.
+- **Keresés terhelt gépen:** a nagy levelek keresőszövegét készítő lépés időkorlátja a saját processzoridejét méri,
+  nem az eltelt időt, így terhelt gépen egy nagy levél szövege jóval ritkábban marad ki a keresőből (a 0.15.0
+  ismert korlátja).
+  Ha egy letöltött levél mégis túl összetett, egy későbbi, szabad pillanatban egyszer újra próbálja.
+
+A kiadás ismert korlátai:
+
+- Az újdonságokat Linuxon mértük; Windowson (a csomagon) még nem.
+- A levelekbe rejtett utasítások (prompt-injekció) kezelését a programon át (e2e) csak POP3-fiókkal mértük,
+  IMAP-fiókkal egységteszt méri.
+- Ha zároláskor éppen megy egy időzített levél, a zárolás legfeljebb 10 másodpercet vár rá; ha a küldés tovább tart,
+  a levél a következő feloldáskor megszakadtként jelenik meg.
+- Claude mappatörlési kérésének megerősítő ablaka a helyi levélszámot mutatja, nem a szerverét.
+- A 0.16.0 előtt tárolt Elküldött- és Piszkozat-sorokban a név idézetlen: egy vesszőt és címet is tartalmazó név
+  ("a@pelda.example, Valódi <r@x>") a listán továbbra is hamis első címzettet adhat. Az olvasó mindig a valódi
+  címzetteket mutatja.
+- A nyers bájtos fejléc javítása a feladóra, a tárgyra és a címzettekre (To, Cc) vonatkozik; a titkos másolat (Bcc)
+  és a mellékletek neve nem javul.
+- A link-sáv figyelmeztetése elmarad, ha a link szövege több szó ("Belépés: bank.example") vagy rejtett; levélcím
+  (mailto) linknél a sáv a másolat- és szöveg-részt (`?cc=`, `body`) nem mutatja.
 
 ### Újdonságok a 0.15.0-ban, ismert korlátok
 
@@ -365,6 +427,14 @@ egy azóta letöltött és a szerverről már törölt levél elveszhet.
 
 - A levelek HTML-je elszigetelt keretben jelenik meg: program (script) nem futhat benne, a külső képek
   csak a **Képek betöltése** gombra töltődnek be, és csak az adott levélben.
+- **Hová visz valójában egy link**: ha az egér egy HTML-levél linkje fölött áll (vagy a Tab a linkre lép), a levél bal
+  alsó sarkában egy kis sáv mutatja a valódi célcímet, a domaint félkövéren. Ha a link szövege maga is címnek látszik
+  (`bank.example`, `https://...`), és más domainre mutat, a sáv piros: "Figyelem: a link máshová visz, mint amit a szövege
+  mutat", alatta a valódi host. Ugyanazon a domainen egy aldomain (`www.`, `login.`) nem eltérés; a nemzetközi (punycode,
+  `xn--`) cím betűkkel is megjelenik. Korlátok: a domaint a program egy rövid, beépített listával hasonlítja (kétszintű
+  végződések: `co.uk`, `com.au`, `co.hu`...), nem a teljes nyilvános listával, így egy hiányzó végződés alatti két
+  oldal egynek számít; ha egy levél több linkje ugyanoda mutat, bármelyikük szövege számít; a sima szöveges levélben
+  nincs kattintható link, ezért sáv sincs.
 - A **Megnyitás** csak ezeknél a típusoknál érhető el: PDF (`.pdf`), kép (`.jpg .jpeg .png .gif .bmp
   .webp .tif .tiff`), szöveg (`.txt`), Office (`.doc .docx .xls .xlsx .ppt .pptx`), OpenDocument (`.odt .ods
   .odp`). **Minden más csak menthető** (például a makrós Office-fájlok, `.rtf`, `.csv`, a vetítésként induló
@@ -452,10 +522,14 @@ A beállítás formátuma a hivatalos dokumentációból való: Claude Desktop:
 
 - **Megerősítés nélkül:** olvasás és keresés (a levél ettől nem lesz olvasott), jelölés (olvasott, csillag),
   áthelyezés, Kukába helyezés, mappa létrehozása és átnevezése, piszkozat írása (a Piszkozatok mappába, "Claude"
-  jellel; a programban értesítés jelenik meg), frissítés, a fiók kapcsolatának próbája, egy levél vagy egy
-  keresés megmutatása a program ablakában. Ezek visszafordíthatók.
-- **Csak a te megerősítéseddel:** levél küldése, végleges törlés, mappa és fiók törlése, fiók-beállítás módosítása,
-  egy leállt fiók belépésének újraindítása. Ilyenkor a ShadowMail ablaka előre jön, és pontosan azt mutatja, ami
+  jellel; a programban értesítés jelenik meg), egy piszkozat módosítása (semmit nem küld el; a Megerősítések alatt
+  kérdéshez köthető), az időzített levelek listázása és a Claude által időzített levél visszavonása (vissza a
+  Piszkozatok közé, sávval),
+  frissítés, a fiók kapcsolatának próbája, egy levél vagy egy keresés megmutatása a program ablakában. Ezek
+  visszafordíthatók.
+- **Csak a te megerősítéseddel:** levél küldése vagy időzítése, végleges törlés, mappa és fiók törlése,
+  fiók-beállítás módosítása, egy leállt fiók belépésének újraindítása, a te saját időzítésed visszavonása. A **Megerősítések** alatt ezek műveletenként
+  kikapcsolhatók (a szabályokat lásd a 0.16.0 újdonságainál); a belépési adatok módosítása és a saját időzítésed visszavonása mindig kérdez. Ilyenkor a ShadowMail ablaka előre jön, és pontosan azt mutatja, ami
   történne (küldésnél a címzetteket, a szöveget és minden link valódi célját). Az alapértelmezett gomb az
   **Elutasítás** (az Enter is elutasít), a **Jóváhagyás** másfél másodperc után válik aktívvá. A kérés 10 perc után
   lejár. A megerősítő ablakból a **Zárolás** vagy a **Mind elutasítása, Claude-hozzáférés ki** gomb egy lépésben

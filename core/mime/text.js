@@ -41,7 +41,12 @@ export function makePreview(text, max = PREVIEW_CHARS) {
  * all, NOT the text/plain: that part may carry what the HTML hides. Normalized, at most `maxChars`.
  * `visible` is the HTML filter (the app may run it elsewhere; default: here).
  */
-export function searchTextOf(parsed, { maxChars = BODY_MAX_CHARS, visible = visibleTextInfo } = {}) {
+export function searchTextOf(parsed, options) {
+  return searchTextInfo(parsed, options).text
+}
+
+/** searchTextOf with how it ended: { text, complex } (complex: the HTML was over the work ceiling or the time net, no body). */
+export function searchTextInfo(parsed, { maxChars = BODY_MAX_CHARS, visible = visibleTextInfo } = {}) {
   if (parsed.html) {
     let v = visible(parsed.html)
     // a big HTML over the work ceiling is filtered ONCE more on its first COMPLEX_RETRY_BYTES (cut at a
@@ -51,9 +56,9 @@ export function searchTextOf(parsed, { maxChars = BODY_MAX_CHARS, visible = visi
       const head = htmlHead(parsed.html, COMPLEX_RETRY_BYTES)
       v = head === null ? v : visible(head)
     }
-    return v.cut === 'complex' ? '' : normalizeText(v.text, maxChars)
+    return v.cut === 'complex' ? { text: '', complex: true } : { text: normalizeText(v.text, maxChars), complex: false }
   }
-  return normalizeText(parsed.text, maxChars)
+  return { text: normalizeText(parsed.text, maxChars), complex: false }
 }
 
 export const COMPLEX_RETRY_BYTES = 128 * 1024

@@ -34,15 +34,15 @@ export class Contacts {
         WHERE NOT EXISTS (SELECT 1 FROM contact_suppressed s WHERE s.address = k)
         ORDER BY n DESC, last DESC LIMIT @limit`),
     }
-    this.recordTx = db.transaction((list, now) => {
+    this.recordTx = db.transaction((list, now, addPeople) => {
       for (const a of list) this.s.upsert.run({ address: addrKey(a.address), name: a.name || '', now })
-      if (this.people) this.people.autoAdd(list, now)
+      if (this.people && addPeople) this.people.autoAdd(list, now)
     })
   }
 
-  /** After a send: every recipient (to, cc, bcc). */
-  recordSent(addresses, now = Date.now()) {
-    this.recordTx(addresses.filter(a => a && a.address), now)
+  /** After a send: every recipient (to, cc, bcc). addPeople false: the suggestion counts only, no new people (an MCP send). */
+  recordSent(addresses, now = Date.now(), { addPeople = true } = {}) {
+    this.recordTx(addresses.filter(a => a && a.address), now, addPeople)
   }
 
   /** Suggestions for what was typed (part of a name or an address), the most used first. */

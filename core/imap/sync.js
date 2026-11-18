@@ -12,9 +12,11 @@
 //  - the list preview is stored together with the indexed text.
 import { createImapClient, listSyncFolders, serverSpecialUse } from './client.js'
 import { shownFolders, subscriptionsKnown } from './folders.js'
-import { resolveRoles } from './folders.js'
+import { assignRoles, resolveRoles } from './folders.js'
+import { RECIPIENT_ROLES } from '../mime/recipient-label.js'
 import { analyzeStructure, extractReferences, fmtAddr, fmtAddrs } from '../mime/envelope.js'
 import { bodyFromSource } from '../mime/text.js'
+import { hasBrokenHeader, headerColumns } from '../mime/message.js'
 import { BODY_STATE } from '../db/mail-index.js'
 import { applyBodyLimit, bodyCutoff, withinBodyLimit } from '../db/body-limit.js'
 import { classifyError } from '../accounts/probe.js'
@@ -23,6 +25,9 @@ export { bodyCutoff }
 const META_CHUNK = 200
 const BODY_CHUNK = 25
 export const BODY_FETCH_BYTES = 256 * 1024
+// The raw header fields a broken envelope is decoded from anew (raw 8-bit, not UTF-8: imapflow reads them as UTF-8 and
+// gives U+FFFD); content-type gives the charset (raw-headers.js).
+export const HEADER_REPAIR_FIELDS = Object.freeze(['subject', 'from', 'to', 'cc', 'content-type'])
 
 const chunks = (arr, n) => {
   const out = []
@@ -118,6 +123,8 @@ export class Syncer {
         await client.connect()
         return client
       })
+    this.bccFillDone = new Set() // folders whose rows with an unknown Bcc were filled in this instance (fillUnknownBcc)
+    this.headerRepairDone = new Set() // folders whose stored rows were checked for broken headers in this instance
     this.current = null
     this.queued = null
     this.queuedPromise = null
@@ -434,6 +441,7 @@ export class Syncer {
         )) {
           rows.push(this.toRow(f.path, msg, cutoff))
         }
+        await this.repairNewHeaders(client, rows)
         const added = this.index.insertMany(rows)
         this.state.lastAdded += added
         if (added) {
@@ -443,6 +451,20 @@ export class Syncer {
         }
         done += part.length
         this._setState({ progress: { done, total: fresh.length } })
+      }
+
+      // Sent / Drafts rows stored before 0.15.1 without To and Cc: their Bcc from the server's envelope (the recipient
+      // column's fallback), once per folder and instance; only these rows, one FETCH of their envelopes
+      if (!this.bccFillDone.has(f.path) && RECIPIENT_ROLES.has(assignRoles(this.index.folderList(accountId)).get(f.path))) {
+        this.bccFillDone.add(f.path)
+        if (await this.fillUnknownBcc(client, accountId, f.path, serverSet)) changed = true
+      }
+
+      // rows stored before 0.15.1 with a raw 8-bit header read as UTF-8: decoded anew from the server's header fields, once
+      // per folder and instance (the check reads the folder's rows)
+      if (!this.headerRepairDone.has(f.path)) {
+        this.headerRepairDone.add(f.path)
+        if (await this.repairStoredHeaders(client, f.path, serverSet)) changed = true
       }
 
       // flag changes (read, starred) on messages we already had
@@ -482,6 +504,64 @@ export class Syncer {
     return changed
   }
 
+  /** The folder's rows with an unknown Bcc and no To / Cc get it from the server's envelope. -> any row changed? */
+  async fillUnknownBcc(client, accountId, folder, serverSet) {
+    const rows = this.index.bccUnknownRows(accountId, folder).filter(r => serverSet.has(r.uid))
+    if (!rows.length) return false
+    const idOf = new Map(rows.map(r => [r.uid, r.id]))
+    const items = []
+    for (const part of chunks(rows.map(r => r.uid), META_CHUNK)) {
+      this._checkStopped()
+      for await (const msg of client.fetch(part, { uid: true, envelope: true }, { uid: true })) {
+        if (!idOf.has(msg.uid) || !msg.envelope) continue
+        items.push({ id: idOf.get(msg.uid), bcc: fmtAddrs(msg.envelope.bcc) })
+      }
+    }
+    return this.index.setBccMany(items) > 0 && items.some(i => i.bcc)
+  }
+
+  /** uid -> header columns of the given UIDs, from their raw header fields (one FETCH); a UID the server lacks is left out. */
+  async fetchHeaderColumns(client, uids) {
+    const out = new Map()
+    for (const part of chunks(uids, META_CHUNK)) {
+      this._checkStopped()
+      for await (const msg of client.fetch(part, { uid: true, headers: [...HEADER_REPAIR_FIELDS] }, { uid: true })) {
+        if (!msg.headers || !msg.headers.length) continue
+        try {
+          out.set(msg.uid, await headerColumns(msg.headers))
+        } catch {
+          // an unreadable header block: the row keeps what the envelope gave
+        }
+      }
+    }
+    return out
+  }
+
+  /** New rows whose envelope holds U+FFFD get their header columns from the raw fields (before they are inserted). */
+  async repairNewHeaders(client, rows) {
+    const broken = rows.filter(hasBrokenHeader)
+    if (!broken.length) return
+    const cols = await this.fetchHeaderColumns(client, broken.map(r => r.uid))
+    for (const r of broken) {
+      const c = cols.get(r.uid)
+      if (!c) continue
+      Object.assign(r, { subject: c.subject, from_name: c.from_name, to_addrs: c.to_addrs, cc_addrs: c.cc_addrs, sender_text: c.sender_text, recipients_text: c.recipients_text })
+    }
+  }
+
+  /** Stored rows of the folder with a U+FFFD header column: decoded anew from the server. -> any row changed? */
+  async repairStoredHeaders(client, folder, serverSet) {
+    const rows = this.index.brokenHeaderRows(this.account.id, { folder }).filter(r => serverSet.has(r.uid))
+    if (!rows.length) return false
+    const cols = await this.fetchHeaderColumns(client, rows.map(r => r.uid))
+    let n = 0
+    for (const r of rows) {
+      const c = cols.get(r.uid)
+      if (c && !hasBrokenHeader(c) && this.index.setHeaders(r.id, c)) n++
+    }
+    return n > 0
+  }
+
   toRow(folder, msg, cutoff) {
     const env = msg.envelope || {}
     const from = env.from && env.from[0]
@@ -490,6 +570,7 @@ export class Syncer {
     const idate = msg.internalDate ? new Date(msg.internalDate).getTime() : date
     const to = fmtAddrs(env.to)
     const cc = fmtAddrs(env.cc)
+    const bcc = fmtAddrs(env.bcc)
     const withinLimit = withinBodyLimit(idate, cutoff)
     return {
       account_id: this.account.id,
@@ -502,6 +583,7 @@ export class Syncer {
       from_name: (from && from.name) || null,
       to_addrs: to,
       cc_addrs: cc,
+      bcc_addrs: bcc,
       subject: env.subject || '',
       date: Number.isFinite(date) ? date : idate,
       idate,

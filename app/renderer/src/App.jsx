@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { t, lang } from '../i18n/index.js'
+import { t, lang, locale } from '../i18n/index.js'
 import { LANGUAGES } from '../../../core/ui-language.js'
 import { ClaudeConfirm } from './ClaudeConfirm.jsx'
 import { ClaudeAccess } from './ClaudeAccess.jsx'
@@ -220,6 +220,8 @@ export function App() {
   const [prefillAccount, setPrefillAccount] = useState(null)
   // "Claude piszkozatot készített: <tárgy>" + Megnyitás (the draft in the composer)
   const [claudeDraft, setClaudeDraft] = useState(null)
+  // "Küldés később": the last notices of the scheduler (sent, late, failed, interrupted) and of a new schedule
+  const [scheduledNotices, setScheduledNotices] = useState([])
   // Claude's latest request for the mail view: open_message ({ type: 'open', messageId, accountId, folder }: the message
   // opens as a click would) or show_search ({ type: 'search', conditions }). ONE state, so of two requests arriving at
   // once the later one is what the view shows (with two states the first one's taking would clear the second).
@@ -259,6 +261,11 @@ export function App() {
         if (e && e.kind === 'confirm' && e.request) addConfirm(e.request)
         if (e && e.kind === 'confirmSettled') setConfirms(list => list.filter(x => x.id !== e.id))
         if (e && e.kind === 'claudeDraft') setClaudeDraft({ accountId: e.accountId, subject: e.subject || '', messageId: e.messageId, error: null })
+        if (e && e.kind === 'scheduled' && e.event !== 'retry') {
+          const when = e.sendAt ? new Intl.DateTimeFormat(locale, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(e.sendAt)) : ''
+          const text = t.scheduledNotice(e.event, e.subject || '', { when, lateMin: e.lateMs ? Math.floor(e.lateMs / 60_000) : 0, error: e.error })
+          setScheduledNotices(list => [...list.slice(-4), { key: `${e.event}-${e.id}-${Date.now()}`, event: e.event, text }])
+        }
         const req =
           e && e.kind === 'claudeOpen' && Number.isInteger(e.messageId)
             ? { type: 'open', messageId: e.messageId, accountId: e.accountId, folder: e.folder }
@@ -379,6 +386,11 @@ export function App() {
           api.mcp.setEnabled(false).then(r => r && r.ok === false && setError(t.claudeConfirm.offFailed), () => setError(t.claudeConfirm.offFailed))
         }}
       />
+      {scheduledNotices.map(n => (
+        <Banner key={n.key} kind={n.event === 'sent' || n.event === 'scheduled' ? 'info' : 'warning'} className="notice scheduled-notice" onClose={() => setScheduledNotices(list => list.filter(x => x.key !== n.key))} closeLabel={t.close}>
+          <p>{n.text}</p>
+        </Banner>
+      ))}
       {claudeDraft && (
         <Banner kind="info" className="notice claude-draft-notice" onClose={() => setClaudeDraft(null)} closeLabel={t.close}
           actions={<Button variant="text" onClick={openClaudeDraft}>{t.claudeDraftOpen}</Button>}>

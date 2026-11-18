@@ -13,6 +13,9 @@ import { shapeOf } from './compose-shape.js'
 import { createDraftState } from './draft-state.js'
 import { accountSignatureHtml, accountImageSrc, signatureInner, SIGNATURE_ATTR } from '../../../core/smtp/signature.js'
 import { Banner, Button, IconButton, Modal, Select, TextField } from './ui/index.js'
+import { ScheduleDialog } from './ScheduleDialog.jsx'
+
+export { ScheduleDialog }
 
 const api = window.shadowMail
 export const AUTOSAVE_MS = 60_000
@@ -117,14 +120,16 @@ function Toolbar({ run }) {
   )
 }
 
-function Ask({ title, text, buttons, onCancel }) {
+// "Küldés később": the quick choices or a custom date and time (the computer's local time); the note says it goes out only
+// while the app runs and is unlocked. onPick(ms) schedules; the main process checks the range again.
+function Ask({ title, text, buttons, onCancel, safeFocus = false }) {
   return (
     <Modal
       title={title}
       role="alertdialog"
       onClose={onCancel}
-      actions={buttons.map(([label, fn, variant]) => (
-        <Button key={label} variant={variant || 'text'} onClick={fn} data-autofocus={variant === 'primary' ? true : undefined}>
+      actions={buttons.map(([label, fn, variant], i) => (
+        <Button key={label} variant={variant || 'text'} onClick={fn} data-autofocus={(safeFocus ? i === 0 : variant === 'primary') ? true : undefined}>
           {label}
         </Button>
       ))}
@@ -149,6 +154,10 @@ export function Composer({ sessionId }) {
   const [savedAt, setSavedAt] = useState(null)
   // { kind: 'close' } | { kind: 'link' }. Not a bare string: 'close'.link is String.prototype.link (truthy)
   const [ask, setAsk] = useState(null)
+  // a scheduled message whose earlier send may have gone out (interrupted / uncertain): said above the form, and the
+  // send or a new schedule asks first, as the list's "Küldés most" does
+  const [mayHaveGone, setMayHaveGone] = useState(null)
+  const resendOk = useRef(false)
   const [linkUrl, setLinkUrl] = useState('https://')
   const draft = useRef(createDraftState()) // unsaved changes; see draft-state.js
   const busyRef = useRef(null)
@@ -211,6 +220,7 @@ export function Composer({ sessionId }) {
         if (form.cc) setShowCopies(true)
         setSubject(form.subject)
         threading.current = { inReplyTo: form.inReplyTo, references: form.references }
+        if (form.mayHaveGone) setMayHaveGone(form.mayHaveGone)
         if (form.body || form.quote || form.draftHtml) bodyTouched.current = true
         if (form.bcc) {
           setBcc(form.bcc)
@@ -305,12 +315,19 @@ export function Composer({ sessionId }) {
     [sessionId, saveDraft],
   )
 
+  // the earlier send of this scheduled message may have gone out: ask once before it goes again
+  const askResend = (next, later = false) => {
+    if (!mayHaveGone || resendOk.current) return false
+    setAsk({ kind: 'resend', next, later })
+    return true
+  }
   const send = async () => {
     setError(null)
     if (!to.trim() && !cc.trim() && !bcc.trim()) {
       setError(t.composeErrors.no_recipients)
       return
     }
+    if (askResend(send)) return
     setBusy('sending')
     const token = draft.current.beginSave()
     const res = await api.compose.send(sessionId, formRef.current())
@@ -333,6 +350,28 @@ export function Composer({ sessionId }) {
       setSentNotice(parts.join(' '))
       return
     }
+    api.compose.close(sessionId)
+  }
+
+  // "Küldés később": the same checks as the send, then the window closes (the main window shows the notice)
+  const [scheduling, setScheduling] = useState(false)
+  const schedule = async sendAt => {
+    setScheduling(false)
+    setError(null)
+    if (!to.trim() && !cc.trim() && !bcc.trim()) {
+      setError(t.composeErrors.no_recipients)
+      return
+    }
+    if (askResend(() => schedule(sendAt), true)) return
+    setBusy('sending')
+    const res = await api.compose.schedule(sessionId, formRef.current(), sendAt)
+    setBusy(null)
+    if (!res.ok) {
+      setError(t.composeError(res.error, res.detail))
+      return
+    }
+    sentRef.current = true
+    setSent(true)
     api.compose.close(sessionId)
   }
 
@@ -396,6 +435,11 @@ export function Composer({ sessionId }) {
       {sentNotice && (
         <Banner kind="warning" className="notice" actions={<Button variant="text" onClick={() => api.compose.close(sessionId)}>{t.close}</Button>}>
           <p>{sentNotice}</p>
+        </Banner>
+      )}
+      {mayHaveGone && !sent && (
+        <Banner kind="warning" className="compose-may-have-gone">
+          {t.composeMayHaveGone}
         </Banner>
       )}
       {error && (
@@ -470,12 +514,14 @@ export function Composer({ sessionId }) {
       )}
       <footer className="compose-actions">
         <Button variant="primary" icon="send" onClick={send} disabled={busy !== null || !accountId || sent}>{busy === 'sending' ? t.composeSending : t.composeSend}</Button>
+        <Button variant="outlined" className="compose-send-later" onClick={() => setScheduling(true)} disabled={busy !== null || !accountId || sent}>{t.composeSendLater}</Button>
         <IconButton icon="formatToggle" label={t.composeFormatting} pressed={showFormat} onClick={() => setShowFormat(f => !f)} />
         <IconButton icon="attachment" label={t.composeAttach} disabled={sent} onClick={() => addFiles(null)} />
         <span className="hint compose-saved" role="status">{busy === 'saving' ? t.composeSaving : savedAt ? t.composeSavedAt(new Date(savedAt)) : ''}</span>
         <IconButton icon="save" label={t.composeSaveDraft} onClick={saveDraft} disabled={busy !== null || !accountId || sent} />
         <IconButton icon="trash" label={t.composeDiscard} onClick={() => setAsk({ kind: 'discard' })} disabled={sent} />
       </footer>
+      {scheduling && <ScheduleDialog onPick={schedule} onCancel={() => setScheduling(false)} />}
       {ask && ask.kind === 'close' && (
         <Ask
           title={t.composeCloseTitle}
@@ -497,6 +543,23 @@ export function Composer({ sessionId }) {
               await discard()
             }, 'danger'],
             [t.confirmCancel, () => setAsk(null)],
+          ]}
+        />
+      )}
+      {ask && ask.kind === 'resend' && (
+        <Ask
+          title={ask.later ? t.scheduledList.interruptedLaterTitle : t.scheduledList.interruptedTitle}
+          text={ask.later ? t.scheduledList.interruptedLaterText : t.scheduledList.interruptedText}
+          safeFocus
+          onCancel={() => setAsk(null)}
+          buttons={[
+            [t.scheduledList.interruptedNo, () => setAsk(null)],
+            [ask.later ? t.scheduledList.interruptedLaterYes : t.scheduledList.interruptedYes, () => {
+              const next = ask.next
+              setAsk(null)
+              resendOk.current = true
+              next()
+            }, 'primary'],
           ]}
         />
       )}

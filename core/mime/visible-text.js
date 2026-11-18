@@ -46,7 +46,9 @@ export const MAX_DEPTH = 1000 // htmlparser2's stack costs O(depth) per tag: 50 
 export const MAX_MATCH_WORK = 2_000_000 // candidate rules + declarations looked at, over the whole body
 const PARSE_CHUNK = 4096
 const STYLE_EXTEND = 256 * 1024 // a <style> cut in half is finished within this many characters, else no text
-const TIME_LIMIT_MS = 1500 // a net under the work ceiling: past it no text, cut 'complex'
+export const TIME_LIMIT_MS = 1500 // a net under the work ceiling: past this much CPU time no text, cut 'complex'
+// a wall-clock bound far above it: a thread starved of the CPU for this long still ends
+export const WALL_LIMIT_MS = 20_000
 const MAX_VALUE = 2000 // a longer colour / size / background value is "unknown", never parsed
 const MIN_FONT_PX = 3 // below 3px (2.25pt)
 const MIN_OPACITY = 0.1
@@ -740,11 +742,42 @@ function mirrorReader(doc) {
     for (const c of out) if (isEl(c)) stack.push(c)
   }
 }
+/**
+ * The time net's clocks, in ms. cpu: this thread's own CPU time (process.threadCpuUsage: Node 22 and Electron's
+ * Node 24 have it, in a worker too), so a loaded machine, where the work only waits for the CPU, does not cut a message
+ * that is not complex (0.12.0-0.15.0: a wall clock, and a 404 KB newsletter of 0.8 s took 3 s under load and lost its
+ * search text). null where the runtime has none: then the net is the wall clock, as before.
+ */
+export function threadCpuMs() {
+  try {
+    const u = process.threadCpuUsage()
+    return (u.user + u.system) / 1000
+  } catch {
+    return null
+  }
+}
+export const WORK_CLOCKS = Object.freeze({ cpu: threadCpuMs, wall: () => performance.now() })
+
+/** A started net: over() is true past TIME_LIMIT_MS of CPU time (wall time without a CPU clock) or WALL_LIMIT_MS of wall time. */
+function startNet(clocks) {
+  const wall0 = clocks.wall()
+  const cpu0 = clocks.cpu()
+  if (cpu0 === null) return { over: () => clocks.wall() - wall0 > TIME_LIMIT_MS }
+  return {
+    over() {
+      const wall = clocks.wall() - wall0
+      if (wall > WALL_LIMIT_MS) return true
+      const cpu = clocks.cpu()
+      return cpu === null ? wall > TIME_LIMIT_MS : cpu - cpu0 > TIME_LIMIT_MS
+    },
+  }
+}
+
 // pass 1: every element's style on the whole reader's tree (a sibling or ancestor selector sees the elements that
-// pass 2 hides: the browser matches on the whole document). A wall-clock net under the work ceiling.
-function styleAll(doc, sheet) {
+// pass 2 hides: the browser matches on the whole document). A CPU-time net under the work ceiling (startNet).
+function styleAll(doc, sheet, clocks) {
   const budget = { work: 0 }
-  const started = performance.now()
+  const net = startNet(clocks)
   let n = 0
   const styles = new Map()
   const stack = [doc]
@@ -755,15 +788,15 @@ function styleAll(doc, sheet) {
       const child = kids[i]
       if (!isEl(child) || child.name === 'style') continue
       styles.set(child, computedStyle(child, sheet, budget))
-      if (budget.work > MAX_MATCH_WORK || ((++n & 255) === 0 && performance.now() - started > TIME_LIMIT_MS)) throw new TooComplex()
+      if (budget.work > MAX_MATCH_WORK || ((++n & 255) === 0 && net.over())) throw new TooComplex()
       stack.push(child)
     }
   }
   return styles
 }
 // pass 2: the hidden nodes are marked, not removed (removal is O(siblings) each)
-function prune(doc, sheet) {
-  const styles = styleAll(doc, sheet)
+function prune(doc, sheet, clocks) {
+  const styles = styleAll(doc, sheet, clocks)
   const hidden = new Set()
   const root = { bg: '#ffffff', color: '#000000', font: 16, visible: true, indentOff: false, opacity: 1 }
   const stack = [[doc, root]]
@@ -865,7 +898,7 @@ function textOf(doc, hidden) {
  * The visible text of an HTML body (default background white, text black, 16px, as the reader shows it).
  * cut: null, 'tags' (only the first MAX_TAGS tags, or the part up to MAX_DEPTH nesting, are there) or 'complex' (over the work ceiling: no text).
  */
-export function visibleTextInfo(html, output = textOf) {
+export function visibleTextInfo(html, output = textOf, { clocks = WORK_CLOCKS } = {}) {
   const source = String(html || '')
   // the MAX_TAGS+1st "<" starts the cut (a body of exactly MAX_TAGS tags is whole)
   let at = -1
@@ -899,7 +932,7 @@ export function visibleTextInfo(html, output = textOf) {
   const cut = end < source.length
   try {
     mirrorReader(doc)
-    const hidden = prune(doc, new Stylesheet(styleTexts(doc), presentNames(doc)))
+    const hidden = prune(doc, new Stylesheet(styleTexts(doc), presentNames(doc)), clocks)
     return { text: output(doc, hidden), cut: cut ? 'tags' : null }
   } catch (e) {
     if (e instanceof TooComplex) return { text: '', cut: 'complex' }

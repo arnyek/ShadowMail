@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// IPC of folder management: folder:create, folder:rename, folder:delete, the manual order (folders:reorder,
+// IPC of folder management: folder:create, folder:rename, folder:delete (folder:deleteCount for its warning), the manual order (folders:reorder,
 // folders:resetOrder) and the role picker (folders:setRole).
 import { ActionError } from '../sync-manager.js'
 import { errCode } from '../../../core/log-safe.js'
 
-export const FOLDER_CHANNELS = Object.freeze(['folder:create', 'folder:rename', 'folder:delete', 'folders:reorder', 'folders:resetOrder', 'folders:setRole', 'folders:subscriptions', 'folders:setSubscribed'])
+export const FOLDER_CHANNELS = Object.freeze(['folder:create', 'folder:rename', 'folder:delete', 'folder:deleteCount', 'folders:reorder', 'folders:resetOrder', 'folders:setRole', 'folders:subscriptions', 'folders:setSubscribed'])
 // the roles the account settings can choose a folder for (INBOX is always the inbox)
 export const CHOOSABLE_ROLES = Object.freeze(['drafts', 'sent', 'trash', 'junk', 'archive'])
 // a sibling list longer than this is not a list of one parent's folders
@@ -42,6 +42,11 @@ export function registerFolderIpc({ ipcMain, folders, isTrustedSender, log = () 
   handle('folder:delete', async q => {
     if (!isPlainObject(q) || !isId(q.accountId) || !isPath(q.path) || (q.confirmed !== undefined && typeof q.confirmed !== 'boolean')) throw new BadRequest()
     return folders.remove({ accountId: q.accountId, path: q.path, confirmed: q.confirmed === true })
+  })
+  // the count the delete warning names: { count, exact } (exact false = the local count, a lower bound)
+  handle('folder:deleteCount', async q => {
+    if (!isPlainObject(q) || !isId(q.accountId) || !isPath(q.path) || Object.keys(q).length !== 2) throw new BadRequest()
+    return folders.deleteCount({ accountId: q.accountId, path: q.path })
   })
   // the manual order (local only): a malformed request is bad_request, a list that is not exactly the displayed
   // siblings is order_mismatch; either way nothing is written

@@ -19,8 +19,10 @@ import { foldKey, foldedSet, visibleFolders } from './folder-fold.js'
 import { getPref, setPref } from './prefs.js'
 import { formatRange, previewLine } from './list-format.js'
 import { RowText } from './RowText.jsx'
+import { RECIPIENT_ROLES } from '../../../core/mime/recipient-label.js'
 import { SubscriptionsDialog } from './Subscriptions.jsx'
 import { neighbor, afterRemoval, archiveFor, readerKeyOf } from './reader-nav.js'
+import { ScheduledList, useScheduledRows } from './Scheduled.jsx'
 
 const api = window.shadowMail
 export const ROW_HEIGHT = 40 // the default --row-h of theme.css (a density may change it: useRowHeight)
@@ -47,10 +49,17 @@ const DEFAULT_DIR = { date: 'desc', from: 'asc', subject: 'asc' }
 // folder or the order changes, or Refresh; at most this many (the oldest goes)
 const MAX_KEEP = 500
 
-/** The order's menu items: the list's More menu and the folder view's Rendezés chip (one state). */
-function sortMenuItems(sort, dir, onSort) {
+/** A Sent or Drafts folder (by role, the hand-picked one too): its list shows the recipient in the sender's place. */
+export const isRecipientFolder = (folders, folder) => Boolean(folders && folder) && RECIPIENT_ROLES.has(assignRoles(folders).get(folder))
+
+/**
+ * The order's menu items: the list's More menu and the folder view's Rendezés chip (one state). In a recipient folder
+ * the "from" item says recipient: the main process sorts that folder's "from" by the recipient (ipc/mail.js listSortFor).
+ */
+function sortMenuItems(sort, dir, onSort, recipientView = false) {
+  const label = col => t.sortMenu[col === 'from' && recipientView ? 'recipient' : col]
   return [
-    ...['date', 'from', 'subject'].map(col => ({ key: col, label: t.sortMenu[col], checked: sort === col, onSelect: () => onSort(col) })),
+    ...['date', 'from', 'subject'].map(col => ({ key: col, label: label(col), checked: sort === col, onSelect: () => onSort(col) })),
     { separator: true },
     { key: 'reverse', label: t.sortMenu.reverse, checked: dir !== DEFAULT_DIR[sort], onSelect: () => onSort(sort, true) },
   ]
@@ -345,7 +354,7 @@ export function FolderTree({ accounts, selected, onSelect, onDropMessages, onFol
  * One list row, memoized: it re-renders only when its own message, flags, selection,
  * open or hover state changes. The hover actions exist only on the row under the mouse.
  */
-const MessageRow = memo(function MessageRow({ m, index, top, flags, selected, open, leaving, archive, hovered, h }) {
+const MessageRow = memo(function MessageRow({ m, index, top, flags, selected, open, leaving, archive, hovered, recipient, h }) {
   const unread = !hasFlag(flags, '\\Seen')
   const flagged = hasFlag(flags, '\\Flagged')
   const preview = previewLine(m.preview)
@@ -388,7 +397,7 @@ const MessageRow = memo(function MessageRow({ m, index, top, flags, selected, op
           onClick={() => h.action(flagged ? 'unstar' : 'star', [m.id])}
         />
       </div>
-      <RowText m={m} preview={preview} />
+      <RowText m={m} preview={preview} recipient={recipient} />
       {hovered && !leaving && (
         // mouse shortcuts of the toolbar's actions: hidden from assistive tech, the toolbar has them
         <div className="row-quick" aria-hidden="true" onClick={stop}>
@@ -496,6 +505,8 @@ function MessageList({ accountId, folder, folders, version, openId, onOpen, sele
   const viewport = useRef(null)
   const anchor = useRef(null)
   const archive = useMemo(() => archiveOf(folders), [folders])
+  // Sent / Drafts: the recipient in the sender's place, and the "from" order is by recipient (a role change reloads)
+  const recipientView = useMemo(() => isRecipientFolder(folders, folder), [folders, folder])
   const [hoverId, setHoverId] = useState(null) // the row under the mouse gets the quick actions
 
   // the folder view's filter; the list, its count and every id use the same one, with the
@@ -506,7 +517,7 @@ function MessageList({ accountId, folder, folders, version, openId, onOpen, sele
 
   // every id of the folder in the list's order (Shift+click over unloaded pages, Ctrl+A); seen: true/false filters
   // a late answer after a folder (or order, or filter) change is dropped: it would select the old view's ids
-  const viewKey = `${accountId}|${folder}|${sort}|${dir}|${filterKey}`
+  const viewKey = `${accountId}|${folder}|${sort}|${dir}|${filterKey}|${recipientView}`
   const viewKeyRef = useRef(viewKey)
   viewKeyRef.current = viewKey
   const allIds = async (seen = null) => {
@@ -575,7 +586,7 @@ function MessageList({ accountId, folder, folders, version, openId, onOpen, sele
       })
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [accountId, folder, sort, dir, filterKey],
+    [accountId, folder, sort, dir, filterKey, recipientView],
   )
 
   // another folder, ordering or filter: start from the top with an empty cache
@@ -588,7 +599,7 @@ function MessageList({ accountId, folder, folders, version, openId, onOpen, sele
     setLoadError(null)
     if (viewport.current) viewport.current.scrollTop = 0
     setScrollTop(0)
-  }, [accountId, folder, sort, dir, filterKey])
+  }, [accountId, folder, sort, dir, filterKey, recipientView])
 
   // something changed on the server: the cached pages are stale (still shown until replaced)
   useEffect(() => {
@@ -712,6 +723,7 @@ function MessageList({ accountId, folder, folders, version, openId, onOpen, sele
         leaving={Boolean(ov && ov.leaving)}
         archive={archive && !inArchive(folders, archive, folder) ? archive : null}
         hovered={hoverId === m.id}
+        recipient={recipientView}
         h={h}
       />,
     )
@@ -726,7 +738,7 @@ function MessageList({ accountId, folder, folders, version, openId, onOpen, sele
     folders,
     folder,
     archive: archive && !inArchive(folders, archive, folder) ? archive : null, // no Archive action in the Archive or its years
-    sortItems: sortMenuItems(sort, dir, onSort),
+    sortItems: sortMenuItems(sort, dir, onSort, recipientView),
     onAction,
     onRefresh,
     onClearFilters,
@@ -860,7 +872,8 @@ function ConfirmDialog({ confirm, onYes, onNo }) {
         <Button key="yes" variant="danger" data-autofocus onClick={onYes}>{confirm.yesLabel || t.confirmDeleteYes}</Button>,
       ]}
     >
-      <p>{confirm.text || (confirm.inTrash ? t.confirmDeleteTrash(confirm.ids.length) : t.confirmDeleteNoTrash(confirm.ids.length))}</p>
+      <p className="confirm-text">{confirm.text || (confirm.inTrash ? t.confirmDeleteTrash(confirm.ids.length) : t.confirmDeleteNoTrash(confirm.ids.length))}</p>
+      {confirm.note && <p className="hint confirm-note">{confirm.note}</p>}
     </Modal>
   )
 }
@@ -894,6 +907,9 @@ function StatusBar({ accounts }) {
 export function Mail({ collapsed = false, readerPane = 'none', searchSlot = null, claudeRequest = null, onClaudeTaken = () => {} }) {
   const [accounts, setAccounts] = useState([])
   const [selected, setSelected] = useState(null)
+  // the "Időzített" view (every account's scheduled messages) in the list's place; a folder leaves it
+  const [scheduledOpen, setScheduledOpen] = useState(false)
+  const scheduledRows = useScheduledRows()
   const [status, setStatus] = useState([])
   const [version, setVersion] = useState(0)
   const [openId, setOpenId] = useState(null)
@@ -980,6 +996,7 @@ export function Mail({ collapsed = false, readerPane = 'none', searchSlot = null
   // the folder tree and the account / folder chips open a folder the same way
   const navigate = sel => {
     setSelected(sel)
+    setScheduledOpen(false)
     setOpenId(null)
     setSelection(new Set())
   }
@@ -1008,6 +1025,7 @@ export function Mail({ collapsed = false, readerPane = 'none', searchSlot = null
       setFilters(leftSearch)
       setFiltersOpen(false)
       setSelected({ accountId: r.accountId, folder: r.folder })
+      setScheduledOpen(false)
     }
     setSelection(new Set())
     onClaudeTaken(r)
@@ -1055,6 +1073,17 @@ export function Mail({ collapsed = false, readerPane = 'none', searchSlot = null
     [accounts, selected],
   )
   const account = exists ? accounts.find(a => a.id === selected.accountId) : null
+  // the folder's list is on screen (not the "Időzített" view)
+  const folderView = exists && !scheduledOpen
+  const openScheduledView = () => {
+    // a search would cover the view: it is left as Esc leaves it (the folder filters stay)
+    setSearchText('')
+    setFilters(leftSearch)
+    setFiltersOpen(false)
+    setScheduledOpen(true)
+    setOpenId(null)
+    setSelection(new Set())
+  }
 
   const dropOverlay = ids =>
     setOverlay(prev => {
@@ -1141,16 +1170,17 @@ export function Mail({ collapsed = false, readerPane = 'none', searchSlot = null
     if (op === 'create') setNameDialog({ op, target: m, title: t.newSubfolderTitle(m.label), okLabel: t.folderCreate })
     else if (op === 'rename') setNameDialog({ op, target: m, title: t.renameFolderTitle(m.label), okLabel: t.folderRename, initial: m.label })
     else {
-      // the tree's counts may be up to one status interval old: ask for the current one
-      const res = await api.mail.folders()
-      const fresh = res.ok && res.accounts.find(a => a.id === m.accountId)?.folders.find(f => f.path === m.path)
-      const count = fresh ? fresh.count : m.count || 0
-      setConfirm({
-        folder: m,
-        title: t.deleteFolderTitle,
-        text: t.confirmFolderDelete(m.label, count),
-        yesLabel: t.folderDelete,
-      })
+      // the count the warning names comes from the main process: IMAP asks the server (STATUS), which may take a
+      // while, so the dialog opens at once with the local count as "at least" and takes the server's when it comes;
+      // a POP3 account's local folder is the folder (its count is exact and quick)
+      const ask = api.folders.deleteCount({ accountId: m.accountId, path: m.path })
+      const textOf = res => (res && res.ok ? t.confirmFolderDelete(m.label, res.count, !res.exact) : t.confirmFolderDelete(m.label, m.count || 0, true))
+      const base = { folder: m, title: t.deleteFolderTitle, yesLabel: t.folderDelete }
+      if (!m.imap) return setConfirm({ ...base, text: textOf(await ask) })
+      setConfirm({ ...base, text: t.confirmFolderDelete(m.label, m.count || 0, true), note: t.folderDeleteChecking })
+      const res = await ask
+      // only the same dialog: it may be closed, or another one opened, by now
+      setConfirm(c => (c && c.folder === m ? { ...c, text: textOf(res), note: null } : c))
     }
   }
 
@@ -1367,10 +1397,22 @@ export function Mail({ collapsed = false, readerPane = 'none', searchSlot = null
               <span className="compose-label">{t.newMessage}</span>
             </Button>
           </div>
+          {(scheduledOpen || (scheduledRows && scheduledRows.length > 0)) && (
+            <button
+              type="button"
+              className={`scheduled-entry${scheduledOpen ? ' selected' : ''}`}
+              aria-current={scheduledOpen ? 'page' : undefined}
+              title={collapsed ? t.scheduledList.entry(scheduledRows ? scheduledRows.length : 0) : undefined}
+              onClick={openScheduledView}
+            >
+              <Icon name="scheduled" />
+              <span className="scheduled-entry-label">{t.scheduledList.entry(scheduledRows ? scheduledRows.length : 0)}</span>
+            </button>
+          )}
           <FolderTree
             collapsed={collapsed}
             accounts={accounts}
-            selected={selected}
+            selected={scheduledOpen ? null : selected}
             onSelect={navigate}
             onDropMessages={(ids, path) => runAction('move', ids, { target: path })}
             onFolderMenu={setFolderMenu}
@@ -1400,7 +1442,7 @@ export function Mail({ collapsed = false, readerPane = 'none', searchSlot = null
               {actionError}
             </Banner>
           )}
-          <div className={`mail-panes pane-${readerPane}${openId && (exists || searching) ? ' reading' : ''}`} ref={panesRef}>
+          <div className={`mail-panes pane-${readerPane}${openId && (folderView || searching) ? ' reading' : ''}`} ref={panesRef}>
           <div className="list-area" ref={listAreaRef}>
           {(searching || filtersOpen || filterOn) && (
             <SearchChips
@@ -1408,14 +1450,18 @@ export function Mail({ collapsed = false, readerPane = 'none', searchSlot = null
               filters={filters}
               onChange={setFilters}
               searching={searching}
-              view={exists ? selected : null}
+              view={folderView ? selected : null}
               onNavigate={navigate}
               listSort={listSort}
-              sortItems={sortMenuItems(listSort.sort, listSort.dir, onSort)}
+              sortItems={sortMenuItems(listSort.sort, listSort.dir, onSort, Boolean(account) && isRecipientFolder(account.folders, selected.folder))}
             />
           )}
           {searching ? (
             <SearchResults request={toRequest(searchText, filters)} accounts={accounts} selectedId={openId} onOpen={setOpenId} idsRef={searchIdsRef} />
+          ) : scheduledOpen ? (
+            <div className="list-pane scheduled-pane">
+              <ScheduledList rows={scheduledRows} onNotice={setActionNotice} onError={setActionError} />
+            </div>
           ) : exists ? (
             <div className="list-pane">
               <MessageList
@@ -1447,14 +1493,14 @@ export function Mail({ collapsed = false, readerPane = 'none', searchSlot = null
           )}
           </div>
           {/* the list | reader divider (the search results use the same panes), only while a message is shown */}
-          {readerPane === 'right' && openId && (exists || searching) && (
+          {readerPane === 'right' && openId && (folderView || searching) && (
             <Splitter name="list" cssVar="--list-w" label={t.splitters.list} min={280} max={listMax} measure={listMeasure} observe={panesRef} />
           )}
-          {readerPane === 'bottom' && openId && (exists || searching) && (
+          {readerPane === 'bottom' && openId && (folderView || searching) && (
             <Splitter name="listh" cssVar="--list-h" orientation="horizontal" label={t.splitters.listh} min={120} max={listhMax} measure={listhMeasure} observe={panesRef} />
           )}
           <Reader
-            messageId={exists || searching ? openId : null}
+            messageId={folderView || searching ? openId : null}
             onOpen={openMessage}
             onBack={fullReader ? backToList : null}
             onAction={runAction}

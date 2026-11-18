@@ -6,6 +6,8 @@ import { simpleParser } from 'mailparser'
 import { Parser } from 'htmlparser2'
 import path from 'node:path'
 import { MAIN_HTML_LIMIT, HTML_TOTAL, htmlTooLong } from './text.js'
+import { utf8Headers, headerEnd } from './raw-headers.js'
+import { fmtAddr, fmtAddrs } from './envelope.js'
 
 // Executables, plus a few more types Windows runs or installs when opened (stricter is allowed).
 export const EXECUTABLE_EXTENSIONS = Object.freeze([
@@ -122,6 +124,11 @@ export function externalImageHosts(html) {
   return hosts
 }
 
+export const REPLACEMENT_CHAR = '\uFFFD'
+
+/** Whether a stored row shows a header decoded with U+FFFD (a raw 8-bit field read as UTF-8 before 0.15.1). */
+export const hasBrokenHeader = row => [row.subject, row.from_name, row.to_addrs, row.cc_addrs].some(v => typeof v === 'string' && v.includes(REPLACEMENT_CHAR))
+
 const addressList = field => {
   if (!field) return []
   const objs = Array.isArray(field) ? field : [field]
@@ -129,9 +136,34 @@ const addressList = field => {
 }
 
 /**
+ * A header block (the whole message works too, only its headers are read) -> the list row's header columns, decoded like
+ * parseMessage: { subject, from_addr, from_name, to_addrs, cc_addrs, sender_text, recipients_text }. allSenders: the
+ * search text of the sender names every From address (the POP3 rule), else the first (the IMAP rule).
+ */
+export async function headerColumns(headers, { allSenders = false } = {}) {
+  // only the header block: no body, no attachment is parsed
+  const end = Buffer.isBuffer(headers) ? headerEnd(headers) : -1
+  const block = end > 0 ? Buffer.concat([headers.subarray(0, end), Buffer.from('\r\n')]) : headers
+  const p = await simpleParser(utf8Headers(block), { skipHtmlToText: true, skipTextToHtml: true, skipImageLinks: true })
+  const from = addressList(p.from)
+  const to = fmtAddrs(addressList(p.to))
+  const cc = fmtAddrs(addressList(p.cc))
+  return {
+    subject: p.subject || '',
+    from_addr: (from[0] && from[0].address) || null,
+    from_name: (from[0] && from[0].name) || null,
+    to_addrs: to,
+    cc_addrs: cc,
+    sender_text: allSenders ? fmtAddrs(from) : fmtAddr(from[0]),
+    recipients_text: [to, cc].filter(Boolean).join(', '),
+  }
+}
+
+/**
  * Raw message -> { subject, from, to, cc, replyTo, date, messageId, inReplyTo, references, text, html, attachments }.
  * html keeps its cid: links (the reader serves them); attachments carry their content (Buffer).
- * Charsets (UTF-8, ISO-8859-2, windows-1250, ...) are decoded by mailparser (iconv-lite).
+ * Charsets (UTF-8, ISO-8859-2, windows-1250, ...) are decoded by mailparser (iconv-lite); a top-level header field sent as
+ * raw 8-bit bytes that are not UTF-8 is first rewritten as UTF-8 in the message's charset (raw-headers.js).
  * attachmentFallback: the name of an attachment without one is `<attachmentFallback>-<n>`; the default ("melleklet") is
  * what the sync stores and what goes to Claude, the reader passes the interface language's word.
  * htmlText: mailparser makes `text` of the message's HTML parts too, capped (MAIN_HTML_LIMIT on the sum of the HTML parts
@@ -141,7 +173,7 @@ const addressList = field => {
  */
 export async function parseMessage(source, { attachmentFallback = 'melleklet', htmlText = false } = {}) {
   const base = { keepCidLinks: true, skipImageLinks: true, skipTextLinks: true, skipTextToHtml: true }
-  const p = await simpleParser(source, htmlText ? { ...base, maxHtmlLengthToParse: MAIN_HTML_LIMIT, htmlTotal: HTML_TOTAL } : { ...base, skipHtmlToText: true })
+  const p = await simpleParser(utf8Headers(source), htmlText ? { ...base, maxHtmlLengthToParse: MAIN_HTML_LIMIT, htmlTotal: HTML_TOTAL } : { ...base, skipHtmlToText: true })
   const attachments = (p.attachments || []).map((a, index) => {
     const filename = safeFileName(a.filename, `${attachmentFallback}-${index + 1}`)
     const contentType = String(a.contentType || 'application/octet-stream').toLowerCase()

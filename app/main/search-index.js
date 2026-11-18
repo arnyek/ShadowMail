@@ -12,13 +12,49 @@
 // (POP3, opened and sent messages), newest first, one at a time through the worker; only the FTS body changes (not
 // body_state; the preview only of a row that has none: an HTML over the main thread's cap whose worker item was dropped). The flag holds the cursor ({ date, id }) of the last row written, so a lock or a quit loses
 // nothing: the next unlock goes on from there. The main thread's share per row is the read, the decryption and one write.
+//
+// Quiet retry: a message whose visible text came out 'complex' (no body: over the work ceiling or the CPU-time net) is
+// tried ONCE more, later, when the worker has nothing else to do; one busy moment should not leave it unsearchable for
+// good. Only a message with a stored source (storePath: a path, no bytes held), at most MAX_RETRIES waiting, each id once
+// per session; it lives in memory only (a lock or a quit drops it, the account's flag stays as it is).
 export const FLAG = id => `fts_visible_v1:${id}`
 export const FLAG_DONE = 'done'
+export const RETRY_DELAY_MS = 5 * 60_000
+export const MAX_RETRIES = 1000
 
-export function createSearchRefiner({ service, index, settings, sealed = null, log = () => {} }) {
+export function createSearchRefiner({ service, index, settings, sealed = null, log = () => {}, retryDelayMs = RETRY_DELAY_MS, maxRetries = MAX_RETRIES }) {
   let alive = true
   const open = new Map() // token -> meta of a registered message whose text is not written yet
   let token = 0
+  const later = new Map() // id -> item: a complex message waiting for its one retry
+  const tried = new Set() // ids queued for a retry this session (never twice)
+  let timer = null
+  const schedule = () => {
+    if (timer || !alive || !later.size) return
+    timer = setTimeout(retry, retryDelayMs)
+    if (timer.unref) timer.unref()
+  }
+  const retry = async () => {
+    timer = null
+    if (!alive) return
+    // only a quiet worker: a sync or a re-index in work goes first, the retry waits another round
+    if (!service.idle()) return schedule()
+    const items = [...later.values()]
+    later.clear()
+    log(`search text: ${items.length} complex message(s) tried again`)
+    for (const item of items) {
+      if (!alive) return
+      await one(++token, item, true)
+    }
+  }
+  /** A complex message (id, accountId, storePath) for its one quiet retry; false when it is not taken. */
+  const retryLater = item => {
+    if (!alive || !item.storePath || !sealed || tried.has(item.id) || later.size >= maxRetries) return false
+    tried.add(item.id)
+    later.set(item.id, { id: item.id, accountId: item.accountId, local: true, storePath: item.storePath })
+    schedule()
+    return true
+  }
   const lost = accountId => {
     try {
       settings.set(FLAG(accountId), '')
@@ -26,8 +62,9 @@ export function createSearchRefiner({ service, index, settings, sealed = null, l
       log(`search text: re-index flag not cleared (${err && err.code ? err.code : 'error'})`)
     }
   }
-  // one message: resolves when it is in the worker queue (or dropped); its text is written later
-  const one = (t, item) => {
+  // one message: resolves when it is in the worker queue (or dropped); its text is written later. retry: a quiet retry
+  // (not registered in `open`: dropping it does not send its account to a full re-index)
+  const one = (t, item, retry = false) => {
     let admitted
     const queued = new Promise(r => (admitted = r))
     ;(async () => {
@@ -54,7 +91,8 @@ export function createSearchRefiner({ service, index, settings, sealed = null, l
           } catch (err) {
             log(`search text: not written (${err && err.code ? err.code : 'error'})`)
           }
-        } else if (!r && item.local) lost(item.accountId)
+          if (r.complex && !retry) retryLater(item)
+        } else if (!r && item.local && !retry) lost(item.accountId)
         // r.failed: not for this message (the service logged its code); its row keeps the old text, nothing to redo
       } finally {
         admitted()
@@ -88,9 +126,17 @@ export function createSearchRefiner({ service, index, settings, sealed = null, l
     refine(item) {
       return this.refineMany([item])
     },
+    retryLater,
+    /** Waiting for their quiet retry (tests, measurements). */
+    retrying() {
+      return [...later.keys()]
+    },
     /** Lock / quit: the worker stops, nothing is written after this; a lost local message clears its account's flag. */
     stop() {
       alive = false
+      clearTimeout(timer)
+      timer = null
+      later.clear()
       service.stop()
       const accounts = new Set([...open.values()].filter(m => m.local).map(m => m.accountId))
       open.clear()
@@ -112,9 +158,10 @@ const parseCursor = v => {
 /**
  * The one-time re-index of the local-source rows. run() goes over every account whose flag is not 'done'; stop() ends
  * it after the row in work (its text is dropped, the cursor stays before it). onRow(ms) reports the main thread's
- * share of each row (read + decrypt + write), for the measurements.
+ * share of each row (read + decrypt + write), for the measurements. onComplex({ id, accountId, storePath }): a row whose
+ * text came out complex (main.js hands it to the refiner's retryLater).
  */
-export function createFtsReindex({ index, store, sealed, settings, service, log = () => {}, batch = 20, onRow = () => {} }) {
+export function createFtsReindex({ index, store, sealed, settings, service, log = () => {}, batch = 20, onRow = () => {}, onComplex = () => {} }) {
   let stopped = false
   let running = null
   const runAccount = async accountId => {
@@ -155,6 +202,8 @@ export function createFtsReindex({ index, store, sealed, settings, service, log 
             // an HTML over the main thread's cap whose refiner item was dropped (a lock): its preview comes from here too
             // (setLatePreview writes only a row without one, so a row indexed before keeps its preview)
             if (r.preview !== null && r.preview !== undefined) index.setLatePreview(row.id, r.preview)
+            // too complex this time: the refiner's quiet retry (the cursor goes on)
+            if (r.complex) onComplex({ id: row.id, accountId, storePath: row.store_path })
             written++
             ms += performance.now() - t0
           }

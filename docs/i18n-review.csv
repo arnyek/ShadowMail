@@ -427,11 +427,11 @@ claudeAccess.copyFailed;A másolás nem sikerült.;Copying failed.
 claudeAccess.moved;"Ha áthelyezted a ShadowMail mappáját, másold be újra: a Claude a régi helyen keresi a programot.";"If you moved the ShadowMail folder, copy it in again: Claude looks for the program in the old place."
 claudeAccess.rulesTitle;Mit tehet Claude?;What can Claude do?
 claudeAccess.freeTitle;Megerősítés nélkül:;Without confirmation:
-claudeAccess.free;"olvasás és keresés (a levél nem lesz olvasott), jelölés (olvasott, csillag), áthelyezés, Kukába helyezés, mappa létrehozása és átnevezése, piszkozat írása (a Piszkozatok mappába, ""Claude"" jellel), frissítés, a fiók kapcsolatának próbája.";"reading and searching (a message does not become read), marking (read, star), moving, moving to Trash, creating and renaming folders, writing drafts (into Drafts, with a ""Claude"" mark), refreshing, testing an account’s connection."
+claudeAccess.free;"olvasás és keresés (a levél nem lesz olvasott), jelölés (olvasott, csillag), áthelyezés, Kukába helyezés, mappa létrehozása és átnevezése, piszkozat írása és módosítása (a Piszkozatok mappába, ""Claude"" jellel; a módosítás a lenti kapcsolóval megerősítéshez köthető), frissítés, a fiók kapcsolatának próbája.";"reading and searching (a message does not become read), marking (read, star), moving, moving to Trash, creating and renaming folders, writing and editing drafts (into Drafts, with a ""Claude"" mark; editing can be tied to your approval with the switch below), refreshing, testing an account’s connection."
 claudeAccess.confirmTitle;"Csak a te megerősítéseddel, ebben az ablakban:";"Only with your confirmation, in this window:"
-claudeAccess.confirm;"levél küldése, végleges törlés, mappa és fiók törlése, fiók-beállítás módosítása, leállt fiók belépésének újraindítása.";"sending a message, deleting permanently, deleting a folder or an account, changing account settings, restarting the sign-in of a stopped account."
+claudeAccess.confirm;"levél küldése, végleges törlés, mappa és fiók törlése, fiók-beállítás módosítása, leállt fiók belépésének újraindítása. Ezek egyenként kikapcsolhatók a lenti Megerősítések résznél (a küldés csak a névjegyzékben szereplő címekre).";"sending a message, deleting permanently, deleting a folder or an account, changing account settings, restarting the sign-in of a stopped account. Each can be turned off under Confirmations below (sending only to addresses in your address book)."
 claudeAccess.neverTitle;Soha:;Never:
-claudeAccess.never;"jelszó, mesterjelszó és helyreállító kód, mellékletek tartalma, helyi fájl csatolása, és ez a kapcsoló.";"passwords, the master password and the recovery code, the content of attachments, attaching a local file, and this switch."
+claudeAccess.never;"jelszó, mesterjelszó és helyreállító kód, mellékletek tartalma, helyi fájl csatolása, és ezen a lapon egyik kapcsoló sem.";"passwords, the master password and the recovery code, the content of attachments, attaching a local file, and none of the switches on this page."
 claudeAccess.threat;"A védelem a gépeden futó más programok és a levelekbe rejtett utasítások ellen szól; egy, a te felhasználódként futó kártevő ellen ez a kapcsoló nem véd.";"The protection is against other programs on your computer and instructions hidden in messages; it does not protect against malware running as your user."
 claudeAccess.webTools;"Javaslat: a Claude-ban a webes és egyéb eszközök jóváhagyás-kérése maradjon bekapcsolva, mert egy levélbe rejtett utasítás azokon át próbálhatna adatot kivinni.";"Suggestion: in Claude, keep the approval prompts for web and other tools on, because an instruction hidden in a message could try to take data out through them."
 claudeAccess.recentTitle;Legutóbbi Claude-hívások;Recent Claude calls
@@ -445,6 +445,33 @@ claudeAccess.result (1);rendben;OK
 claudeAccess.result (2);rendben;OK
 claudeAccess.confirmResult (1);megerősítés: jóváhagyva;confirmation: approved
 claudeAccess.confirmResult (2);megerősítés: jóváhagyva;confirmation: approved
+claudeAccess.autoResult (1);megerősítés nélkül: lefutott;without confirmation: done
+claudeAccess.autoResult (2);megerősítés nélkül: lefutott;without confirmation: done
+claudeAccess.confirmsTitle;Megerősítések;Confirmations
+claudeAccess.confirmsIntro;"Ezeknél a műveleteknél Claude csak a te jóváhagyásoddal léphet. Alapból mind be van kapcsolva, kivéve a piszkozat módosítását; kikapcsolva a művelet ablak nélkül, azonnal lefut, és a lenti listában látszik. Egyik sem vonható vissza.";"For these actions Claude needs your approval. All are on by default except editing a draft; turned off, the action runs at once, without the window, and shows in the list below. None of them can be undone."
+claudeAccess.confirmOps.send;Levél küldése;Sending a message
+claudeAccess.confirmOps.deleteMessages;Levelek végleges törlése;Deleting messages permanently
+claudeAccess.confirmOps.deleteFolder;Mappa törlése;Deleting a folder
+claudeAccess.confirmOps.updateAccount;Fiók-beállítás módosítása;Changing account settings
+claudeAccess.confirmOps.deleteAccount;Fiók törlése;Deleting an account
+claudeAccess.confirmOps.restartLogin;Leállt fiók belépésének újraindítása;Restarting the sign-in of a stopped account
+claudeAccess.confirmOps.updateDraft;Piszkozat módosítása;Editing a draft
+claudeAccess.confirmOpDesc.send;"Kikapcsolva megerősítés nélkül küldhet a névjegyzékben szereplő címekre: a kézzel felvettek, az importáltak és azok, akiknek te magad írtál. Ha bármelyik címzett nincs a névjegyzékben, vagy a címben ékezetes vagy más nem angol betű van, az ablak ugyanúgy feljön, és megmutatja ezt a címet.";"Turned off, Claude may send without confirmation to addresses in your address book: the ones you added by hand, the imported ones and the people you wrote to yourself. If any recipient is not in the address book, or the address has an accented or other non-English letter, the window comes up as before and shows that address."
+claudeAccess.confirmOpDesc.deleteMessages;"A Kukában lévő, vagy Kuka nélküli fiók leveleinek végleges törlése.";"Deleting messages for good, in the Trash or in an account without one."
+claudeAccess.confirmOpDesc.deleteFolder;Egy mappa törlése a benne lévő levelekkel együtt.;Deleting a folder with the messages in it.
+claudeAccess.confirmOpDesc.updateAccount;"A név, az aláírás és a többi fiók-beállítás módosítása. A belépési adatokra (szerver, port, titkosítás, felhasználónév, tanúsítvány-ellenőrzés) ez a kapcsoló nem vonatkozik: azok módosítása előtt mindig megkérdez.";"Changing the name, the signature or any other account setting. The sign-in details (server, port, encryption, user name, certificate check) are not covered by this switch: changing them always asks first."
+claudeAccess.confirmOpDesc.deleteAccount;"Egy fiók törlése a gépről, minden helyi adatával.";"Removing an account from this computer, with all of its local data."
+claudeAccess.confirmOpDesc.restartLogin;"Egy elutasított belépés miatt leállt fiók újbóli belépése. Kikapcsolva fiókonként egyszer próbál magától; utána ismét megkérdez, amíg te nem lépsz (Frissítés, a fiók mentése vagy egy sikeres kapcsolat-próba).";"Signing in again to an account stopped by a rejected sign-in. Turned off, Claude tries once per account on its own; after that it asks again until you act (Refresh, saving the account or a successful connection test)."
+claudeAccess.confirmOpDesc.updateDraft;"Egy Piszkozatok-beli levél szövegének, tárgyának és címzettjeinek módosítása. Semmit nem küld (a küldésre a Levél küldése kapcsolója vonatkozik), ezért alapból ki van kapcsolva; bekapcsolva minden módosítás előtt megkérdez.";"Changing the text, subject or recipients of a message in Drafts. It sends nothing (sending follows the Sending a message switch), so it is off by default; turned on, it asks before every change."
+claudeAccess.confirmOffWarning (1);"Kikapcsolva: egy beérkező levél szövege megpróbálhatja rávenni Claude-ot, hogy a nevedben levelet küldjön a névjegyzékedben szereplő címekre; megerősítés nélkül ezt semmi nem állítja meg.";"Turned off: the text of an incoming message may try to make Claude send mail in your name to addresses in your address book; without the confirmation nothing stops it."
+claudeAccess.confirmOffWarning (2);"Kikapcsolva: egy beérkező levél szövege megpróbálhatja rávenni Claude-ot, hogy a nevedben levelet küldjön a névjegyzékedben szereplő címekre; megerősítés nélkül ezt semmi nem állítja meg.";"Turned off: the text of an incoming message may try to make Claude send mail in your name to addresses in your address book; without the confirmation nothing stops it."
+claudeAccess.confirmOffTitle (1);Kikapcsolod a megerősítést? (Sending a message);Turn off the confirmation? (Sending a message)
+claudeAccess.confirmOffTitle (2);Kikapcsolod a megerősítést? (Sending a message);Turn off the confirmation? (Sending a message)
+claudeAccess.confirmOffNoUndo;A kapcsoló bármikor visszakapcsolható. A megerősítés nélkül lefutott műveletek nem vonhatók vissza.;You can turn the switch back on at any time. Actions run without confirmation cannot be undone.
+claudeAccess.confirmOffCancel;Mégse;Cancel
+claudeAccess.confirmOffYes;Kikapcsolom;Turn off
+claudeAccess.confirmLoadFailed;A megerősítési beállítások nem tölthetők be.;The confirmation settings could not be loaded.
+claudeAccess.confirmSwitchFailed;A kapcsolót nem sikerült átállítani.;The switch could not be changed.
 passwordShow;Jelszó megjelenítése;Show password
 passwordHide;Jelszó elrejtése;Hide password
 backToMail;Vissza a levelekhez;Back to mail
@@ -497,6 +524,7 @@ clearFilters;Szűrők törlése;Clear filters
 listSortField.date;Dátum;Date
 listSortField.from;Feladó;Sender
 listSortField.subject;Tárgy;Subject
+listSortField.recipient;Címzett;Recipient
 listSortChip (1);"Rendezés: Dátum, növekvő";"Sort: Date, ascending"
 listSortChip (2);"Rendezés: Dátum, növekvő";"Sort: Date, ascending"
 listColumns.star;Csillag;Star
@@ -506,6 +534,7 @@ listColumns.subject;Tárgy;Subject
 listColumns.date;Dátum;Date
 noSubject;(nincs tárgy);(no subject)
 unknownSender;(ismeretlen feladó);(unknown sender)
+noRecipient;(nincs címzett);(no recipient)
 flagged;Csillagozott;Starred
 hasAttachment;Van melléklet;Has attachment
 listToolsLabel;Levéllista;Message list
@@ -520,6 +549,7 @@ moreMenu;További;More
 sortMenu.date;Rendezés dátum szerint;Sort by date
 sortMenu.from;Rendezés feladó szerint;Sort by sender
 sortMenu.subject;Rendezés tárgy szerint;Sort by subject
+sortMenu.recipient;Rendezés címzett szerint;Sort by recipient
 sortMenu.reverse;Fordított sorrend;Reverse order
 starToggle;Csillag;Star
 listRange (1);1–50 (összesen 1 levél);1–50 (1 message in total)
@@ -554,6 +584,11 @@ readerHeaders.cc;Másolat;Cc
 readerHeaders.replyTo;Válaszcím;Reply-To
 readerHeaders.date;Dátum;Date
 readerFrameTitle;A levél szövege;The message text
+linkTarget.label;A link valódi célja;Where the link really goes
+linkTarget.mismatch;"Figyelem: a link máshová visz, mint amit a szövege mutat";Warning: the link goes somewhere else than its text shows
+linkTarget.realHost;Valódi cél:;Real target:
+linkTarget.textShows;a szövege ezt mutatja:;its text shows:
+linkTarget.idn;"Nemzetközi (punycode) cím, betűkkel:";"International (punycode) address, in letters:"
 readerImagesBlocked (1);"A levélben külső kép van, ezeket a biztonság kedvéért nem töltöttem be (a feladó így nem tudja meg, hogy megnyitottad).";"The message has an external image; for your safety it was not loaded (so the sender cannot tell that you opened it)."
 readerImagesBlocked (2);"A levélben külső képek vannak, ezeket a biztonság kedvéért nem töltöttem be (a feladó így nem tudja meg, hogy megnyitottad).";"The message has external images; for your safety they were not loaded (so the sender cannot tell that you opened it)."
 readerLoadImages;Képek betöltése;Load images
@@ -697,6 +732,46 @@ confirmCancel;Mégse;Cancel
 close;Bezárás;Close
 claudeDraftNotice (1);Claude piszkozatot készített: Hello;Claude made a draft: Hello
 claudeDraftNotice (2);Claude piszkozatot készített: Hello;Claude made a draft: Hello
+scheduledNotice (1);"Időzítve (20 Nov 2026, 08:00): Offer";"Scheduled (20 Nov 2026, 08:00): Offer"
+scheduledNotice (2);"Időzítve (20 Nov 2026, 08:00): Offer";"Scheduled (20 Nov 2026, 08:00): Offer"
+scheduledList.entry (1);Időzített (1);Scheduled (1)
+scheduledList.entry (2);Időzített (2);Scheduled (2)
+scheduledList.title;Időzített levelek;Scheduled messages
+scheduledList.subtitle;"Csak akkor mennek ki, ha a ShadowMail fut és fel van oldva.";They go out only while ShadowMail is running and unlocked.
+scheduledList.empty;Nincs időzített levél.;No scheduled messages.
+scheduledList.noSubject;(nincs tárgy);(no subject)
+scheduledList.noRecipients;(nincs címzett);(no recipients)
+scheduledList.states.waiting;Várakozik;Waiting
+scheduledList.states.sending;Küldés…;Sending…
+scheduledList.states.late;Lekésett: a ShadowMail az időpontban egy napnál tovább nem futott;Missed: ShadowMail was not running for more than a day at its time
+scheduledList.states.interrupted;"A küldés megszakadt; lehet, hogy kiment";"The send was interrupted; it may have gone out"
+scheduledList.states.uncertain;"Az átadás után nem jött válasz a szervertől; lehet, hogy kiment";"The server did not answer after the message was handed over; it may have gone out"
+scheduledList.states.held;Egy levélíró ablakban nyitva;Open in a compose window
+scheduledList.retry (1);"Újrapróbálás: 20 Nov 2026, 08:05 (timeout)";"Retrying: 20 Nov 2026, 08:05 (timeout)"
+scheduledList.retry (2);"Újrapróbálás: 20 Nov 2026, 08:05 (timeout)";"Retrying: 20 Nov 2026, 08:05 (timeout)"
+scheduledList.failed (1);Nem ment ki: az SMTP-szerver elutasította a belépést (hibás felhasználónév vagy jelszó a fiók beállításainál).;Not sent: the SMTP server refused the sign-in (wrong user name or password in the account settings).
+scheduledList.failed (2);Nem ment ki: az SMTP-szerver elutasította a belépést (hibás felhasználónév vagy jelszó a fiók beállításainál).;Not sent: the SMTP server refused the sign-in (wrong user name or password in the account settings).
+scheduledList.open;Megnyitás;Open
+scheduledList.reschedule;Időpont módosítása;Change time
+scheduledList.rescheduleOk;Mentés;Save
+scheduledList.sendNow;Küldés most;Send now
+scheduledList.cancel;Időzítés törlése;Unschedule
+scheduledList.actionsOf (1);Műveletek: Offer;Actions: Offer
+scheduledList.actionsOf (2);Műveletek: Offer;Actions: Offer
+scheduledList.interruptedTitle;Küldés most?;Send now?
+scheduledList.interruptedText;"A korábbi küldés nem fejeződött be rendesen: a levél kimehetett, de ez nem biztos. Az Elküldött mappában ilyenkor nincs róla másolat; ha kell, kérdezd meg a címzettet. Ha most elküldöd, kétszer is megkaphatja.";"The earlier send did not finish properly: the message may have gone out, but that is not certain. There is no copy of it in the Sent folder in this case; ask the recipient if needed. If you send it now, it may arrive twice."
+scheduledList.interruptedYes;Küldés most;Send now
+scheduledList.interruptedNo;Mégse;Cancel
+scheduledList.interruptedLaterTitle;Újra időzíted?;Schedule it again?
+scheduledList.interruptedLaterText;"A korábbi küldés nem fejeződött be rendesen: a levél kimehetett, de ez nem biztos. Az Elküldött mappában ilyenkor nincs róla másolat; ha kell, kérdezd meg a címzettet. Ha újra időzíted, a megadott időpontban megint kimegy, és kétszer is megkaphatja.";"The earlier send did not finish properly: the message may have gone out, but that is not certain. There is no copy of it in the Sent folder in this case; ask the recipient if needed. If you schedule it again, it goes out again at the chosen time and may arrive twice."
+scheduledList.interruptedLaterYes;Időzítés;Schedule
+scheduledList.cancelled (1);Visszakerült a Piszkozatok közé: Offer;Moved back to Drafts: Offer
+scheduledList.cancelled (2);Visszakerült a Piszkozatok közé: Offer;Moved back to Drafts: Offer
+scheduledList.errors.scheduled_open;"Ez a levél egy levélíró ablakban nyitva van; ott fejezd be.";"This message is open in a compose window; finish it there."
+scheduledList.errors.scheduled_sending;Ez a levél éppen most megy ki.;This message is being sent right now.
+scheduledList.errors.not_found;Ez az időzített levél már nincs meg.;This scheduled message no longer exists.
+scheduledList.error (1);"Ez a levél egy levélíró ablakban nyitva van; ott fejezd be.";"This message is open in a compose window; finish it there."
+scheduledList.error (2);"Ez a levél egy levélíró ablakban nyitva van; ott fejezd be.";"This message is open in a compose window; finish it there."
 claudeDraftOpen;Megnyitás;Open
 claudeDraftNotYet;"A piszkozat még nem érkezett meg a Piszkozatok mappába; próbáld újra pár másodperc múlva.";"The draft has not reached the Drafts folder yet; try again in a few seconds."
 claudeMark;Claude;Claude
@@ -708,6 +783,8 @@ claudeConfirm.titles.deleteFolder;Claude törölne egy mappát;Claude would dele
 claudeConfirm.titles.updateAccount;Claude módosítaná egy fiók beállításait;Claude would change an account’s settings
 claudeConfirm.titles.deleteAccount;Claude törölne egy fiókot;Claude would delete an account
 claudeConfirm.titles.restartLogin;Claude újraindítaná egy fiók belépését;Claude would restart an account’s sign-in
+claudeConfirm.titles.updateDraft;Claude módosítana egy piszkozatot;Claude would change a draft
+claudeConfirm.titles.cancelScheduled;Claude visszavonná egy levél időzítését;Claude would cancel the schedule of a message
 claudeConfirm.unknownTitle;Claude kérése;Claude’s request
 claudeConfirm.reject;Elutasítás;Reject
 claudeConfirm.approve;Jóváhagyás;Approve
@@ -721,6 +798,12 @@ claudeConfirm.to;Címzett;To
 claudeConfirm.cc;Másolat;Cc
 claudeConfirm.bcc;Titkos másolat;Bcc
 claudeConfirm.subject;Tárgy;Subject
+claudeConfirm.sendAt;Időzítve;Scheduled for
+claudeConfirm.sendAtNote;"Nem most megy ki, hanem ekkor, ha a ShadowMail fut és fel van oldva.";"It does not go out now, but at that time, if ShadowMail is running and unlocked."
+claudeConfirm.recipients;Címzettek;Recipients
+claudeConfirm.cancelScheduledNote;Ezt a levelet te időzítetted. Jóváhagyás után nem megy ki: visszakerül a fiók Piszkozatai közé. Elutasításnál az időzítés marad.;"You scheduled this message. If you approve, it does not go out: it goes back to the account's Drafts. If you reject, it stays scheduled."
+claudeConfirm.unknownRecipients (1);"Ez a címzett nincs a névjegyzékben, ezért kell a megerősítésed:";"This recipient is not in your address book, so your confirmation is needed:"
+claudeConfirm.unknownRecipients (2);"Ez a 2 címzett nincs a névjegyzékben, ezért kell a megerősítésed:";"These 2 recipients are not in your address book, so your confirmation is needed:"
 claudeConfirm.noSubject;(nincs tárgy);(no subject)
 claudeConfirm.text;Szöveg;Text
 claudeConfirm.noText;(üres);(empty)
@@ -750,6 +833,8 @@ claudeConfirm.restartsLogin;"A fiók szinkronja most le van állítva (elutasít
 claudeConfirm.restartReason (1);"A leállítás oka: megszakadt a kapcsolat, újrapróbálom…";"Why it stopped: the connection was lost; retrying…"
 claudeConfirm.restartReason (2);"A leállítás oka: megszakadt a kapcsolat, újrapróbálom…";"Why it stopped: the connection was lost; retrying…"
 claudeConfirm.restartWarning;"Ha a jelszó továbbra is rossz, a szerver ideiglenesen letilthatja a gépet. Jóváhagyás után egy belépési kísérlet történik.";"If the password is still wrong, the server may temporarily block this computer. After you approve, one sign-in attempt is made."
+claudeConfirm.newText;Az új saját szöveg (az aláírás és az idézet marad);Your new own text (the signature and the quote stay)
+claudeConfirm.draftNotSent;A piszkozat nem megy el: a küldéshez külön kérés és a küldés szabálya kell.;The draft is not sent: sending takes a request of its own and the sending rule.
 actionErrors.server_refused;a szerver elutasította.;the server refused it.
 actionErrors.uidvalidity_changed;"a mappa a szerveren közben megváltozott (újra lett létrehozva), ezért nem nyúltam hozzá; frissítés után próbáld újra.";"the folder changed on the server in the meantime (it was created again), so it was left alone; refresh and try again."
 actionErrors.mixed_selection;egyszerre csak egy mappa leveleivel lehet dolgozni.;you can only work with the messages of one folder at a time.
@@ -787,6 +872,19 @@ composeLinkUrl;Cím (https://… vagy mailto:…);Address (https://… or mailto
 composeLinkOk;Beszúrás;Insert
 composeSend;Küldés;Send
 composeSending;Küldés…;Sending…
+composeSendLater;Küldés később…;Send later…
+composeMayHaveGone;"Ennek az időzített levélnek a korábbi küldése nem fejeződött be rendesen: kimehetett. Ha most elküldöd vagy újra időzíted, a címzett kétszer is megkaphatja.";"The earlier send of this scheduled message did not finish properly: it may have gone out. If you send or schedule it again now, the recipient may get it twice."
+schedule.title;Küldés később;Send later
+schedule.today18;Ma 18:00;Today 18:00
+schedule.tomorrow8;Holnap 8:00;Tomorrow 8:00
+schedule.monday8;Hétfő 8:00;Monday 8:00
+schedule.custom;Egyéni időpont;Custom time
+schedule.date;Dátum;Date
+schedule.time;Idő;Time
+schedule.note;"Csak akkor megy ki, ha a ShadowMail fut és fel van oldva.";It goes out only while ShadowMail is running and unlocked.
+schedule.ok;Időzítés;Schedule
+schedule.cancel;Mégse;Cancel
+schedule.badTime;Érvénytelen dátum vagy idő.;Invalid date or time.
 composeSaveDraft;Mentés piszkozatként;Save as draft
 composeSaving;Mentés…;Saving…
 composeAttach;Melléklet…;Attach…
@@ -822,6 +920,9 @@ composeWaitSending;"A levél küldése folyamatban van; várd meg a végét.";"T
 composeSentWithWarnings (1);A levél elment.;The message was sent.
 composeSentWithWarnings (2);A levél elment.;The message was sent.
 composeErrors.no_recipients;Adj meg legalább egy címzettet.;Enter at least one recipient.
+composeErrors.too_soon;Legalább egy perccel későbbi időpontot válassz.;Choose a time at least a minute from now.
+composeErrors.too_far;Legfeljebb egy évre előre lehet időzíteni.;You can schedule at most a year ahead.
+composeErrors.bad_time;Érvénytelen időpont.;Invalid time.
 composeErrors.bad_address;Érvénytelen cím;Invalid address
 composeErrors.bad_link;"A link csak https://, http:// vagy mailto: kezdetű lehet.";"A link can only start with https://, http:// or mailto:."
 composeErrors.too_large;A mellékletek együtt legfeljebb 25 MB-osak lehetnek (a legtöbb szerver nagyobbat nem fogad).;The attachments can be at most 25 MB together (most servers do not accept more).
@@ -833,8 +934,8 @@ composeErrors.no_recipient_accepted;A szerver egyik címzettet sem fogadta el.;T
 composeErrors.no_session;"A szerkesztő munkamenete lejárt; nyiss új levelet.";"The editor session has expired; open a new message."
 composeErrors.already_sent;"a levél már elment; újraküldéshez írj új levelet.";"the message has already been sent; to send it again, write a new message."
 composeErrors.auth_failed;az SMTP-szerver elutasította a belépést (hibás felhasználónév vagy jelszó a fiók beállításainál).;the SMTP server refused the sign-in (wrong user name or password in the account settings).
-composeError (1);Adj meg legalább egy címzettet.;Enter at least one recipient.
-composeError (2);Adj meg legalább egy címzettet.;Enter at least one recipient.
+composeError (1);Legalább egy perccel későbbi időpontot válassz.;Choose a time at least a minute from now.
+composeError (2);Legalább egy perccel későbbi időpontot válassz.;Choose a time at least a minute from now.
 folderMenu.newSub;Új almappa…;New subfolder…
 folderMenu.rename;Átnevezés…;Rename…
 folderMenu.moveUp;Feljebb;Move up
@@ -869,6 +970,7 @@ folderDelete;Mappa törlése;Delete folder
 deleteFolderTitle;Mappa törlése;Delete folder
 confirmFolderDelete (1);"A(z) „Projects” mappa törlődik, és vele együtt a benne lévő 1 levél is, a szerverről is. Nem állítható vissza.";"The folder “Projects” is deleted, and with it the message in it, from the server too. This cannot be undone."
 confirmFolderDelete (2);"A(z) „Projects” mappa törlődik, és vele együtt a benne lévő 2 levél is, a szerverről is. Nem állítható vissza.";"The folder “Projects” is deleted, and with it the 2 messages in it, from the server too. This cannot be undone."
+folderDeleteChecking;A pontos levélszámot a szervertől kérdezem…;Asking the server for the exact number of messages…
 folderErrors.bad_name;"Érvénytelen név (üres, túl hosszú, vagy tiltott karaktert tartalmaz: % * "" \).";"Invalid name (empty, too long, or it contains a forbidden character: % * "" \)."
 folderErrors.name_has_delimiter;"A név nem tartalmazhat elválasztó karaktert (/ vagy a szerver saját elválasztóját, pl. pont). Almappát a mappa helyi menüjéből hozhatsz létre.";"The name cannot contain a separator character (/ or the server’s own separator, e.g. a dot). You can create a subfolder from the folder’s context menu."
 folderErrors.folder_exists;Már van ilyen nevű mappa.;There is already a folder with this name.
