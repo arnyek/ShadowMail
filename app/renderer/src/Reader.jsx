@@ -20,6 +20,8 @@ import { textBlocks } from '../../../core/mime/text-blocks.js'
 import { copyAsText } from './copy-text.js'
 import { archiveFor } from './reader-nav.js'
 import { linkTarget, linkTexts, matchFor } from './link-target.js'
+import { LabelChip } from './LabelChip.jsx'
+import { changedLabels } from './label-chips.js'
 
 const api = window.shadowMail
 const dateTimeFmt = new Intl.DateTimeFormat(locale, { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
@@ -37,16 +39,57 @@ function AddressLine({ label, list }) {
 }
 
 /** Attachment cards: type icon, name, size; Save always, Open only for the allow-listed types. */
+// "Összes mentése": the main process asks for the folder and writes; the line says what happened (saved, left out
+// and why, a program or a web-page-like file among them) and offers the folder
+function SavedAll({ result }) {
+  const saved = result.files.filter(f => f.ok).length
+  const skipped = result.files.filter(f => !f.ok)
+  return (
+    <div className="save-all-result" role="status">
+      <p>
+        {t.readerSavedAll(saved)}
+        {saved > 0 && (
+          <Button variant="text" icon="open" className="save-all-show" onClick={() => api.mail.showSavedAttachments()}>
+            {t.readerShowInFolder}
+          </Button>
+        )}
+      </p>
+      {skipped.map((f, i) => (
+        <p key={i} className="hint save-all-skipped">
+          {t.readerSaveSkipped(f.name, f.error)}
+        </p>
+      ))}
+      {result.executable > 0 && <p className="hint executable">{t.readerSavedExecutable(result.executable)}</p>}
+      {result.browserActive > 0 && <p className="hint executable browser-active">{t.readerSavedBrowserActive(result.browserActive)}</p>}
+    </div>
+  )
+}
+
 function Attachments({ message, onError }) {
   const items = message.attachments
+  const [savedAll, setSavedAll] = useState(null)
   if (!items.length) return null
   const run = async (call, index) => {
     const res = await call(message.id, index)
     if (!res.ok) onError(res.error)
   }
+  const saveAll = async () => {
+    setSavedAll(null)
+    const res = await api.mail.saveAllAttachments(message.id)
+    if (!res.ok) onError(res.error)
+    else if (res.saved) setSavedAll(res)
+  }
   return (
     <section className="reader-attachments" aria-label={t.readerAttachments(items.length)}>
-      <h3>{t.readerAttachments(items.length)}</h3>
+      <div className="reader-attachments-head">
+        <h3>{t.readerAttachments(items.length)}</h3>
+        {items.length >= 2 && (
+          <Button variant="text" icon="download" className="save-all" onClick={saveAll}>
+            {t.readerSaveAll(items.length)}
+          </Button>
+        )}
+      </div>
+      {savedAll && <SavedAll result={savedAll} />}
       <ul>
         {items.map(a => {
           const reason = a.executable ? t.readerExecutable : a.browserActive ? t.readerBrowserActive : !a.openable ? t.readerNotOpenable : null
@@ -192,8 +235,9 @@ function LinkTargetBar({ info, place }) {
   )
 }
 
-export function Reader({ messageId, onOpen, onBack = null, onAction = null, onLoaded = null, accounts = [], flagEvent = null }) {
+export function Reader({ messageId, onOpen, onBack = null, onAction = null, onLoaded = null, accounts = [], flagEvent = null, labelList = [], labelEvent = null, onLabel = null, onLabelPick = null }) {
   const [message, setMessage] = useState(null)
+  const [labels, setLabels] = useState([]) // the open message's label ids (mail:open, then the changes)
   const [error, setError] = useState(null)
   const [actionError, setActionError] = useState(null)
   const [imagesAllowed, setImagesAllowed] = useState(false)
@@ -243,6 +287,7 @@ export function Reader({ messageId, onOpen, onBack = null, onAction = null, onLo
       else {
         setMessage(res.message)
         setFlags(res.message.flags || '')
+        setLabels(res.message.labels || [])
         loadedRef.current && loadedRef.current(res.message)
       }
     })
@@ -312,6 +357,16 @@ export function Reader({ messageId, onOpen, onBack = null, onAction = null, onLo
       return [...set].join(' ')
     })
   }, [flagEvent])
+
+  // the chips follow a label change made anywhere (the picker, the list, another copy of the same message in another
+  // folder: the event's row ids do not name it), or go back when it failed: the open message's labels asked again
+  useEffect(() => {
+    if (!labelEvent || !message || !window.shadowMail.mail.labelsOf) return
+    const id = message.id
+    window.shadowMail.mail.labelsOf([id]).then(res => {
+      if (res && res.ok && res.labels[id]) setLabels(res.labels[id])
+    })
+  }, [labelEvent])
 
   // the plain-text body as drawn (control characters out, at most MAX_READER_TEXT); the data stays as it is
   const plain = useMemo(() => (message && !message.html ? readerText(message.text) : null), [message])
@@ -402,11 +457,36 @@ export function Reader({ messageId, onOpen, onBack = null, onAction = null, onLo
               items={moveTargets.map(f => ({ key: f.path, label: f.role ? `${t.folderRoles[f.role]} (${f.path})` : f.path, icon: folderIcon(f.role), onSelect: () => act('move', { target: f.path }) }))}
             />
           )}
+          {onLabelPick && <IconButton icon="tag" className="reader-label-open" label={t.labels.button} onClick={() => onLabelPick(message.id)} />}
           <MenuButton icon="more" label={t.readerMore} items={moreItems} align="end" />
         </div>
       </div>
       <header className="reader-header">
         <h2 className="reader-subject">{message.subject || t.noSubject}</h2>
+        {onLabelPick ? (
+          <div className="reader-labels" role="group" aria-label={t.labels.pickerTitle}>
+            {labelList
+              .filter(l => labels.includes(l.id))
+              .map(l => (
+                <LabelChip
+                  key={l.id}
+                  label={l}
+                  full
+                  onRemove={
+                    onLabel
+                      ? () => {
+                          setLabels(ls => changedLabels(ls, l.id, 'remove'))
+                          onLabel([message.id], l.id, 'remove')
+                        }
+                      : null
+                  }
+                />
+              ))}
+            <Button className="reader-label-add" icon="tag" onClick={() => onLabelPick(message.id)}>
+              {t.labels.button}
+            </Button>
+          </div>
+        ) : null}
         <div className="reader-from-row">
           <Avatar name={sender.name} address={sender.address} />
           <div className="reader-from">
@@ -456,7 +536,7 @@ export function Reader({ messageId, onOpen, onBack = null, onAction = null, onLo
           {t.readerControlsHidden(plain.removed)}
         </Banner>
       )}
-      <Attachments message={message} onError={setActionError} />
+      <Attachments key={message.id} message={message} onError={setActionError} />
       <div className={message.html ? 'reader-body' : 'reader-body reader-body-text'}>
         {message.html ? (
           frameUrl && (

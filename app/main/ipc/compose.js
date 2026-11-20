@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// IPC of the composer. The composer is its own window (index.html#compose=<session>); closing it
+// IPC of the composer. The composer is its own window (compose.html#compose=<session>); closing it
 // is asked first: the window's close is held back and the page decides (save / discard / cancel).
 // Attachment contents and file paths stay in the main process; the page sees names and sizes only.
 import { noRecent } from '../dialog-options.js'
@@ -27,7 +27,7 @@ export function readyTimeoutFrom(value) {
 }
 
 export const COMPOSE_CHANNELS = Object.freeze([
-  'compose:open', 'compose:initial', 'compose:accounts', 'compose:suggest', 'compose:addFiles', 'compose:removeAttachment',
+  'compose:open', 'compose:initial', 'compose:accounts', 'compose:suggest', 'compose:addFiles', 'compose:addImage', 'compose:removeAttachment',
   'compose:saveDraft', 'compose:send', 'compose:discard', 'compose:close', 'compose:lockDone', 'compose:ready',
   'compose:checked', 'compose:suspect', 'compose:schedule',
 ])
@@ -285,12 +285,18 @@ export function registerComposeIpc({
     let list = paths
     if (list === null || list === undefined) {
       const res = await dialog.showOpenDialog(windowOf(event), noRecent({ properties: ['openFile', 'multiSelections'] }))
-      if (res.canceled) return { attachments: composer.attachmentList(sessionId) }
+      if (res.canceled) return { attachments: composer.attachmentList(sessionId), added: 0 }
       list = res.filePaths
     }
     if (!Array.isArray(list) || list.length > 100 || !list.every(p => typeof p === 'string' && p.length > 0 && p.length <= 4096)) throw new BadRequest()
-    composer.addFiles(sessionId, list)
-    return { attachments: composer.attachmentList(sessionId) }
+    const added = composer.addFiles(sessionId, list)
+    return { attachments: composer.attachmentList(sessionId), added: added.length }
+  })
+
+  // a pasted / dropped image's bytes (the renderer reads the File): -> { id, type, width, height, size }
+  handle('compose:addImage', async (_e, sessionId, bytes) => {
+    if (!isSession(sessionId) || !(bytes instanceof Uint8Array)) throw new BadRequest()
+    return composer.addImage(sessionId, Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength))
   })
 
   handle('compose:removeAttachment', async (_e, sessionId, attachmentId) => {

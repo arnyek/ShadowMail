@@ -11,7 +11,7 @@
 // - The index changes only after the server said yes; a rename also moves the subfolders and messages.
 import fs from 'node:fs'
 import path from 'node:path'
-import { createFolder, renameFolder, deleteFolder, setSubscription } from '../../core/imap/actions.js'
+import { createFolder, moveFolder, deleteFolder, setSubscription } from '../../core/imap/actions.js'
 import { assignRoles, isRoleCandidate } from '../../core/imap/folders.js'
 import { listSyncFolders, serverSpecialUse } from '../../core/imap/client.js'
 import { ActionError } from './sync-manager.js'
@@ -66,6 +66,16 @@ export class FolderActions {
     return f
   }
 
+  // the folder and every folder under it (the delimiter matched too: "A" is not the parent of "AB"); a role anywhere
+  // in it (a hand-picked one too) refuses a rename and a move, so a role is never carried away under another path:
+  // protected_folder on the folder itself, protected_subfolder below it (its own text tells where to change the role)
+  #subtree(ctx, root, delimiter) {
+    const subtree = ctx.folders.filter(x => x.path === root || (delimiter && x.path.startsWith(root + delimiter)))
+    if (ctx.roles.has(root)) throw new ActionError('protected_folder')
+    if (subtree.some(x => ctx.roles.has(x.path))) throw new ActionError('protected_subfolder')
+    return subtree
+  }
+
   #removeFiles(files) {
     for (const rel of files) {
       const file = path.resolve(this.storeDir, rel)
@@ -100,12 +110,15 @@ export class FolderActions {
     return { path: created }
   }
 
-  /** Renames the last segment of a folder (it stays under its parent). Returns { path }. */
+  /**
+   * Renames the last segment of a folder (it stays under its parent). Returns { path }. A role on the folder:
+   * protected_folder; on a folder under it: protected_subfolder (as for a move).
+   */
   async rename({ accountId, path: from, name }) {
     const ctx = this.#context(accountId)
     const f = this.#folder(ctx, from)
-    if (ctx.roles.has(from)) throw new ActionError('protected_folder')
     const delimiter = f.delimiter || (ctx.isImap ? null : LOCAL_DELIMITER)
+    const subtree = this.#subtree(ctx, from, delimiter)
     const checked = checkFolderName(name, delimiter)
     if (checked.error) throw new ActionError(checked.error)
     const cut = delimiter ? from.lastIndexOf(delimiter) : -1
@@ -113,11 +126,60 @@ export class FolderActions {
     if (to === from) return { path: from }
     if (ctx.folders.some(x => x.path.toLowerCase() === to.toLowerCase() && x.path !== from)) throw new ActionError('folder_exists')
     let renamed = to
-    if (ctx.isImap) renamed = await this.withConnection(accountId, client => renameFolder(client, from, to))
+    if (ctx.isImap) {
+      // the subtree's subscriptions as in move(): a server may not carry a child's subscription along on RENAME
+      // (measured on the live test server), and the children would drop out of the tree on the next full sync
+      const subscribed = subtree.filter(x => x.kept !== 1).map(x => x.path)
+      renamed = await this.withConnection(accountId, client => moveFolder(client, from, to, subscribed))
+    }
     this.index.renameFolderTree(accountId, from, renamed, delimiter)
     if (ctx.isImap) this.requestSync(accountId) // a full run: the server may give the moved folders a new UIDVALIDITY
     this.onChange({ accountId, folders: [from, renamed] })
     return { path: renamed }
+  }
+
+  /**
+   * Moves a folder (with its subfolders and messages) under another folder of the same account, or to the top level
+   * (parent null). Returns { path } (the new one). Refused, with no server call and no index write:
+   * protected_folder (the folder has a role), protected_subfolder (a folder under it has one), bad_target (itself, a folder under it, its
+   * present parent, no such folder), trash_target (the Trash or the Junk folder, or a folder under them),
+   * folder_exists (the same name under the target, case-insensitive), no_subfolders (no hierarchy delimiter).
+   * IMAP: one RENAME (server_refused on its NO), the moved subtree's subscriptions kept, then a full sync (the
+   * server may give the moved folders a new UIDVALIDITY). POP3 local folders: the index only.
+   */
+  async move({ accountId, path: from, parent }) {
+    const ctx = this.#context(accountId)
+    const f = this.#folder(ctx, from)
+    const delimiter = f.delimiter || (ctx.isImap ? null : LOCAL_DELIMITER)
+    if (!delimiter) throw new ActionError('no_subfolders')
+    const inside = (p, root) => p === root || p.startsWith(root + delimiter)
+    const subtree = this.#subtree(ctx, from, delimiter)
+    const cut = from.lastIndexOf(delimiter)
+    const leaf = cut >= 0 ? from.slice(cut + delimiter.length) : from
+    const currentParent = cut >= 0 ? from.slice(0, cut) : null
+    let to
+    if (parent === null) {
+      if (currentParent === null) throw new ActionError('bad_target')
+      to = leaf
+    } else {
+      const target = ctx.folders.find(x => x.path === parent)
+      if (!target || inside(parent, from) || parent === currentParent) throw new ActionError('bad_target')
+      for (const [p, role] of ctx.roles) {
+        if ((role === 'trash' || role === 'junk') && inside(parent, p)) throw new ActionError('trash_target')
+      }
+      to = `${parent}${target.delimiter || delimiter}${leaf}`
+    }
+    if (ctx.folders.some(x => x.path.toLowerCase() === to.toLowerCase())) throw new ActionError('folder_exists')
+    let moved = to
+    if (ctx.isImap) {
+      // the folders the tree shows unsubscribed are the kept ones; every other folder of the subtree is subscribed
+      const subscribed = subtree.filter(x => x.kept !== 1).map(x => x.path)
+      moved = await this.withConnection(accountId, client => moveFolder(client, from, to, subscribed))
+    }
+    this.index.moveFolderTree(accountId, from, moved, delimiter)
+    if (ctx.isImap) this.requestSync(accountId)
+    this.onChange({ accountId, folders: [from, moved] })
+    return { path: moved }
   }
 
   /**

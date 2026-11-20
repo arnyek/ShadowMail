@@ -31,7 +31,7 @@ for (const theme of THEMES) {
   const run = spawnSync(process.execPath, args, { cwd: repo, encoding: 'utf8', timeout: 300_000 })
   const text = `${run.stdout || ''}${run.stderr || ''}`
   const screens = [...text.matchAll(/^ {2}([\w-]+): native controls (\d+), icon buttons without aria-label (\d+), without title (\d+), theme (\S+)$/gm)].map(m => ({ name: m[1], native: +m[2], unnamed: +m[3], untitled: +m[4], theme: m[5] }))
-  const EXPECTED = ['unlock', 'list', 'collapsed', 'selected', 'hover', 'chips', 'context-menu', 'folder-dialog', 'folder-menu', 'account-menu', 'confirm-dialog', 'reader', 'reader-plain', 'compose', 'settings', 'settings-security', 'settings-about', 'settings-appearance', 'account-editor', 'account-editor-bottom', 'create', 'recovery-code']
+  const EXPECTED = ['unlock', 'list', 'collapsed', 'selected', 'hover', 'chips', 'context-menu', 'folder-dialog', 'folder-menu', 'account-menu', 'confirm-dialog', 'reader', 'reader-plain', 'compose', 'settings', 'settings-security', 'settings-about', 'settings-appearance', 'settings-labels', 'account-editor', 'account-editor-bottom', 'create', 'recovery-code']
   const at = `[${theme.id}] `
   check(`${at}every screen was reached`, EXPECTED.every(n => screens.some(s => s.name === n)), EXPECTED.filter(n => !screens.some(s => s.name === n)).join(', ') || `${screens.length} screens`)
   check(`${at}every screen is under the theme (the composer window too)`, screens.length > 0 && screens.every(s => s.theme === theme.id), screens.filter(s => s.theme !== theme.id).map(s => `${s.name}=${s.theme}`).join(', '))
@@ -44,13 +44,15 @@ for (const theme of THEMES) {
   fs.rmSync(out, { recursive: true, force: true })
 }
 
-// raw hex colors: only theme.css may have them
+// raw hex colors: only theme.css may have them. label-chips.js holds the offered LABEL colors (data a label stores as
+// #rrggbb, chosen by the user, not a color of the interface) and the black / white of the chip text: exempt by name.
+const HEX_EXEMPT = new Set(['theme.css', 'label-chips.js'])
 const hex = []
 const walk = dir => {
   for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
     const p = path.join(dir, e.name)
     if (e.isDirectory()) walk(p)
-    else if (/\.(css|jsx?)$/.test(e.name) && e.name !== 'theme.css' && /#[0-9a-fA-F]{3,6}\b/.test(fs.readFileSync(p, 'utf8'))) hex.push(path.relative(repo, p))
+    else if (/\.(css|jsx?)$/.test(e.name) && !HEX_EXEMPT.has(e.name) && /#[0-9a-fA-F]{3,6}\b/.test(fs.readFileSync(p, 'utf8'))) hex.push(path.relative(repo, p))
   }
 }
 walk(path.join(repo, 'app', 'renderer'))

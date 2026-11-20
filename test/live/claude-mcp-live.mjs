@@ -3,7 +3,7 @@
 // (claude -p) against the test app (a POP3 account on the fake POP3 server, known messages, no network); only the
 // ShadowMail tools are available. Not part of `npm test`; it needs a Claude login and makes real model calls.
 //
-//   CLAUDE_CODE_OAUTH_TOKEN=<your own token> node test/live/claude-mcp-live.mjs [--chain | --open | --show] [--claude <path>] [--out <file>]
+//   CLAUDE_CODE_OAUTH_TOKEN=<your own token> node test/live/claude-mcp-live.mjs [--chain | --open | --show | --labels] [--claude <path>] [--out <file>]
 //
 // The token comes from the caller's environment and goes only into the child's environment (never written anywhere).
 // Isolation (the fleet's "child claude" rule): an empty, plugin-free CLAUDE_CONFIG_DIR and an empty TELEGRAM_STATE_DIR,
@@ -17,6 +17,10 @@
 // With --show: "Mutasd meg a ShadowMailben Kovács Ilona leveleit tavaly óta": two more messages of
 // hers (one recent, one from two years ago); the model has to call show_search; the app (Playwright) must show the search
 // with her two recent messages as the hits (the old one is before last year), the sender in the search box or its chip.
+// With --labels (0.17.0): the label "Teszt" made in the app (only the user makes labels), then TWO claude -p runs on the
+// same app: "Tedd fel a Teszt címkét a legutóbbi levélre." (label_messages on the newest message; the app's row shows
+// the chip) and "Listázd a Teszt címkés leveleket." (a list with the label filter; the model must SEE "címkék: Teszt"
+// in the tool result's text, not only in the machine data).
 // Prints every tool call (name, input) and result (first 600 characters), the model's answer, and OK/FAIL checks;
 // --out writes the stream-json events to a file.
 import fs from 'node:fs'
@@ -31,7 +35,7 @@ import { createVaultedDatabase } from '../../core/vault/vaulted-db.js'
 import { AccountStore } from '../../core/accounts/model.js'
 import { newAccountDefaults } from '../../core/accounts/defaults.js'
 
-const { values } = parseArgs({ options: { chain: { type: 'boolean', default: false }, open: { type: 'boolean', default: false }, show: { type: 'boolean', default: false }, claude: { type: 'string', default: 'claude' }, out: { type: 'string' } } })
+const { values } = parseArgs({ options: { chain: { type: 'boolean', default: false }, open: { type: 'boolean', default: false }, show: { type: 'boolean', default: false }, labels: { type: 'boolean', default: false }, claude: { type: 'string', default: 'claude' }, out: { type: 'string' } } })
 if (!process.env.CLAUDE_CODE_OAUTH_TOKEN && !process.env.ANTHROPIC_API_KEY) {
   console.error('needs CLAUDE_CODE_OAUTH_TOKEN (or ANTHROPIC_API_KEY) in the environment: your own login')
   process.exit(2)
@@ -86,10 +90,33 @@ const prompt = values.show
   ? `Listázd a beérkezett leveleket, olvasd el a(z) "${KNOWN.subject}" tárgyú levelet, és írd le a feladóját, a tárgyát és az első mondatát. Utána készíts rá válasz-piszkozatot (create_reply_draft) ezzel a szöveggel: "Köszönjük, az ajánlatot jövő hétig elküldjük." Végül írd le, sikerült-e a piszkozat.`
   : `Listázd a beérkezett leveleket, olvasd el a(z) "${KNOWN.subject}" tárgyú levelet, és írd le a feladóját, a tárgyát és az első mondatát.`
 
+const LABEL_PROMPTS = ['Tedd fel a Teszt címkét a legutóbbi levélre a ShadowMailben.', 'Listázd a ShadowMailben a Teszt címkés leveleket.']
+if (values.out) fs.writeFileSync(values.out, '')
+
+// --labels: the first run put the label on the newest message (the known one), the second listed it by the label
+async function labelChecks(page, first, second) {
+  const accounts = await page.evaluate(() => window.shadowMail.accounts.list())
+  const acc = accounts.accounts[0]
+  const inbox = (await page.evaluate(q => window.shadowMail.mail.list(q), { accountId: acc.id, folder: 'INBOX', limit: 50 })).rows || []
+  const newest = [...inbox].sort((a, b) => b.date - a.date)[0]
+  const label = (await page.evaluate(() => window.shadowMail.labels.list())).labels.find(l => l.name === 'Teszt')
+  const puts = first.calls.filter(c => c.name === 'mcp__shadowmail__label_messages')
+  check('run 1: the model called label_messages with "Teszt" on the newest message', newest && puts.some(c => !c.isError && (c.input.ids || []).includes(newest.id) && (c.input.add || []).some(n => n.toLowerCase() === 'teszt')), JSON.stringify(puts.map(c => [c.input, c.isError])))
+  check('run 1: only the newest message carries it (the app\'s own data)', label && label.count === 1 && JSON.stringify(inbox.filter(r => (r.labels || []).includes(label.id)).map(r => r.id)) === JSON.stringify([newest.id]), JSON.stringify(inbox.map(r => [r.id, r.labels])))
+  const chip = await page.locator(`.msg-row[data-id="${newest.id}"] .label-chip`).waitFor({ timeout: 10_000 }).then(() => true, () => false)
+  check('run 1: the main window\'s row shows the chip', chip)
+  check('run 1: no label made, renamed or deleted', (await page.evaluate(() => window.shadowMail.labels.list())).labels.length === 1)
+  const lists = second.calls.filter(c => ['mcp__shadowmail__list_messages', 'mcp__shadowmail__search_messages'].includes(c.name) && c.input && typeof c.input.label === 'string')
+  check('run 2: the model listed by the label filter', lists.some(c => !c.isError && c.input.label.toLowerCase() === 'teszt'), JSON.stringify(second.calls.map(c => [c.name, c.input])))
+  const seen = second.calls.map(c => String(c.result || '')).join('\n')
+  check('run 2: the tool result\'s TEXT showed the model the label and the message', seen.includes('címkék: Teszt') && seen.includes(KNOWN.subject))
+  check('run 2: the answer names the labelled message', second.final.includes(KNOWN.subject) || second.final.includes('irodai szék'), second.final.slice(0, 300))
+  console.log(`RUN 1 ANSWER:\n${first.final}`)
+}
+
 // the test app never gets the caller's Claude login: only the claude child below needs it
 const { CLAUDE_CODE_OAUTH_TOKEN: _token, ANTHROPIC_API_KEY: _apiKey, ...appEnv } = process.env
 const app = await _electron.launch({ executablePath: electronBin, args: [repo, '--ozone-platform=headless', '--disable-gpu'], cwd: repo, env: { ...appEnv, SHADOWMAIL_DATA: dataDir } })
-const events = []
 try {
   const page = await app.firstWindow()
   await page.setViewportSize({ width: 1280, height: 800 })
@@ -108,55 +135,73 @@ try {
     TELEGRAM_STATE_DIR: tgDir,
     ...(process.env.CLAUDE_CODE_OAUTH_TOKEN ? { CLAUDE_CODE_OAUTH_TOKEN: process.env.CLAUDE_CODE_OAUTH_TOKEN } : { ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY }),
   }
-  const args = ['-p', prompt, '--mcp-config', mcpConfig, '--strict-mcp-config', '--tools', '', '--allowedTools', 'mcp__shadowmail', '--output-format', 'stream-json', '--verbose']
-  const t0 = performance.now()
-  await new Promise((resolve, reject) => {
-    const child = spawn(values.claude, args, { cwd: work, env: childEnv, stdio: ['ignore', 'pipe', 'pipe'] })
-    let buf = ''
-    let err = ''
-    child.stdout.setEncoding('utf8')
-    child.stdout.on('data', d => {
-      buf += d
-      let i
-      while ((i = buf.indexOf('\n')) >= 0) {
-        const line = buf.slice(0, i).trim()
-        buf = buf.slice(i + 1)
-        if (line) events.push(JSON.parse(line))
-      }
+  // one claude -p run (one prompt): its events, tool calls with their results, the answer, the init line
+  const ask = async promptText => {
+    const events = []
+    const args = ['-p', promptText, '--mcp-config', mcpConfig, '--strict-mcp-config', '--tools', '', '--allowedTools', 'mcp__shadowmail', '--output-format', 'stream-json', '--verbose']
+    const t0 = performance.now()
+    await new Promise((resolve, reject) => {
+      const child = spawn(values.claude, args, { cwd: work, env: childEnv, stdio: ['ignore', 'pipe', 'pipe'] })
+      let buf = ''
+      let err = ''
+      child.stdout.setEncoding('utf8')
+      child.stdout.on('data', d => {
+        buf += d
+        let i
+        while ((i = buf.indexOf('\n')) >= 0) {
+          const line = buf.slice(0, i).trim()
+          buf = buf.slice(i + 1)
+          if (line) events.push(JSON.parse(line))
+        }
+      })
+      child.stderr.on('data', d => (err += d))
+      const timer = setTimeout(() => child.kill('SIGKILL'), 300_000)
+      child.on('error', reject)
+      child.on('exit', code => {
+        clearTimeout(timer)
+        if (code !== 0) console.log(`claude exited ${code}: ${err.slice(0, 500)}`)
+        resolve()
+      })
     })
-    child.stderr.on('data', d => (err += d))
-    const timer = setTimeout(() => child.kill('SIGKILL'), 300_000)
-    child.on('error', reject)
-    child.on('exit', code => {
-      clearTimeout(timer)
-      if (code !== 0) console.log(`claude exited ${code}: ${err.slice(0, 500)}`)
-      resolve()
-    })
-  })
-  console.log(`claude -p took ${Math.round((performance.now() - t0) / 1000)} s, ${events.length} events`)
-  if (values.out) fs.writeFileSync(values.out, events.map(e => JSON.stringify(e)).join('\n') + '\n')
+    console.log(`claude -p took ${Math.round((performance.now() - t0) / 1000)} s, ${events.length} events`)
+    if (values.out) fs.appendFileSync(values.out, events.map(e => JSON.stringify(e)).join('\n') + '\n')
 
-  // the tool calls and their results, as the model got them
-  const calls = []
-  for (const e of events) {
-    for (const c of e.message?.content || []) {
-      if (e.type === 'assistant' && c.type === 'tool_use') calls.push({ id: c.id, name: c.name, input: c.input })
-      if (e.type === 'user' && c.type === 'tool_result') {
-        const call = calls.find(x => x.id === c.tool_use_id)
-        const text = Array.isArray(c.content) ? c.content.map(x => x.text || JSON.stringify(x)).join('') : String(c.content)
-        if (call) Object.assign(call, { result: text, isError: c.is_error === true })
+    // the tool calls and their results, as the model got them
+    const calls = []
+    for (const e of events) {
+      for (const c of e.message?.content || []) {
+        if (e.type === 'assistant' && c.type === 'tool_use') calls.push({ id: c.id, name: c.name, input: c.input })
+        if (e.type === 'user' && c.type === 'tool_result') {
+          const call = calls.find(x => x.id === c.tool_use_id)
+          const text = Array.isArray(c.content) ? c.content.map(x => x.text || JSON.stringify(x)).join('') : String(c.content)
+          if (call) Object.assign(call, { result: text, isError: c.is_error === true })
+        }
       }
     }
+    for (const c of calls) console.log(`CALL ${c.name} ${JSON.stringify(c.input)}\n  -> ${c.isError ? 'ERROR ' : ''}${String(c.result).slice(0, 600).replace(/\s+/g, ' ')}`)
+    const final = events.filter(e => e.type === 'result').map(e => e.result).join('\n')
+    console.log(`ANSWER:\n${final}`)
+    const init = events.find(e => e.type === 'system' && e.subtype === 'init')
+    console.log(`tools available to the model: ${init ? (init.tools || []).join(', ') : '?'}`)
+    return { events, calls, final, init }
   }
-  for (const c of calls) console.log(`CALL ${c.name} ${JSON.stringify(c.input)}\n  -> ${c.isError ? 'ERROR ' : ''}${String(c.result).slice(0, 600).replace(/\s+/g, ' ')}`)
-  const final = events.filter(e => e.type === 'result').map(e => e.result).join('\n')
-  console.log(`ANSWER:\n${final}`)
-  const init = events.find(e => e.type === 'system' && e.subtype === 'init')
-  console.log(`tools available to the model: ${init ? (init.tools || []).join(', ') : '?'}`)
+  let events, calls, final, init
+  if (values.labels) {
+    // the label (only the user makes one): then the two prompts of the card, each its own claude -p run
+    await page.evaluate(() => window.shadowMail.labels.create('Teszt', '#00897b'))
+    const first = await ask(LABEL_PROMPTS[0])
+    const second = await ask(LABEL_PROMPTS[1])
+    ;({ events, calls, final, init } = second)
+    await labelChecks(page, first, second)
+  } else {
+    ;({ events, calls, final, init } = await ask(prompt))
+  }
 
   check('the model used the ShadowMail tools', calls.some(c => c.name.startsWith('mcp__shadowmail__')))
   check('only ShadowMail tools were available', init && (init.tools || []).every(t => t.startsWith('mcp__shadowmail__')), init ? (init.tools || []).join(',') : '')
-  if (values.show) {
+  if (values.labels) {
+    // checked in labelChecks (both runs)
+  } else if (values.show) {
     // the model showed the search; the app shows the sender's two recent messages as hits (not the two-year-old one)
     const shows = calls.filter(c => c.name === 'mcp__shadowmail__show_search')
     check('the model called show_search (no error)', shows.some(c => !c.isError), JSON.stringify(shows.map(c => [c.input, c.isError])))

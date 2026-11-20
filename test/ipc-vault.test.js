@@ -105,11 +105,11 @@ test('the preload bridge exposes exactly these calls, each mapped to one IPC cha
   walk(exposed.api, '')
   assert.deepEqual(list.sort(), [
     'accounts.list', 'accounts.remove', 'accounts.reorder', 'accounts.save', 'accounts.signatureImage', 'accounts.signatureImagePick', 'accounts.signatureImageRemove', 'accounts.test',
-    'compose.accounts', 'compose.addFiles', 'compose.checked', 'compose.close', 'compose.discard', 'compose.initial', 'compose.lockDone', 'compose.onCloseRequested', 'compose.onLockRequested', 'compose.open', 'compose.ready',
+    'compose.accounts', 'compose.addFiles', 'compose.addImage', 'compose.checked', 'compose.close', 'compose.discard', 'compose.initial', 'compose.lockDone', 'compose.onCloseRequested', 'compose.onLockRequested', 'compose.open', 'compose.ready',
     'compose.removeAttachment', 'compose.saveDraft', 'compose.schedule', 'compose.send', 'compose.suggest', 'compose.suspect',
     'contacts.addFromMessage', 'contacts.count', 'contacts.delete', 'contacts.export', 'contacts.get', 'contacts.importApply', 'contacts.importPreview', 'contacts.list', 'contacts.lookup', 'contacts.save',
-    'flushPrefs', 'folders.create', 'folders.deleteCount', 'folders.remove', 'folders.rename', 'folders.reorder', 'folders.resetOrder', 'folders.setRole', 'folders.setSubscribed', 'folders.subscriptions',
-    'hello', 'mail.action', 'mail.allowImages', 'mail.folders', 'mail.ids', 'mail.list', 'mail.open', 'mail.openAttachment', 'mail.render', 'mail.saveAttachment', 'mail.saveSource', 'mail.source',
+    'flushPrefs', 'folders.create', 'folders.deleteCount', 'folders.move', 'folders.remove', 'folders.rename', 'folders.reorder', 'folders.resetOrder', 'folders.setRole', 'folders.setSubscribed', 'folders.subscriptions',
+    'hello', 'labels.create', 'labels.list', 'labels.remove', 'labels.rename', 'labels.reorder', 'labels.setColor', 'mail.action', 'mail.allowImages', 'mail.folders', 'mail.ids', 'mail.label', 'mail.labelState', 'mail.labelsOf', 'mail.list', 'mail.open', 'mail.openAttachment', 'mail.render', 'mail.saveAllAttachments', 'mail.saveAttachment', 'mail.saveSource', 'mail.showSavedAttachments', 'mail.source',
     'mail.status', 'mail.sync', 'mail.thread', 'mcp.confirm', 'mcp.confirmSettings', 'mcp.confirmations', 'mcp.connectInfo', 'mcp.copy', 'mcp.openAck', 'mcp.recent', 'mcp.setConfirm', 'mcp.setEnabled', 'mcp.status', 'onStatus', 'scheduled.cancel', 'scheduled.list', 'scheduled.reschedule', 'scheduled.sendNow', 'search.cancel', 'search.local', 'search.pop3Old', 'search.server', 'setLanguage', 'taskbar.setEnabled', 'taskbar.status', 'vault.change', 'vault.confirmRecovery', 'vault.copyRecoveryCode', 'vault.create', 'vault.finishReset', 'vault.lock', 'vault.lockNotice', 'vault.newRecoveryCode', 'vault.recover', 'vault.reset', 'vault.saveRecoveryCode', 'vault.status', 'vault.unlock',
   ])
 
@@ -158,6 +158,8 @@ test('the preload bridge exposes exactly these calls, each mapped to one IPC cha
   exposed.api.mail.render(1, '<p>x</p>')
   exposed.api.mail.saveAttachment(1, 0)
   exposed.api.mail.openAttachment(1, 0)
+  exposed.api.mail.saveAllAttachments(1)
+  exposed.api.mail.showSavedAttachments()
   exposed.api.mail.source(1)
   exposed.api.mail.saveSource(1)
   const sid = '00000000-0000-0000-0000-000000000000'
@@ -166,6 +168,7 @@ test('the preload bridge exposes exactly these calls, each mapped to one IPC cha
   exposed.api.compose.accounts()
   exposed.api.compose.suggest('ab')
   exposed.api.compose.addFiles(sid, null)
+  exposed.api.compose.addImage(sid, new Uint8Array([1]))
   exposed.api.compose.removeAttachment(sid, 'x')
   exposed.api.compose.saveDraft(sid, {})
   exposed.api.compose.send(sid, {})
@@ -178,6 +181,7 @@ test('the preload bridge exposes exactly these calls, each mapped to one IPC cha
   exposed.api.compose.suspect(sid)
   exposed.api.folders.create({ accountId: 1, name: 'x' })
   exposed.api.folders.rename({ accountId: 1, path: 'x', name: 'y' })
+  exposed.api.folders.move({ accountId: 1, path: 'y', parent: null })
   exposed.api.folders.remove({ accountId: 1, path: 'y' })
   exposed.api.folders.deleteCount({ accountId: 1, path: 'y' })
   exposed.api.folders.reorder({ accountId: 1, parentKey: null, paths: ['y'] })
@@ -191,6 +195,15 @@ test('the preload bridge exposes exactly these calls, each mapped to one IPC cha
   exposed.api.scheduled.cancel(1)
   exposed.api.mail.action({ ids: [1], action: 'read' })
   exposed.api.mail.ids({ accountId: 1, folder: 'INBOX' })
+  exposed.api.mail.label({ ids: [1], add: [2] })
+  exposed.api.mail.labelState([1, 2])
+  exposed.api.mail.labelsOf([1])
+  exposed.api.labels.list()
+  exposed.api.labels.create('Számla', '#d32f2f')
+  exposed.api.labels.rename(1, 'x')
+  exposed.api.labels.setColor(1, '#000000')
+  exposed.api.labels.reorder([1])
+  exposed.api.labels.remove(1)
   exposed.api.search.local({ query: 'x' })
   exposed.api.search.server({ query: 'x' })
   exposed.api.search.pop3Old({ query: 'x' })
@@ -220,18 +233,23 @@ test('the preload bridge exposes exactly these calls, each mapped to one IPC cha
     'vault:copyRecoveryCode', 'vault:finishReset',
     'accounts:list', 'accounts:save', 'accounts:delete', 'accounts:reorder', 'accounts:test', 'accounts:signatureImagePick', 'accounts:signatureImageRemove', 'accounts:signatureImage',
     'mail:folders', 'mail:list', 'mail:status', 'mail:sync',
-    'mail:open', 'mail:thread', 'mail:allowImages', 'mail:render', 'mail:saveAttachment', 'mail:openAttachment', 'mail:source', 'mail:saveSource',
-    'compose:open', 'compose:initial', 'compose:accounts', 'compose:suggest', 'compose:addFiles', 'compose:removeAttachment',
+    'mail:open', 'mail:thread', 'mail:allowImages', 'mail:render', 'mail:saveAttachment', 'mail:openAttachment', 'mail:saveAllAttachments', 'mail:showSavedAttachments', 'mail:source', 'mail:saveSource',
+    'compose:open', 'compose:initial', 'compose:accounts', 'compose:suggest', 'compose:addFiles', 'compose:addImage', 'compose:removeAttachment',
     'compose:saveDraft', 'compose:send', 'compose:schedule', 'compose:discard', 'compose:close', 'compose:lockDone', 'compose:ready', 'compose:checked', 'compose:suspect',
-    'folder:create', 'folder:rename', 'folder:delete', 'folder:deleteCount', 'folders:reorder', 'folders:resetOrder', 'folders:setRole', 'folders:subscriptions', 'folders:setSubscribed',
+    'folder:create', 'folder:rename', 'folder:move', 'folder:delete', 'folder:deleteCount', 'folders:reorder', 'folders:resetOrder', 'folders:setRole', 'folders:subscriptions', 'folders:setSubscribed',
     'scheduled:list', 'scheduled:reschedule', 'scheduled:sendNow', 'scheduled:cancel',
     'mail:action', 'mail:ids',
+    'mail:label', 'mail:labelState', 'mail:labelsOf', 'labels:list', 'labels:create', 'labels:rename', 'labels:setColor', 'labels:reorder', 'labels:delete',
     'search:local', 'search:server', 'search:pop3Old', 'search:cancel',
     'mcp:status', 'mcp:setEnabled', 'mcp:confirm', 'mcp:confirmations', 'mcp:recent', 'mcp:connectInfo', 'mcp:copy', 'mcp:confirmSettings', 'mcp:setConfirm',
     'contacts:list', 'contacts:get', 'contacts:save', 'contacts:delete', 'contacts:addFromMessage', 'contacts:count',
     'contacts:importPreview', 'contacts:importApply', 'contacts:export', 'contacts:lookup',
   ])
   assert.equal(JSON.stringify(invoked.find(i => i.channel === 'mcp:confirm').args), '[{"id":"id-1","approve":false}]', 'only the id and the yes / no')
+  // the label calls send exactly the object the main process checks (no extra key: hasOnly)
+  assert.equal(JSON.stringify(invoked.find(i => i.channel === 'labels:create').args), '[{"name":"Számla","color":"#d32f2f"}]')
+  assert.equal(JSON.stringify(invoked.find(i => i.channel === 'labels:reorder').args), '[{"ids":[1]}]')
+  assert.equal(JSON.stringify(invoked.find(i => i.channel === 'labels:delete').args), '[{"id":1}]')
 
   // onStatus passes only the payload (never the IPC event object) and can unsubscribe
   const seen = []

@@ -5,6 +5,7 @@
 //
 // Pure: the DOMPurify instance is passed in, so the same code runs in the renderer and, with jsdom,
 // in node:test.
+import { askedWidth } from '../../../core/smtp/image-width.js'
 
 // Tags that run code, load or submit something, or change how the document is read.
 const FORBID_TAGS = [
@@ -104,24 +105,38 @@ export function sanitizeMail(purify, html, { messageId, imagesAllowed = false })
 
 // The composer's own HTML: only what its toolbar makes, so a paste from a web page or a
 // word processor cannot bring scripts, styles, images, forms or tracking into an outgoing message.
-// The ONE exception is the account's signature (core/smtp/signature.js): its marked block (a div with
-// data-sm-signature) and its image, an img whose src is our own sig-img:// scheme; any other image (http, cid:,
-// data:) and the marker on any other element go.
+// The exceptions are the account's signature (core/smtp/signature.js): its marked block (a div with
+// data-sm-signature) and its image, an img whose src is our own sig-img:// scheme; and a pasted image of THIS
+// composer session (inl-img://session/<sessionId>/<id>, the caller's sessionId); any other image (http, cid:, data:,
+// another session's inl-img) and the marker on any other element go. Only a pasted image keeps a width (the size
+// menu's choice, a whole number of pixels: core/smtp/image-width.js); every other width goes.
 export const COMPOSE_TAGS = ['p', 'br', 'div', 'span', 'b', 'strong', 'i', 'em', 'u', 's', 'ul', 'ol', 'li', 'a', 'blockquote', 'pre', 'code', 'h1', 'h2', 'h3', 'img']
 const SIG_IMG_SRC = /^sig-img:\/\/(?:account\/\d{1,12}|session\/[A-Za-z0-9_-]{1,64})$/
+const INL_IMG_SRC = /^inl-img:\/\/session\/([0-9a-f-]{36})\/[0-9a-f]{24}$/
 
-export function sanitizeCompose(purify, html) {
+/** A pasted image's src in the composer of `sessionId`. */
+export const pastedImageSrc = (sessionId, id) => `inl-img://session/${sessionId}/${id}`
+/** Whether `src` is a pasted image of the composer of `sessionId`. */
+export function isPastedImageOf(src, sessionId) {
+  const m = INL_IMG_SRC.exec(src || '')
+  return Boolean(m && sessionId && m[1] === sessionId)
+}
+
+export function sanitizeCompose(purify, html, { sessionId = null } = {}) {
+  const ownImage = src => SIG_IMG_SRC.test(src) || isPastedImageOf(src, sessionId)
   const own = node => {
     const tag = node.nodeName ? node.nodeName.toLowerCase() : ''
     if (tag === 'img') {
-      if (!SIG_IMG_SRC.test(node.getAttribute('src') || '')) {
+      if (!ownImage(node.getAttribute('src') || '')) {
         node.remove()
         return
       }
       node.setAttribute('alt', '')
+      if (node.hasAttribute('width') && !(isPastedImageOf(node.getAttribute('src'), sessionId) && askedWidth(node.getAttribute('width')) !== null)) node.removeAttribute('width')
     } else if (node.hasAttribute && node.hasAttribute('src')) node.removeAttribute('src')
     if (tag !== 'div' && node.hasAttribute && node.hasAttribute('data-sm-signature')) node.removeAttribute('data-sm-signature')
     if (tag !== 'img' && node.hasAttribute && node.hasAttribute('alt')) node.removeAttribute('alt')
+    if (tag !== 'img' && node.hasAttribute && node.hasAttribute('width')) node.removeAttribute('width')
     if (tag === 'a') {
       const href = node.getAttribute('href') || ''
       if (href && !/^(?:https?:|mailto:)/i.test(href)) node.removeAttribute('href')
@@ -131,9 +146,12 @@ export function sanitizeCompose(purify, html) {
   try {
     return purify.sanitize(html || '', {
       ALLOWED_TAGS: COMPOSE_TAGS,
-      ALLOWED_ATTR: ['href', 'src', 'alt', 'data-sm-signature'],
-      // sig-img: passes the URI check; the hook above keeps it on our own img only, and links stay http(s)/mailto
-      ALLOWED_URI_REGEXP: /^(?:https?:|mailto:|sig-img:)/i,
+      ALLOWED_ATTR: ['href', 'src', 'alt', 'width', 'data-sm-signature'],
+      // DOMPurify checks every attribute that is not "URI safe" against ALLOWED_URI_REGEXP, which wants a scheme: a
+      // width of "320" would go (measured); the hook below still keeps it only on a pasted image, as a number
+      ADD_URI_SAFE_ATTR: ['width'],
+      // sig-img: and inl-img: pass the URI check; the hook above keeps them on our own img only, links stay http(s)/mailto
+      ALLOWED_URI_REGEXP: /^(?:https?:|mailto:|sig-img:|inl-img:)/i,
       ALLOW_DATA_ATTR: false,
       KEEP_CONTENT: true,
     })

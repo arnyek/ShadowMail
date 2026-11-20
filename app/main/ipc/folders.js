@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// IPC of folder management: folder:create, folder:rename, folder:delete (folder:deleteCount for its warning), the manual order (folders:reorder,
+// IPC of folder management: folder:create, folder:rename, folder:move, folder:delete (folder:deleteCount for its warning), the manual order (folders:reorder,
 // folders:resetOrder) and the role picker (folders:setRole).
 import { ActionError } from '../sync-manager.js'
 import { errCode } from '../../../core/log-safe.js'
 
-export const FOLDER_CHANNELS = Object.freeze(['folder:create', 'folder:rename', 'folder:delete', 'folder:deleteCount', 'folders:reorder', 'folders:resetOrder', 'folders:setRole', 'folders:subscriptions', 'folders:setSubscribed'])
+export const FOLDER_CHANNELS = Object.freeze(['folder:create', 'folder:rename', 'folder:move', 'folder:delete', 'folder:deleteCount', 'folders:reorder', 'folders:resetOrder', 'folders:setRole', 'folders:subscriptions', 'folders:setSubscribed'])
 // the roles the account settings can choose a folder for (INBOX is always the inbox)
 export const CHOOSABLE_ROLES = Object.freeze(['drafts', 'sent', 'trash', 'junk', 'archive'])
 // a sibling list longer than this is not a list of one parent's folders
@@ -38,6 +38,11 @@ export function registerFolderIpc({ ipcMain, folders, isTrustedSender, log = () 
   handle('folder:rename', async q => {
     if (!isPlainObject(q) || !isId(q.accountId) || !isPath(q.path) || !isName(q.name)) throw new BadRequest()
     return folders.rename({ accountId: q.accountId, path: q.path, name: q.name })
+  })
+  // exactly { accountId, path, parent }: parent null = the top level
+  handle('folder:move', async q => {
+    if (!isPlainObject(q) || Object.keys(q).length !== 3 || !isId(q.accountId) || !isPath(q.path) || !(q.parent === null || isPath(q.parent))) throw new BadRequest()
+    return folders.move({ accountId: q.accountId, path: q.path, parent: q.parent })
   })
   handle('folder:delete', async q => {
     if (!isPlainObject(q) || !isId(q.accountId) || !isPath(q.path) || (q.confirmed !== undefined && typeof q.confirmed !== 'boolean')) throw new BadRequest()

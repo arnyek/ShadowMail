@@ -30,6 +30,41 @@ export class SignatureImageError extends Error {
 }
 const unsupported = () => new SignatureImageError('unsupported_image')
 
+/**
+ * THE rule for an Exif Orientation other than 1 (the pixels are kept turned and show upright only by the flag), in ONE
+ * place for the signature image and a pasted image (the owner's decision): the cleaned image is turned upright in its pixels by
+ * the caller's `upright(bytes, type, orientation)` (Electron nativeImage in the app: decoded, turned
+ * (core/accounts/orientation.js), encoded again: a JPEG as a JPEG of quality 92, a PNG as a PNG, losslessly) and cleaned
+ * again, so it shows the same everywhere and carries no orientation. An image with Orientation 1 (or none) is not
+ * touched. A value outside 1..8 shows as 1 in a browser, so it is 1 here too. MEASURED (Electron 45.3.0): nativeImage
+ * does not apply an orientation by itself, and its encoders write no metadata (toJPEG: JFIF only; toPNG: IHDR, IDAT,
+ * IEND), so a turned image loses its ICC profile; an image that needs no turning keeps it.
+ * -> the cleaned image ({ type, bytes, width, height, removed }, with `turned`: the orientation when it was turned)
+ */
+// the largest image turned upright (decoded, turned, encoded in the main process): 50 megapixels, a 48 MP phone photo
+// still is (measured in testing: 1.4 s, 1.24 GB); a 192 MP one took 4.5 s and 4.5 GB. Read from the header,
+// BEFORE anything is decoded.
+export const UPRIGHT_MAX_PIXELS = 50_000_000
+
+function orientationRule(out, upright) {
+  const { orientation, ...image } = out
+  if (orientation === 1) return image
+  if (image.width * image.height > UPRIGHT_MAX_PIXELS) throw new SignatureImageError('too_large', { width: image.width, height: image.height, maxPixels: UPRIGHT_MAX_PIXELS })
+  if (typeof upright !== 'function') throw new TypeError('upright is required')
+  let bytes
+  try {
+    bytes = upright(image.bytes, image.type, orientation)
+  } catch {
+    throw unsupported()
+  }
+  const turned = cleanImage(Buffer.isBuffer(bytes) ? bytes : Buffer.from(bytes || []))
+  const size = orientation >= 5 ? { width: image.height, height: image.width } : { width: image.width, height: image.height }
+  if (turned.type !== image.type || turned.orientation !== 1 || turned.width !== size.width || turned.height !== size.height) throw unsupported()
+  return { type: turned.type, bytes: turned.bytes, width: turned.width, height: turned.height, removed: image.removed, turned: orientation }
+}
+// the first orientation found wins; a value outside 1..8 is 1
+const firstOrientation = (seen, value) => seen || (Number.isInteger(value) && value >= 1 && value <= 8 ? value : 1)
+
 const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
 const PNG_CRITICAL = new Set(['IHDR', 'PLTE', 'IDAT', 'IEND'])
 const PNG_KEEP = new Set([...PNG_CRITICAL, 'tRNS', 'gAMA', 'cHRM', 'sRGB', 'iCCP', 'sBIT', 'bKGD', 'pHYs'])
@@ -39,6 +74,22 @@ const JPEG_STRUCTURAL = m => (m >= 0xc0 && m <= 0xcf) || m === 0xdb || m === 0xd
 const JPEG_APP_KEEP = new Map([[0xe0, 'JFIF\u0000'], [0xe2, 'ICC_PROFILE\u0000'], [0xee, 'Adobe']])
 const isApp = m => m >= 0xe0 && m <= 0xef
 const isSof = m => m >= 0xc0 && m <= 0xcf && m !== 0xc4 && m !== 0xc8 && m !== 0xcc
+
+/** An image the app does not put into a message's text (it goes as an attachment), from the first bytes, or null. */
+export function otherImageTypeOf(buf) {
+  if (!Buffer.isBuffer(buf) || buf.length < 12) return null
+  const ascii = (a, b) => buf.toString('latin1', a, b)
+  if (ascii(0, 6) === 'GIF87a' || ascii(0, 6) === 'GIF89a') return 'image/gif'
+  if (ascii(0, 4) === 'RIFF' && ascii(8, 12) === 'WEBP') return 'image/webp'
+  if (ascii(4, 8) === 'ftyp') {
+    const brand = ascii(8, 12)
+    if (brand === 'avif' || brand === 'avis') return 'image/avif'
+    if (['heic', 'heix', 'hevc', 'hevx', 'heim', 'heis', 'mif1', 'msf1'].includes(brand)) return 'image/heic'
+  }
+  if (ascii(0, 2) === 'BM') return 'image/bmp'
+  if (ascii(0, 4) === 'II*\u0000' || ascii(0, 4) === 'MM\u0000*') return 'image/tiff'
+  return null
+}
 
 /** 'image/png', 'image/jpeg' or null, from the first bytes. */
 export function imageTypeOf(buf) {
@@ -57,6 +108,7 @@ function stripPng(buf) {
   let removed = 0
   let first = true
   let ended = false
+  let orientation = 0
   while (at < buf.length) {
     if (ended || at + 12 > buf.length) throw unsupported()
     const len = buf.readUInt32BE(at)
@@ -75,8 +127,7 @@ function stripPng(buf) {
     if (type === 'eXIf') {
       // the TIFF block itself; some writers put "Exif\0\0" before it
       const data = buf.subarray(at + 8, at + 8 + len)
-      const orientation = data.length >= 6 && data.toString('latin1', 0, 6) === 'Exif\u0000\u0000' ? exifOrientation(data) : tiffOrientation(data)
-      if (orientation !== 1) throw new SignatureImageError('rotated_image', { orientation })
+      orientation = firstOrientation(orientation, data.length >= 6 && data.toString('latin1', 0, 6) === 'Exif\u0000\u0000' ? exifOrientation(data) : tiffOrientation(data))
     }
     if (type === 'IEND') ended = true
     if (PNG_KEEP.has(type)) keep.push(buf.subarray(at, at + 12 + len))
@@ -85,7 +136,7 @@ function stripPng(buf) {
     at += 12 + len
   }
   if (!ended || !width || !height) throw unsupported()
-  return { bytes: Buffer.concat(keep), width, height, removed }
+  return { bytes: Buffer.concat(keep), width, height, removed, orientation: orientation || 1 }
 }
 
 /** The Exif Orientation of an APP1 segment's data, or 1 (none). Throws on an Exif block that does not walk. */
@@ -136,6 +187,7 @@ function stripJpeg(buf) {
   let height = 0
   let removed = 0
   let scans = 0
+  let orientation = 0
   for (;;) {
     if (at + 2 > buf.length || buf[at] !== 0xff) throw unsupported()
     let m = buf[at + 1]
@@ -156,10 +208,8 @@ function stripJpeg(buf) {
       height = buf.readUInt16BE(at + 5)
       width = buf.readUInt16BE(at + 7)
     }
-    if (m === 0xe1) {
-      const orientation = exifOrientation(seg.subarray(4))
-      if (orientation !== 1) throw new SignatureImageError('rotated_image', { orientation })
-    }
+    // an APP1 that is not Exif (XMP) has no say
+    if (m === 0xe1 && seg.toString('latin1', 4, 10) === 'Exif\u0000\u0000') orientation = firstOrientation(orientation, exifOrientation(seg.subarray(4)))
     if (m === 0xda || JPEG_STRUCTURAL(m)) keep.push(seg)
     else if (isApp(m) && JPEG_APP_KEEP.has(m) && seg.toString('latin1', 4, 4 + JPEG_APP_KEEP.get(m).length) === JPEG_APP_KEEP.get(m)) keep.push(seg)
     else if (isApp(m) || m === 0xfe) removed++
@@ -174,31 +224,65 @@ function stripJpeg(buf) {
       at = end
     }
   }
-  return { bytes: Buffer.concat(keep), width, height, removed }
+  return { bytes: Buffer.concat(keep), width, height, removed, orientation: orientation || 1 }
 }
 
 /**
- * The stored form of an uploaded file: { type, bytes, width, height, removed }. `decode(bytes)` (the caller's
- * decoder, Electron nativeImage in the app) -> { width, height } or null: it must decode the stored bytes to the size the
- * header says. Errors (SignatureImageError): unsupported_image, rotated_image { orientation },
- * too_large { width, height, bytes, maxWidth, maxHeight, maxBytes } (the size AFTER the metadata is removed).
+ * The stored form of an uploaded file: { type, bytes, width, height, removed } (+ `turned`, see orientationRule).
+ * `decode(bytes)` (the caller's decoder, Electron nativeImage in the app) -> { width, height } or null: it must decode
+ * the stored bytes to the size the header says. `upright(bytes, type, orientation)` -> the bytes turned upright (only
+ * called for an Orientation other than 1). Errors (SignatureImageError): unsupported_image,
+ * too_large { width, height, bytes, maxWidth, maxHeight, maxBytes } (the size AFTER the metadata is removed and the
+ * image is turned upright).
  */
-export function prepareSignatureImage(buf, { decode } = {}) {
+export function prepareSignatureImage(buf, { decode, upright } = {}) {
+  const kept = cleanImage(buf)
+  const { maxWidth, maxHeight, maxBytes } = SIGNATURE_LIMITS
+  // the upright size from the header: a too big turned photo is refused before it is decoded and turned
+  const up = kept.orientation >= 5 ? { width: kept.height, height: kept.width } : { width: kept.width, height: kept.height }
+  if (up.width > maxWidth || up.height > maxHeight) {
+    throw new SignatureImageError('too_large', { width: up.width, height: up.height, bytes: kept.bytes.length, maxWidth, maxHeight, maxBytes })
+  }
+  const out = orientationRule(kept, upright)
+  if (out.width > maxWidth || out.height > maxHeight || out.bytes.length > maxBytes) {
+    throw new SignatureImageError('too_large', { width: out.width, height: out.height, bytes: out.bytes.length, maxWidth, maxHeight, maxBytes })
+  }
+  return decoded(out, decode)
+}
+
+/** A pasted (or dropped) image: at most this many bytes as it comes, before the metadata is removed. */
+export const INLINE_IMAGE_MAX_BYTES = 10 * 1024 * 1024
+
+/**
+ * A pasted or dropped image for a message's text: { type, bytes, width, height, removed } (+ `turned`), cleaned and
+ * turned upright like the signature image (the same white lists, the same orientation rule) but without its size
+ * limits. Errors (SignatureImageError): too_large { bytes, maxBytes } (over INLINE_IMAGE_MAX_BYTES as it comes),
+ * not_inline { type } (an image the app sends as an attachment: GIF, WebP, HEIC/AVIF, BMP, TIFF), unsupported_image.
+ */
+export function prepareInlineImage(buf, { decode, upright } = {}) {
+  if (!Buffer.isBuffer(buf)) throw unsupported()
+  if (buf.length > INLINE_IMAGE_MAX_BYTES) throw new SignatureImageError('too_large', { bytes: buf.length, maxBytes: INLINE_IMAGE_MAX_BYTES })
+  const other = imageTypeOf(buf) ? null : otherImageTypeOf(buf)
+  if (other) throw new SignatureImageError('not_inline', { type: other })
+  return decoded(orientationRule(cleanImage(buf), upright), decode)
+}
+
+/** The type and the bytes without the metadata (the white lists above); any damage is unsupported_image. */
+function cleanImage(buf) {
   const type = imageTypeOf(buf)
   if (!type) throw unsupported()
-  let out
   try {
-    out = type === 'image/png' ? stripPng(buf) : stripJpeg(buf)
+    return { type, ...(type === 'image/png' ? stripPng(buf) : stripJpeg(buf)) }
   } catch (err) {
     if (err instanceof SignatureImageError) throw err
     throw unsupported() // a read past the end of a damaged file: the same refusal
   }
-  const { maxWidth, maxHeight, maxBytes } = SIGNATURE_LIMITS
-  if (out.width > maxWidth || out.height > maxHeight || out.bytes.length > maxBytes) {
-    throw new SignatureImageError('too_large', { width: out.width, height: out.height, bytes: out.bytes.length, maxWidth, maxHeight, maxBytes })
-  }
+}
+
+/** The cleaned image when the caller's decoder shows it at the size its header says, else unsupported_image. */
+function decoded(out, decode) {
   if (typeof decode !== 'function') throw new TypeError('decode is required')
   const seen = decode(out.bytes)
   if (!seen || seen.width !== out.width || seen.height !== out.height) throw unsupported()
-  return { type, ...out }
+  return out
 }

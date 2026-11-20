@@ -67,6 +67,7 @@ import {
   UserPlus,
   Upload,
   PenLine,
+  Tag,
 } from 'lucide-react'
 
 // Our own glyphs, drawn on Lucide's grid and with its attributes (24 x 24, stroke 2, round ends), so they sit with the set.
@@ -200,6 +201,8 @@ export const ICONS = {
   moveUp: ArrowUp,
   moveDown: ArrowDown,
   sortAlpha: ArrowDownAZ,
+  // 0.17.0: the local labels
+  tag: Tag,
 }
 
 /**

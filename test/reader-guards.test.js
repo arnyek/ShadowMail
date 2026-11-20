@@ -142,7 +142,7 @@ function fakeProtocol() {
 test('protocols: mail-view serves only the current token with its own CSP; cid-img only the open message', async () => {
   const protocol = fakeProtocol()
   registerMailSchemes(protocol)
-  assert.deepEqual(protocol.privileged.map(s => s.scheme), ['mail-view', 'cid-img', 'sig-img'])
+  assert.deepEqual(protocol.privileged.map(s => s.scheme), ['mail-view', 'cid-img', 'sig-img', 'inl-img'])
   const png = Buffer.from([0x89, 0x50, 0x4e, 0x47])
   const reader = {
     view: token => (token === 'tok' ? { html: '<p>levél</p>', imagesAllowed: false } : null),
@@ -337,4 +337,37 @@ test('protocols: sig-img serves the signature image of an account or a session, 
     assert.equal((await sig({ url })).status, 404, url)
   }
   assert.deepEqual(asked, ['account/4'], 'only a well-formed reference reaches the lookup')
+})
+
+test('protocols: inl-img serves a pasted image of an open composer session only, nothing else', async () => {
+  const protocol = fakeProtocol()
+  const png = Buffer.from([0x89, 0x50, 0x4e, 0x47])
+  const sid = '0123abcd-0000-4000-8000-00000000abcd'
+  const id = 'a'.repeat(24)
+  const asked = []
+  let locked = false
+  const pasted = (s, i) => {
+    asked.push(`${s}/${i}`)
+    return !locked && s === sid && i === id ? { type: 'image/png', bytes: png } : null
+  }
+  handleMailProtocols({ protocol, reader: { view: () => null, cidImage: () => null }, pasted })
+  const inl = protocol.handlers.get('inl-img')
+  const res = await inl({ url: `inl-img://session/${sid}/${id}` })
+  assert.equal(res.status, 200)
+  assert.equal(res.headers.get('content-type'), 'image/png')
+  assert.equal(res.headers.get('x-content-type-options'), 'nosniff')
+  assert.deepEqual(Buffer.from(await res.arrayBuffer()), png)
+  asked.length = 0
+  const other = '0123abcd-0000-4000-8000-00000000ffff'
+  for (const url of [`inl-img://session/${other}/${id}`, `inl-img://session/${sid}/${'b'.repeat(24)}`]) {
+    assert.equal((await inl({ url })).status, 404, url)
+  }
+  assert.deepEqual(asked, [`${other}/${id}`, `${sid}/${'b'.repeat(24)}`], 'another session, an id it does not have: asked, refused')
+  asked.length = 0
+  for (const url of [`inl-img://other/${sid}/${id}`, `inl-img://session/${sid}/${id}/x`, `inl-img://session/${sid}/AAAA`, `inl-img://session/x/${id}`, 'not a url']) {
+    assert.equal((await inl({ url })).status, 404, url)
+  }
+  assert.deepEqual(asked, [], 'only a well-formed reference reaches the lookup')
+  locked = true
+  assert.equal((await inl({ url: `inl-img://session/${sid}/${id}` })).status, 404, 'locked: no session, nothing served')
 })

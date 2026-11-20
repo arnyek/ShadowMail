@@ -13,6 +13,7 @@ import { Icon } from './Icon.jsx'
 import { Banner, Button, Checkbox, IconButton, PageHeader, Select, SettingList, SettingRow, Splitter } from './ui/index.js'
 import { getPref, setPref } from './prefs.js'
 import { THEMES, applyTheme, themeOf } from './themes.js'
+import { LabelsSettings } from './LabelsSettings.jsx'
 
 // the room the settings content keeps besides the menu (paddings, the gap and the cards' own minimum)
 const SETTINGS_CONTENT_MIN = 480
@@ -419,7 +420,7 @@ export function App() {
         </Banner>
       )}
       {view === 'mail' ? (
-        <Mail collapsed={collapsed} readerPane={readerPane} searchSlot={searchSlot} claudeRequest={claudeRequest} onClaudeTaken={takeClaude} />
+        <Mail collapsed={collapsed} readerPane={readerPane} searchSlot={searchSlot} claudeRequest={claudeRequest} onClaudeTaken={takeClaude} onManageLabels={() => openSettings('labels')} />
       ) : view === 'contacts' ? (
         <Contacts />
       ) : (
@@ -429,6 +430,7 @@ export function App() {
             {[
               ['accounts', 'account'],
               ['appearance', 'settings'],
+              ['labels', 'tag'],
               ['security', 'lock'],
               ['claude', 'link'],
               ['about', 'info'],
@@ -457,6 +459,7 @@ export function App() {
               </div>
             )}
             {settingsTab === 'claude' && <ClaudeAccess />}
+            {settingsTab === 'labels' && <LabelsSettings />}
             {settingsTab === 'about' && (
               <div className="settings-cards settings-about">
                 <PageHeader title={t.settingsNav.about} />

@@ -19,7 +19,7 @@ function ChipText({ label, value }) {
 }
 
 /**
- * options: [{ value, label }]; the first option is "everything" (not active). `showValue` shows
+ * options: [{ value, label, swatch? }] (swatch: a color dot before the label); the first option is "everything" (not active). `showValue` shows
  * "label: value" even for the first option (the sort order).
  */
 export function ChipSelect({ label, value, options, onChange, showValue = false, disabled, className }) {
@@ -54,7 +54,7 @@ export function ChipSelect({ label, value, options, onChange, showValue = false,
         <Menu
           label={label}
           onClose={close}
-          items={options.map(o => ({ key: String(o.value), label: o.label, checked: o.value === current.value, onSelect: () => onChange(o.value) }))}
+          items={options.map(o => ({ key: String(o.value), label: o.label, swatch: o.swatch, checked: o.value === current.value, onSelect: () => onChange(o.value) }))}
         />
       )}
     </span>

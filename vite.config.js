@@ -14,5 +14,7 @@ export default defineConfig({
     // No inline <script>/<style>: the strict CSP only allows 'self'.
     assetsInlineLimit: 0,
     modulePreload: { polyfill: false },
+    // two pages of one app: the main window, and the composer window with its own policy (compose.html says why)
+    rollupOptions: { input: { index: `${root}/index.html`, compose: `${root}/compose.html` } },
   },
 })

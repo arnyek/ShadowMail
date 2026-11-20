@@ -60,3 +60,29 @@ test('unwrap stays linear: 20 000 nested divs in the block, and 2 MB of text aft
   assert.equal(unwrapSignature(long), `<p><br></p><p>-- <br>Elek</p>${'<div>a</div>'.repeat(200000)}`)
   assert.ok(performance.now() - t0 < 300, `${Math.round(performance.now() - t0)} ms`)
 })
+
+test('a pasted image: the sanitizer keeps it only for ITS OWN composer session; another session\'s, a malformed one and an inl-img link go', () => {
+  const sid = '0123abcd-0000-4000-8000-00000000abcd'
+  const other = '0123abcd-0000-4000-8000-00000000ffff'
+  const id = 'c'.repeat(24)
+  const own = `<p>a<img src="inl-img://session/${sid}/${id}" alt="x" width="10">b</p>`
+  assert.equal(sanitizeCompose(purify, own, { sessionId: sid }), `<p>a<img src="inl-img://session/${sid}/${id}" alt="" width="10">b</p>`, 'its size menu width stays')
+  for (const html of [own.replace(sid, other), `<p>a<img src="inl-img://session/${sid}/xyz">b</p>`, `<p>a<img src="inl-img://other/${sid}/${id}">b</p>`]) {
+    assert.equal(sanitizeCompose(purify, html, { sessionId: sid }), '<p>ab</p>', html)
+  }
+  assert.equal(sanitizeCompose(purify, own), '<p>ab</p>', 'without a session id no pasted image survives')
+  assert.equal(sanitizeCompose(purify, `<a href="inl-img://session/${sid}/${id}">x</a>`, { sessionId: sid }), '<a>x</a>')
+  assert.ok(sanitizeCompose(purify, '<p><img src="sig-img://account/3"></p>', { sessionId: sid }).includes('sig-img://account/3'), 'the signature image stays')
+})
+
+test('a width stays only on a pasted image of this session, and only as a whole number of pixels', () => {
+  const sid = '0123abcd-0000-4000-8000-00000000abcd'
+  const src = `inl-img://session/${sid}/${'d'.repeat(24)}`
+  const img = w => `<p><img src="${src}" alt="" width="${w}"></p>`
+  for (const w of ['320', '1', '99999']) assert.equal(sanitizeCompose(purify, img(w), { sessionId: sid }), img(w), w)
+  // (DOMPurify trims an attribute's value: " 320" comes through as "320")
+  assert.equal(sanitizeCompose(purify, img(' 320'), { sessionId: sid }), img('320'))
+  for (const w of ['0', '-5', '50%', '320px', '1e3', '100000', '3 20', '']) assert.equal(sanitizeCompose(purify, img(w), { sessionId: sid }), `<p><img src="${src}" alt=""></p>`, `width "${w}"`)
+  assert.equal(sanitizeCompose(purify, '<p><img src="sig-img://account/3" width="320"></p>', { sessionId: sid }), '<p><img src="sig-img://account/3" alt=""></p>', 'not on the signature image')
+  assert.equal(sanitizeCompose(purify, '<p width="320">a</p><div width="5">b</div>', { sessionId: sid }), '<p>a</p><div>b</div>', 'not on any other element')
+})

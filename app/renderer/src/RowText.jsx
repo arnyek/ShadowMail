@@ -6,6 +6,8 @@ import { t } from '../i18n/index.js'
 import { Icon } from './Icon.jsx'
 import { formatFullDate, formatListDate } from './list-format.js'
 import { recipientLabel } from '../../../core/mime/recipient-label.js'
+import { RowChips } from './LabelChip.jsx'
+import { rowChips } from './label-chips.js'
 
 /**
  * m: the row (from_name, from_addr, subject, date, has_attachments); `preview`: a string or a node
@@ -34,10 +36,12 @@ function RecipientCell({ m, Cell, cellProps }) {
   )
 }
 
-export function RowText({ m, preview, before = null, subjectClass = '', previewClass = '', cell = 'div', recipient = false }) {
+export function RowText({ m, preview, before = null, subjectClass = '', previewClass = '', cell = 'div', recipient = false, labels = null, labelList = null }) {
   const Cell = cell
   const sender = m.from_name || m.from_addr || t.unknownSender
   const cellProps = cell === 'div' ? { role: 'gridcell' } : {}
+  const labelIds = labelList ? (labels ?? m.labels) : null
+  const labelTitle = labelList ? rowChips(labelIds, labelList).title : ''
   return (
     <>
       {recipient ? (
@@ -45,8 +49,13 @@ export function RowText({ m, preview, before = null, subjectClass = '', previewC
       ) : (
         <Cell {...cellProps} className="col-from" title={m.from_addr || undefined}>{sender}</Cell>
       )}
-      <Cell {...cellProps} className="col-text">
+      {/* the cell's tooltip names the labels in every form of the group (in the narrowest the group is not drawn) */}
+      <Cell {...cellProps} className="col-text" title={labelTitle ? t.labels.group(labelTitle) : undefined}>
         {before}
+        {/* the labels, the subject and the preview in their own box: the labels' form comes from ITS width (what is left
+            after the search hit's account / folder tag), app.css @container msg-text */}
+        <span className="col-main">
+        {labelList ? <RowChips ids={labelIds} list={labelList} /> : null}
         {isClaudeDraft(m) ? <span className="claude-mark" title={t.claudeMarkTitle}>{t.claudeMark}</span> : null}
         <span className={`col-subject${subjectClass ? ` ${subjectClass}` : ''}`}>{m.subject || t.noSubject}</span>
         {preview ? (
@@ -55,6 +64,7 @@ export function RowText({ m, preview, before = null, subjectClass = '', previewC
             {preview}
           </span>
         ) : null}
+        </span>
       </Cell>
       <Cell {...cellProps} className="col-attachment">{m.has_attachments ? <Icon name="attachment" label={t.hasAttachment} /> : null}</Cell>
       <Cell {...cellProps} className="col-date" title={formatFullDate(m.date) || undefined}>{formatListDate(m.date)}</Cell>

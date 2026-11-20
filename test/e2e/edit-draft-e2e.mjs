@@ -26,6 +26,7 @@ import { createVaultedDatabase } from '../../core/vault/vaulted-db.js'
 import { AccountStore } from '../../core/accounts/model.js'
 import { newAccountDefaults } from '../../core/accounts/defaults.js'
 import { t, locale, seedLanguage } from './lang.mjs'
+import { useTheme, e2eTheme } from './theme-env.mjs'
 
 const require = createRequire(import.meta.url)
 const { _electron } = require(process.env.PW || 'playwright-core')
@@ -91,6 +92,9 @@ try {
   const page = await app.firstWindow()
   page.on('console', m => (m.type() === 'error' || m.type() === 'warning') && consoleLines.push(`${m.type()}: ${m.text()}`))
   await page.setViewportSize({ width: 1280, height: 900 })
+  // E2E_THEME=<id>: the run under that theme (classic-blue: the compact density's 32 px buttons in the narrowest reader)
+  await useTheme(app, page)
+  if (e2eTheme) console.log(`THEME ${await page.evaluate(() => `${document.documentElement.dataset.theme} ${document.documentElement.dataset.density}`)}`)
   await page.locator('#vault-unlock').fill(MASTER)
   await page.getByRole('button', { name: t.vaultUnlockButton, exact: true }).click()
   const pane = page.locator('.folder-tree section', { hasText: 'POP3-fiók' })
@@ -141,7 +145,19 @@ try {
     await page.waitForTimeout(300)
     const fit = await page.evaluate(() => {
       const over = sel => [...document.querySelectorAll(sel)].map(e => e.scrollWidth - e.clientWidth).find(d => d > 1) ?? 0
-      return { reader: Math.round(document.querySelector('.reader').getBoundingClientRect().width), toolbar: over('.reader-toolbar, .reader-tools'), replies: over('.reader-replies'), page: document.documentElement.scrollWidth - document.documentElement.clientWidth }
+      // every toolbar button keeps a usable width (the compact theme's 32 px), and the label button is in, inside the bar
+      const bar = document.querySelector('.reader-tools').getBoundingClientRect()
+      const buttons = [...document.querySelectorAll('.reader-tools button')].map(b => b.getBoundingClientRect())
+      const tag = document.querySelector('.reader-tools .reader-label-open')
+      const tagBox = tag && tag.getBoundingClientRect()
+      return {
+        reader: Math.round(document.querySelector('.reader').getBoundingClientRect().width),
+        toolbar: over('.reader-toolbar, .reader-tools'),
+        replies: over('.reader-replies'),
+        page: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+        minButton: Math.round(Math.min(...buttons.map(b => b.width)) * 10) / 10,
+        tagInside: Boolean(tagBox && tagBox.left >= bar.left - 0.5 && tagBox.right <= bar.right + 0.5),
+      }
     })
     await listSplit.dblclick() // the list's default width back
     await page.locator('.reader-pane-switch').click() // right -> bottom
@@ -177,6 +193,7 @@ try {
   check('a draft: no reply-all in the toolbar, it stays below', replyAllTool === 0 && replyAllBelow === 1, `toolbar ${replyAllTool}, below ${replyAllBelow}`)
   const draftFit = await narrowFit()
   check('the narrowest reader (right of the list, 860 px, the list at its widest): no overflow in the toolbar or below', draftFit.reader <= 380 && draftFit.toolbar === 0 && draftFit.replies === 0 && draftFit.page <= 0, JSON.stringify(draftFit))
+  check('the narrowest reader: every toolbar button at least 32 px wide, the label button inside the bar', draftFit.minButton >= 32 && draftFit.tagInside, JSON.stringify(draftFit))
   const composers = () => app.windows().filter(w => w.url().includes('#compose='))
   win = await composerOf(() => page.locator('.reader-tools .reader-edit-draft').dblclick())
   await page.waitForTimeout(1500)

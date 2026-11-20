@@ -18,7 +18,10 @@ Windows írja, nem a program. A Windows „Legutóbbi fájlok” listájába a S
 ## Funkciók
 
 - IMAP- és POP3-fiókok, több fiók egy programban.
-- Levelek olvasása: biztonságos HTML-megjelenítés, a külső képek csak kérésre, mellékletek.
+- Levelek olvasása: biztonságos HTML-megjelenítés, a külső képek csak kérésre, mellékletek. Két vagy több mellékletnél
+  az **Összes mentése** egy választott mappába menti mindet (a meglévő fájlt soha nem írja felül: "név (2).ext"; a
+  levélbe ágyazott képek nem kerülnek bele), utána a **Megnyitás a mappában** mutatja őket. Ha a mentettek közt
+  futtatható vagy weboldal-jellegű (HTML, SVG, XML) fájl is van, a program figyelmeztet.
 - Keresés minden fiókban (ékezet nélkül is), szűrők a mappanézetben is.
 - Levélírás és küldés (SMTP), válasz, továbbítás, mappakezelés.
 - **Címlista**: névjegyek, vCard- és CSV-import és -export.
@@ -27,7 +30,10 @@ Windows írja, nem a program. A Windows „Legutóbbi fájlok” listájába a S
 - **Magyar vagy angol** felület, öt **téma** (két sötét és két tömör, "klasszikus"), az olvasópanel jobbra, alul vagy
   sehol, egy gombbal váltható a fejlécben.
 - **Kép a szöveges aláírás alatt**, fiókonként.
-- A fiókok és a mappák **saját sorrendben** (húzással, menüből vagy billentyűvel).
+- A fiókok és a mappák **saját sorrendben** (húzással, menüből vagy billentyűvel); egy mappa **áthelyezhető** egy
+  másik alá.
+- A levél jelölőnégyzetén a **Shift** az utoljára jelölttől idáig az egész tartományt jelöli.
+- **Címkék** a leveleken: több címke levelenként, saját színnel, szűrés címke szerint; IMAP-fióknál a szerveren.
 - Windowson az olvasatlan levelek száma piros karikában a tálca-ikonon (minden fiók Beérkezett mappája együtt, 99 fölött "99+", zárolva nincs); kikapcsolható: Beállítások / Megjelenés.
 - Minden adat titkosítva, mesterjelszóval (lásd Első indítás).
 
@@ -48,6 +54,19 @@ Windows írja, nem a program. A Windows „Legutóbbi fájlok” listájába a S
   csak egy sor mondja meg, miért.
 - A billentyűk akkor is működnek, ha a levél szövegébe kattintottál. Szövegmezőben, menüben, párbeszédablakban és a
   panelek elválasztóján a megszokott jelentésük marad.
+
+### Billentyűk levélírásnál
+
+- A **Tab** a Tárgyból közvetlenül a levél szövegére lép (a formázási gombokat kihagyja), a **Shift+Tab** a
+  szövegből vissza a Tárgyra.
+- A formázási eszköztár a szövegből az **Alt+F10**-zel érhető el: a nyilak, a **Home** és az **End** lépked a gombok
+  között, az **Enter** formáz, az **Esc** visszavisz a szövegbe (a kijelölés megmarad). A **Ctrl+B**, **Ctrl+I**,
+  **Ctrl+U** a szövegben is működik.
+- Képet a vágólapról (**Ctrl+V**) vagy fájlként a szövegre húzva lehet a levélbe tenni (PNG, JPEG; más képformátum
+  mellékletként csatolódik). A kép mérete a képen jobb gombbal, vagy a kép mellett álló kurzornál a **Shift+F10**-zel
+  állítható: Kicsi (320 px), Közepes (640 px), Nagy (800 px), Eredeti méret, vagy a kép eltávolítása. Csak a megjelenített
+  szélesség változik, a kép maga nem, és nagyobbra nem nyújtható; a **Ctrl+Z** visszavonja. Méret nélkül a 800 px-nél
+  szélesebb kép 800 px széles lesz a levélben.
 
 ### Szűrők
 
@@ -130,13 +149,108 @@ hivatkozásként). A Feladó-fiók váltása csak az aláírás blokkját cseré
 
 ### A fiókok és a mappák sorrendje
 
-- Egy mappát a testvérei (az azonos szülőjű mappák) közé húzhatsz, egy fiók fejlécét a többi fiók közé. A húzás
-  soha nem tesz egy mappát egy másikba, és mappát mappára ejtve egy levél sem mozdul.
+- Egy mappát a testvérei (az azonos szülőjű mappák) közé húzhatsz: egy testvér felső vagy alsó szélére ejtve csak a
+  sorrend változik. Egy fiók fejlécét a többi fiók közé húzva a fiókok sorrendje változik. Egy mappát egy másik mappa
+  közepére ejtve oda kerül (lásd: Mappa áthelyezése).
 - Ugyanez a jobb gombos menüből (**Feljebb**, **Lejjebb**), vagy **Alt+Fel** / **Alt+Le** billentyűvel a
   billentyűfókuszban lévő mappán vagy fiókfejlécen.
 - A fiók jobb gombos menüjének **Mappák betűrendbe** pontja visszaadja a mappái eredeti sorrendjét.
 - A sorrendet csak a ShadowMail tartja: a szerveren és más levelezőprogramokban nem változik semmi. Az átnevezett
   mappa a helyén marad, az új mappa a listája végére kerül.
+
+### Mappa áthelyezése
+
+- Egy mappát ugyanannak a fióknak egy másik mappájára (a sora közepére) húzva az alá kerül, az almappáival és a
+  leveleivel együtt. A fiók fejlécére ejtve a legfelső szintre kerül. A program előtte mindig rákérdez.
+- Ugyanez egér nélkül: a mappa jobb gombos menüjének **Áthelyezés…** pontja (vagy a mappán a **Shift+F10**) felsorolja,
+  hová kerülhet; a nyilak, a **Home** és az **End** választ, az **Enter** áthelyez, az **Esc** elvet.
+- Nem mozdul a Beérkezett, Piszkozatok, Elküldött, Kuka, Levélszemét vagy Archívum mappa, sem az, amelyik alatt ilyen
+  van; mappa nem kerülhet a saját almappájába, a Kuka vagy a Levélszemét alá, sem másik fiókba. A lista megmondja,
+  miért nem.
+- IMAP-fióknál a szerver egy lépésben helyezi át a mappát: a levelek nem töltődnek le újra, és a feliratkozott mappák
+  az új nevükön is feliratkozottak maradnak. POP3-fióknál ezen a gépen mozdul.
+
+### Levelek kijelölése
+
+- A levél jelölőnégyzetére **Shift**-tel kattintva az utoljára kattintott jelölőnégyzetig minden levél ugyanazt az
+  állapotot kapja (jelöli vagy leveszi a tartományt); a kijelölés többi része marad.
+- A soron a **Shift+kattintás** az utoljára kattintott sortól idáig jelöl ki, a **Ctrl+Shift+kattintás** hozzáadja a
+  kijelöléshez.
+- A tartomány a lista sorrendjét és szűrőjét követi, a még be nem töltött sorokra is; új rendezés vagy szűrő után a
+  következő jelölőnégyzettől kezdődik újra.
+
+### Címkék
+
+A levelekre saját címkéket tehetsz (név és szín): a listában, a jobb gombos menüből, a kijelöltek eszköztárából vagy
+az olvasóból. A **Címke** szűrő-chip szerint szűrhetsz; a Beállítások / Címkék alatt hozhatsz létre, nevezhetsz át,
+színezhetsz, rendezhetsz és törölhetsz címkét.
+
+- **IMAP-fióknál a címke a szerveren van**, a levélen kulcsszóként (a név kódolva, például `sz=c3=a1mla`). Más program
+  (egy másik gép ShadowMailje, egy másik levelező) is láthatja és állíthatja; amit ott tesz fel vagy vesz le, az a
+  következő szinkronnal ide is megérkezik: a Beérkezett mappában azonnal, más mappában a szinkron ütemével.
+- **A címke a levél ezen példányáé:** ha ugyanaz a levél két mappában is megvan, a másik mappabeli példány nem kapja
+  meg.
+- **A név, a szín és a sorrend ezen a gépen** van. Új adatmappában (vagy másik gépen) a szerveren lévő címkéket akkor
+  látod, ha ugyanazzal a névvel újra létrehozod a címkét. Más programok saját kulcsszavai nem válnak címkévé, és a
+  címke-műveletek nem bántják őket.
+- **Ha a szerver egy mappában nem enged egyéni kulcsszót,** a címke abban a mappában csak ezen a gépen tárolódik; ezt
+  a program egy sorban jelzi. A Fiók szerkesztése / **Kapcsolat próbája** megmondja, enged-e a szerver.
+- **Kapcsolat nélkül** (nincs hálózat, a fiók leállt) a címke nem változik, és hibasor mondja meg, melyik fióknál; a
+  többi fiók levelei közben megkapják.
+- **Törlés:** a címke a szerverről is lekerül azokról a levelekről, amelyeket a program már szinkronizált (egy még
+  nem szinkronizált vagy nem mutatott mappa leveleiről nem). Ha egy fiók épp nem érhető el, a címke megmarad, a többi
+  fióknál már lekerült, és a törlés újra megpróbálható.
+- **Piszkozat:** az újra mentett piszkozat megtartja a címkéjét; az elküldött levél (az Elküldött mappabeli példány)
+  nem kapja meg.
+- **A korábban csak helyben tárolt címkék** (egy 0.17.0 előtti fejlesztői adatmappából) az első szinkron után
+  feltöltődnek a szerverre, a levél minden példányára.
+- **POP3-fióknál** a címke ezen a gépen tárolódik, és a levél minden helyi példányán látszik. Ha a levélnek nincs
+  Message-ID és Date fejléce, egy újra letöltött példányán a címke nem látszik.
+- Claude (MCP) felteheti és leveheti a meglévő címkéket; létrehozni, átnevezni és törölni csak te tudsz.
+
+### Újdonságok a 0.17.0-ban, ismert korlátok
+
+- **Címkék:** egy levélre több címke tehető, mindegyik a saját színével (12 felkínált szín vagy egyéni). Feltehető a
+  jobb gombos menü **Címkék…** pontjával, a kijelölés eszköztárának címke-ikonjával és az olvasóban; több kijelölt
+  levélnél a választó mutatja, melyik címke van mindegyiken és melyik csak némelyiken, és begépelt névvel új címke is
+  készíthető. A listában a tárgy előtt legfeljebb három címke látszik (keskeny listán színes pöttyök), a többit "+N"
+  jelzi; az olvasóban mind, egy "x"-szel levehetők. A **Beállítások / Címkék** fülön: új címke, átnevezés, szín,
+  sorrend, törlés. Részletek fent, a **Címkék** szakaszban.
+- **IMAP-fióknál a címke a szerveren tárolódik** (kulcsszóként a levélen), így más gép vagy más levelező is láthatja;
+  POP3-nál ezen a gépen. A **Kapcsolat próbája** megmondja, enged-e a szerver egyéni címkét, és hol tárolódnak a fiók
+  címkéi.
+- **Címke-szűrő:** a mappanézet és a keresés **Címke** chipjével egy címke leveleire szűkíthető; a menü **Mind**
+  pontja kikapcsolja.
+- **Claude és a címkék:** Claude látja a levelek címkéit, címke szerint listáz és keres, és a meglévő címkéket
+  megerősítés nélkül felteheti és levehetheti; címkét létrehozni, átnevezni vagy törölni csak te tudsz.
+- **Levélírás:** a Tárgy mezőből a Tab egyenesen a levél szövegére ugrik (a formázó sávra Alt+F10); a kitörölt
+  szövegbe gépelve nem öröklődik a régi formázás, és a félkövér szöveg dőltre állítása is látszik.
+- **Kép a levélben:** kép beilleszthető (**Ctrl+V**), vagy PNG / JPEG ejthető a szövegre; a levélben megy ki. Jobb
+  gombbal a mérete állítható (320, 640, 800 px, eredeti), vagy eltávolítható. Az elforgatva készült fotót a program
+  felállítja (az aláírás-képet is); a helyadat és a többi metaadat lekerül róla.
+- **Mappa áthelyezése** egy másik alá: ráhúzva, vagy a menüjében az **Áthelyezés…** pont (lásd: Mappa áthelyezése).
+- **Shift a jelölőnégyzeten:** levelek tartománya jelölhető (lásd: Levelek kijelölése).
+- **Összes mentése:** két vagy több melléklet egyszerre egy mappába; ha futtatható vagy weboldal-jellegű (HTML, SVG,
+  XML) fájl van köztük, a program figyelmeztet.
+- A levélíró saját **Bezárás** gombja is rákérdez a mentetlen levélre, mint az ablak X-e.
+- Windowson a keresőmező gombjai és az egysoros mezők szövege a középvonalon ül; az ablak széle közelében nyitott
+  menü az ablakon belül marad.
+
+A kiadás ismert korlátai:
+
+- A felállított fotó színprofilja elvész (a színek a szabványos térben látszanak). Az 50 megapixelnél nagyobb
+  elforgatott fotót a program nem veszi át; a forgatást nem igénylő képre nincs ilyen korlát.
+- A címke neve, színe és sorrendje ezen a gépen van: új adatmappában vagy másik gépen a szerveren lévő címkét akkor
+  látod, ha ugyanazzal a névvel újra létrehozod.
+- IMAP-fióknál a címke a levél adott példányáé: a másik mappabeli másolat nem kapja meg. Más mappa változása (amit egy
+  másik program tett fel vagy le) a szinkron ütemével jön, csak a Beérkezett azonnal.
+- Kapcsolat nélkül a címke nem változik (hibasor mondja, melyik fióknál). Ha a piszkozatot másik fiókba mented
+  (Feladó-váltás), a régi fiókbeli címkéi nem jönnek vele.
+- Message-ID nélküli POP3-levélnél a címke a feladóhoz, a dátumhoz és a mérethez kötődik; ha a levélnek dátuma sincs,
+  és a program egyszer újra letölti, az új példány nem kapja meg a régi címkéit.
+- Egy 100 000 leveles mappában egy gyakori címke szűrt listájának első oldala kb. 0,25-0,5 másodperc, és egy egész
+  mappa kijelölésekor a címkeválasztó kb. 0,65 másodperc alatt nyílik.
+- Ha van címke, a mappanézet chipsora 1280 képpont széles ablakban két sorba törhet.
 
 ### Újdonságok a 0.16.0-ban, ismert korlátok
 
@@ -525,8 +639,9 @@ A beállítás formátuma a hivatalos dokumentációból való: Claude Desktop:
   jellel; a programban értesítés jelenik meg), egy piszkozat módosítása (semmit nem küld el; a Megerősítések alatt
   kérdéshez köthető), az időzített levelek listázása és a Claude által időzített levél visszavonása (vissza a
   Piszkozatok közé, sávval),
-  frissítés, a fiók kapcsolatának próbája, egy levél vagy egy keresés megmutatása a program ablakában. Ezek
-  visszafordíthatók.
+  frissítés, a fiók kapcsolatának próbája, egy levél vagy egy keresés megmutatása a program ablakában, a címkék
+  listázása, a levelek címkéinek látása és a címke szerinti szűrés, egy meglévő címke feltétele és levétele (az
+  ablakban azonnal látszik). Ezek visszafordíthatók.
 - **Csak a te megerősítéseddel:** levél küldése vagy időzítése, végleges törlés, mappa és fiók törlése,
   fiók-beállítás módosítása, egy leállt fiók belépésének újraindítása, a te saját időzítésed visszavonása. A **Megerősítések** alatt ezek műveletenként
   kikapcsolhatók (a szabályokat lásd a 0.16.0 újdonságainál); a belépési adatok módosítása és a saját időzítésed visszavonása mindig kérdez. Ilyenkor a ShadowMail ablaka előre jön, és pontosan azt mutatja, ami
@@ -534,8 +649,9 @@ A beállítás formátuma a hivatalos dokumentációból való: Claude Desktop:
   **Elutasítás** (az Enter is elutasít), a **Jóváhagyás** másfél másodperc után válik aktívvá. A kérés 10 perc után
   lejár. A megerősítő ablakból a **Zárolás** vagy a **Mind elutasítása, Claude-hozzáférés ki** gomb egy lépésben
   mindent elutasít.
-- **Soha:** jelszó, mesterjelszó és helyreállító kód, a mellékletek tartalma, helyi fájl csatolása, és a
-  Claude-hozzáférés kapcsolója.
+- **Soha:** jelszó, mesterjelszó és helyreállító kód, a mellékletek tartalma, helyi fájl csatolása, a
+  Claude-hozzáférés kapcsolója, és címke létrehozása, átnevezése vagy törlése (ezt csak te teheted, a Beállítások /
+  Címkék alatt).
 
 A **Legutóbbi Claude-hívások** lista ugyanezen a lapon az utolsó 20 hívást mutatja (idő, eszköz, eredmény,
 darab). A lista csak a memóriában van, zárolás vagy újraindítás után üres. Keresőszó, cím, tárgy vagy levélszöveg

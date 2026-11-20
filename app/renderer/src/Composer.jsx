@@ -8,12 +8,16 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import DOMPurify from 'dompurify'
 import { t } from '../i18n/index.js'
-import { sanitizeCompose } from './sanitize.js'
+import { sanitizeCompose, pastedImageSrc, isPastedImageOf } from './sanitize.js'
 import { shapeOf } from './compose-shape.js'
 import { createDraftState } from './draft-state.js'
 import { accountSignatureHtml, accountImageSrc, signatureInner, SIGNATURE_ATTR } from '../../../core/smtp/signature.js'
-import { Banner, Button, IconButton, Modal, Select, TextField } from './ui/index.js'
+import { Banner, Button, IconButton, Menu, Modal, Select, TextField } from './ui/index.js'
+import { IMAGE_SIZES, sizeOf } from '../../../core/smtp/image-width.js'
 import { ScheduleDialog } from './ScheduleDialog.jsx'
+
+// the text a clipboard HTML would show (a parsed, inert document: no script runs, no image loads)
+const visibleTextOf = html => (html ? (new DOMParser().parseFromString(html, 'text/html').body.textContent || '').trim() : '')
 
 export { ScheduleDialog }
 
@@ -109,12 +113,147 @@ const TOOLS = [
   ['removeFormat', 'clearFormat', 'clear'],
 ]
 
-/** The formatting bar: icon buttons, the old names as aria-label + tooltip. */
-function Toolbar({ run }) {
+// The text outside the signature block (as the user wrote it), whether an image is there, and the editor's top-level node
+// that holds the signature block (an insertion range stops before it).
+function outsideSignature(el) {
+  const sig = el.querySelector(`[${SIGNATURE_ATTR}]`)
+  let top = sig
+  while (top && top.parentNode !== el) top = top.parentNode
+  let text = ''
+  const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT)
+  for (let n = walker.nextNode(); n; n = walker.nextNode()) if (!sig || !sig.contains(n)) text += n.data
+  const image = [...el.querySelectorAll('img')].some(img => !sig || !sig.contains(img))
+  return { top, text, image }
+}
+const bare = s => s.replace(/\s+/g, '')
+
+const FORMATS = { formatBold: 'bold', formatItalic: 'italic', formatUnderline: 'underline' }
+const INLINE_COMMANDS = new Set(['bold', 'italic', 'underline'])
+const BLOCK_COMMANDS = new Set(['formatBlock', 'insertUnorderedList', 'insertOrderedList'])
+
+/**
+ * The editor's state after a delete of a selection that emptied the text (nothing left outside the signature block), until the next
+ * typed character: the browser keeps the deleted text's b/i/u and its quote or list, and a bold or italic toggled over
+ * them is written as a style attribute, which the page's CSP blocks. So the first typed character starts from a clean
+ * paragraph, with only what the user chose since. Everything goes through editing commands, so the undo stack keeps it:
+ * Ctrl+Z right after the delete brings the text back at once (nothing is changed before the first character).
+ *   watch(el, e) on every beforeinput and input event of the editor; choose(cmd) for a command of the formatting bar (a
+ *   command fires no beforeinput, and its input event can not be told apart reliably).
+ */
+export function createEmptyTextGuard() {
+  let emptied = null // { toggles: { bold, italic, underline } (odd = the user turned it on), block: a quote/list chosen }
+  let cleaning = false // the clean-up's own commands fire input events too: not the user's choice
+  // the delete took a selection (not a single character): only that starts the text again; one Backspace keeps the
+  // formatting (Ctrl+B, x, Backspace, y = bold y)
+  let selectedDelete = false
+  const isEmpty = el => {
+    const { text, image } = outsideSignature(el)
+    return !bare(text) && !image
+  }
+  // the selection covers the whole text outside the signature block (or everything): typing replaces it all
+  const coversAll = el => {
+    const sel = window.getSelection()
+    if (!sel || sel.isCollapsed || !sel.rangeCount) return false
+    const chosen = bare(sel.toString())
+    const { text, image } = outsideSignature(el)
+    return chosen !== '' && (chosen === bare(el.textContent) || (!image && chosen === bare(text)))
+  }
+  // only the commands that change something: each one is a step of the undo stack
+  const blockAt = el => {
+    const sel = window.getSelection()
+    let n = sel && sel.rangeCount ? sel.getRangeAt(0).startContainer : null
+    for (; n && n !== el; n = n.parentNode) if (n.nodeType === 1 && /^(BLOCKQUOTE|UL|OL|LI)$/.test(n.tagName)) return true
+    return false
+  }
+  const clean = (el, state) => {
+    cleaning = true
+    try {
+      if (!state.block) {
+        for (let i = 0; i < 3 && blockAt(el); i++) document.execCommand('outdent')
+        if (document.queryCommandValue('formatBlock') !== 'p') document.execCommand('formatBlock', false, 'p')
+      }
+      for (const f of ['bold', 'italic', 'underline']) if (document.queryCommandState(f) !== Boolean(state.toggles[f] % 2)) document.execCommand(f)
+    } finally {
+      cleaning = false
+    }
+  }
+  function watch(el, e) {
+    if (!el) return
+    const type = e.inputType || ''
+    if (cleaning) return
+    if (e.type === 'input') {
+      if (type.startsWith('delete')) emptied = selectedDelete && isEmpty(el) ? { toggles: { bold: 0, italic: 0, underline: 0 }, block: false } : null
+      return
+    }
+    if (type.startsWith('delete')) {
+      const sel = window.getSelection()
+      selectedDelete = Boolean(sel && sel.rangeCount && !sel.isCollapsed)
+      return
+    }
+    // beforeinput: a format key (Ctrl+B / I / U; it fires even with nothing selected), or the first typed character
+    if (FORMATS[type]) {
+      if (emptied) emptied.toggles[FORMATS[type]]++
+      return
+    }
+    if (type !== 'insertText') return
+    if (coversAll(el)) {
+      cleaning = true
+      try {
+        document.execCommand('delete')
+      } finally {
+        cleaning = false
+      }
+      emptied = isEmpty(el) ? { toggles: { bold: 0, italic: 0, underline: 0 }, block: false } : null
+    }
+    if (emptied && isEmpty(el)) clean(el, emptied)
+    emptied = null
+  }
+  const choose = cmd => {
+    if (!emptied) return
+    if (INLINE_COMMANDS.has(cmd)) emptied.toggles[cmd]++
+    else if (BLOCK_COMMANDS.has(cmd)) emptied.block = true
+  }
+  return { watch, choose }
+}
+
+/**
+ * The formatting bar: icon buttons, the old names as aria-label + tooltip. None of them is a Tab stop, so Tab goes
+ * from the Subject straight to the text; from the text Alt+F10 enters the bar (the last used button), the arrows,
+ * Home and End move in it, Esc or Tab goes back to the text with its selection.
+ */
+function Toolbar({ run, barRef, current, onLeave }) {
+  const onKeyDown = e => {
+    const buttons = [...barRef.current.querySelectorAll('button')]
+    const at = buttons.indexOf(document.activeElement)
+    if (at < 0) return
+    let next = null
+    if (e.key === 'ArrowRight') next = (at + 1) % buttons.length
+    else if (e.key === 'ArrowLeft') next = (at - 1 + buttons.length) % buttons.length
+    else if (e.key === 'Home') next = 0
+    else if (e.key === 'End') next = buttons.length - 1
+    else if (e.key === 'Escape' || (e.key === 'Tab' && !e.shiftKey)) {
+      e.preventDefault()
+      e.stopPropagation()
+      onLeave()
+      return
+    }
+    if (next === null) return
+    e.preventDefault()
+    buttons[next].focus()
+  }
   return (
-    <div className="editor-toolbar" role="toolbar" aria-label={t.composeFormatting}>
-      {TOOLS.map(([cmd, icon, key = cmd, arg]) => (
-        <IconButton key={cmd + (arg || '')} icon={icon} size="s" label={t.composeTools[key]} onMouseDown={e => e.preventDefault()} onClick={() => run(cmd, arg)} />
+    <div ref={barRef} className="editor-toolbar" role="toolbar" aria-label={t.composeFormatting} aria-keyshortcuts="Alt+F10" onKeyDown={onKeyDown}>
+      {TOOLS.map(([cmd, icon, key = cmd, arg], i) => (
+        <IconButton
+          key={cmd + (arg || '')}
+          icon={icon}
+          size="s"
+          label={t.composeTools[key]}
+          tabIndex={-1}
+          onFocus={() => (current.current = i)}
+          onMouseDown={e => e.preventDefault()}
+          onClick={() => run(cmd, arg)}
+        />
       ))}
     </div>
   )
@@ -137,6 +276,29 @@ function Ask({ title, text, buttons, onCancel, safeFocus = false }) {
       {text && <p>{text}</p>}
     </Modal>
   )
+}
+
+/**
+ * A pasted image's size menu: the three sizes (off where the image is not wider: no enlarging), its own size, and
+ * Remove. onPick(img, width) with width 0 for Remove. Only the shown width changes, never the bytes.
+ */
+function ImageSizeMenu({ menu, onPick, onClose }) {
+  const natural = menu.img.naturalWidth
+  const now = sizeOf(natural, menu.img.getAttribute('width'))
+  const items = [
+    ...Object.entries(IMAGE_SIZES).map(([key, width]) => ({
+      key,
+      label: t.composeImageMenu[key],
+      checked: now === key,
+      disabled: width >= natural,
+      title: width >= natural ? t.composeImageMenu.noEnlarge : undefined,
+      onSelect: () => onPick(menu.img, width),
+    })),
+    { key: 'original', label: t.composeImageMenu.original, checked: now === 'original', disabled: !natural, onSelect: () => onPick(menu.img, natural) },
+    { separator: true },
+    { key: 'remove', label: t.composeImageMenu.remove, checked: false, onSelect: () => onPick(menu.img, 0) },
+  ]
+  return <Menu items={items} at={menu.at} className="context-menu image-size-menu" label={t.composeImageMenu.label} onClose={onClose} />
 }
 
 export function Composer({ sessionId }) {
@@ -162,6 +324,10 @@ export function Composer({ sessionId }) {
   const draft = useRef(createDraftState()) // unsaved changes; see draft-state.js
   const busyRef = useRef(null)
   const [sentNotice, setSentNotice] = useState(null)
+  // an informing line (an image that could only be attached), not an error
+  const [info, setInfo] = useState(null)
+  // a pasted image's size menu: { img, at }
+  const [imageMenu, setImageMenu] = useState(null)
   // the message went out: the window only shows what happened, nothing is saved or sent again
   const [sent, setSent] = useState(false)
   const sentRef = useRef(false)
@@ -169,6 +335,9 @@ export function Composer({ sessionId }) {
   const editor = useRef(null)
   const formRef = useRef(null)
   const savedRange = useRef(null) // the selection while the link dialog is open
+  const toolbar = useRef(null)
+  const toolIndex = useRef(0) // the formatting button Alt+F10 goes back to
+  const textRange = useRef(null) // the text's selection while the keyboard is in the formatting bar
   const threading = useRef({ inReplyTo: null, references: [] }) // a reply's In-Reply-To / References
 
   const touch = () => {
@@ -200,7 +369,7 @@ export function Composer({ sessionId }) {
     // the starting body into the editor, unless its shape says no -> true, or the reason ('run': a run over N,
     // 'switches': a block over B direction switches; nothing written)
     const writeBody = html => {
-      const { fragment, reason } = shapeOf(document, sanitizeCompose(DOMPurify, html))
+      const { fragment, reason } = shapeOf(document, sanitizeCompose(DOMPurify, html, { sessionId }))
       if (reason) return reason
       if (editor.current) editor.current.replaceChildren(fragment)
       return true
@@ -262,7 +431,7 @@ export function Composer({ sessionId }) {
     cc,
     bcc,
     subject,
-    html: sanitizeCompose(DOMPurify, editor.current ? editor.current.innerHTML : ''),
+    html: sanitizeCompose(DOMPurify, editor.current ? editor.current.innerHTML : '', { sessionId }),
     inReplyTo: threading.current.inReplyTo || undefined,
     references: threading.current.references.length ? threading.current.references : undefined,
   })
@@ -293,13 +462,16 @@ export function Composer({ sessionId }) {
     return () => clearInterval(timer)
   }, [saveDraft, busy])
 
-  // the window's close button: ask when something is not saved
+  // closing, from the window frame's X (the main process holds the close and asks the page) and from the header's own
+  // close button alike: ask when something is not saved and not sent, else close. The header button does not call
+  // window.close(): a page's own close never reaches the main process's close guard (measured), it closed unasked.
+  const requestClose = () => {
+    if (draft.current.dirty && !sentRef.current) setAsk({ kind: 'close' })
+    else api.compose.close(sessionId)
+  }
   useEffect(
-    () =>
-      api.compose.onCloseRequested(() => {
-        if (draft.current.dirty && !sentRef.current) setAsk({ kind: 'close' })
-        else api.compose.close(sessionId)
-      }),
+    () => api.compose.onCloseRequested(() => requestClose()),
+    // requestClose reads refs and the session only
     [sessionId],
   )
 
@@ -375,9 +547,50 @@ export function Composer({ sessionId }) {
     api.compose.close(sessionId)
   }
 
+  const emptyGuard = useRef(null)
+  emptyGuard.current ??= createEmptyTextGuard()
+  // the text emptied by a delete starts again clean at the first typed character (createEmptyTextGuard); the native
+  // beforeinput / input events, the React ones carry no inputType
+  useEffect(() => {
+    const el = editor.current
+    if (!el) return undefined
+    const onEvent = e => {
+      if (!sentRef.current) emptyGuard.current.watch(el, e)
+    }
+    el.addEventListener('beforeinput', onEvent)
+    el.addEventListener('input', onEvent)
+    return () => {
+      el.removeEventListener('beforeinput', onEvent)
+      el.removeEventListener('input', onEvent)
+    }
+  }, [])
+
+  const editorRange = () => {
+    const sel = window.getSelection()
+    return sel && sel.rangeCount && editor.current && editor.current.contains(sel.getRangeAt(0).commonAncestorContainer) ? sel.getRangeAt(0).cloneRange() : null
+  }
+  // back to the text from the formatting bar, with the selection the text had when the keyboard left it
+  const backToText = () => {
+    if (!editor.current) return
+    editor.current.focus()
+    const sel = window.getSelection()
+    if (textRange.current && sel) {
+      sel.removeAllRanges()
+      sel.addRange(textRange.current)
+    }
+  }
+  const enterToolbar = () => {
+    const buttons = toolbar.current ? toolbar.current.querySelectorAll('button') : []
+    if (!buttons.length) return
+    textRange.current = editorRange()
+    ;(buttons[toolIndex.current] || buttons[0]).focus()
+  }
+
   const run = (cmd, arg) => {
     if (!editor.current || sentRef.current) return
-    editor.current.focus()
+    // a mouse click keeps the focus in the text (mousedown is prevented); a key press comes from the bar
+    if (toolbar.current && toolbar.current.contains(document.activeElement)) backToText()
+    else editor.current.focus()
     if (cmd === 'link') {
       const sel = window.getSelection()
       savedRange.current = sel && sel.rangeCount ? sel.getRangeAt(0).cloneRange() : null
@@ -385,18 +598,114 @@ export function Composer({ sessionId }) {
       setAsk({ kind: 'link' })
       return
     }
+    emptyGuard.current.choose(cmd)
     document.execCommand(cmd, false, arg)
     bodyTouched.current = true
     touch()
   }
 
+  // pasted / dropped images into the text at `range` (the caret's range when the paste or drop came; the awaits move
+  // the selection): PNG / JPEG go in as inl-img images of this session, one insertHTML (one undo step); a format the text
+  // does not take (GIF, WebP, HEIC...: not_inline) is attached, with an informing line; any other refusal is the error
+  // line and nothing of that image goes in
+  const insertImages = async (files, range) => {
+    setError(null)
+    setInfo(null)
+    const html = []
+    const attach = []
+    let failed = null
+    for (const f of files) {
+      const res = await api.compose.addImage(sessionId, await f.arrayBuffer())
+      if (res.ok) html.push(`<img src="${pastedImageSrc(sessionId, res.id)}" alt="">`)
+      else if (res.error === 'not_inline') attach.push(f)
+      else if (!failed) failed = t.composeImageError(res.error, res.detail)
+    }
+    if (html.length && editor.current) {
+      editor.current.focus()
+      const sel = window.getSelection()
+      if (range && editor.current.contains(range.startContainer)) {
+        sel.removeAllRanges()
+        sel.addRange(range)
+      }
+      document.execCommand('insertHTML', false, html.join(''))
+      bodyTouched.current = true
+      touch()
+    }
+    if (attach.length) {
+      // an image with no file behind it (image data on the clipboard) cannot be attached: the preload has no path for it
+      const n = await addFiles(attach)
+      if (n) setInfo(t.composeImageAttached(n))
+      if (n !== null && n < attach.length && !failed) failed = t.composeImageError('not_attachable')
+    }
+    if (failed) setError(failed)
+  }
+  const isInlineType = f => f.type === 'image/png' || f.type === 'image/jpeg'
+
+  // a pasted image of this window, in the text
+  const ownImage = node => Boolean(node && node.nodeName === 'IMG' && editor.current && editor.current.contains(node) && isPastedImageOf(node.getAttribute('src'), sessionId))
+  // the image a context menu is for: the one clicked, or (the keyboard: Shift+F10, the menu key) the one selected or
+  // right beside the caret
+  const imageAt = target => {
+    if (ownImage(target)) return target
+    const sel = window.getSelection()
+    if (!sel.rangeCount) return null
+    const r = sel.getRangeAt(0)
+    const c = r.startContainer
+    if (c.nodeType === Node.ELEMENT_NODE) return [...(r.collapsed ? [c.childNodes[r.startOffset - 1]] : []), c.childNodes[r.startOffset]].find(ownImage) || null
+    if (!r.collapsed) return null
+    if (r.startOffset === 0 && ownImage(c.previousSibling)) return c.previousSibling
+    if (r.startOffset === c.length && ownImage(c.nextSibling)) return c.nextSibling
+    return null
+  }
+  // the image a keyboard selection holds exactly (Shift+arrow over it, or a click), or null
+  const selectedImage = () => {
+    const sel = window.getSelection()
+    if (!sel.rangeCount) return null
+    const r = sel.getRangeAt(0)
+    if (r.collapsed || r.startContainer !== r.endContainer || r.endOffset !== r.startOffset + 1 || r.startContainer.nodeType !== Node.ELEMENT_NODE) return null
+    const node = r.startContainer.childNodes[r.startOffset]
+    return ownImage(node) ? node : null
+  }
+  const selectImage = img => {
+    if (!ownImage(img)) return
+    editor.current.focus()
+    const r = document.createRange()
+    r.selectNode(img)
+    const sel = window.getSelection()
+    sel.removeAllRanges()
+    sel.addRange(r)
+  }
+  const openImageMenu = (img, at) => {
+    const b = img.getBoundingClientRect()
+    setImageMenu({ img, at: at || { x: b.left, y: b.bottom } })
+  }
+  // a size (a width attribute) or, with 0, the image removed: the image selected and replaced by the editor's own
+  // commands, so Ctrl+Z takes the change back in one step
+  const pickImageSize = (img, width) => {
+    if (!ownImage(img)) return
+    editor.current.focus()
+    const r = document.createRange()
+    r.selectNode(img)
+    const sel = window.getSelection()
+    sel.removeAllRanges()
+    sel.addRange(r)
+    if (width) document.execCommand('insertHTML', false, `<img src="${img.getAttribute('src')}" alt="" width="${width}">`)
+    else document.execCommand('delete')
+    bodyTouched.current = true
+    touch()
+  }
+
   // files: File objects (drop) or null (the open dialog); the preload turns them into paths
+  // -> how many were attached, or null on an error (said in the error line)
   const addFiles = async files => {
     const res = await api.compose.addFiles(sessionId, files)
     if (res.ok) {
       setAttachments(res.attachments)
       touch()
-    } else setError(t.composeError(res.error, res.detail, 'attach'))
+      return res.added
+    }
+    setError(t.composeError(res.error, res.detail, 'attach'))
+    return null
   }
 
   const discard = async () => {
@@ -424,13 +733,19 @@ export function Composer({ sessionId }) {
       onDrop={e => {
         if (!e.dataTransfer.files.length || sentRef.current) return
         e.preventDefault()
-        addFiles([...e.dataTransfer.files])
+        const files = [...e.dataTransfer.files]
+        // a PNG / JPEG dropped ON THE TEXT goes in at the drop point; anything else, and anything dropped elsewhere, is attached
+        const onText = editor.current && editor.current.contains(e.target)
+        const images = onText ? files.filter(isInlineType) : []
+        const rest = files.filter(f => !images.includes(f))
+        if (images.length) void insertImages(images, document.caretRangeFromPoint ? document.caretRangeFromPoint(e.clientX, e.clientY) : null)
+        if (rest.length) void addFiles(rest)
       }}
     >
       <header className="compose-title">
         <h1>{subject.trim() || t.newMessage}</h1>
         {/* the window's own close path: the main process asks the page first (onCloseRequested) */}
-        <IconButton icon="close" size="s" label={t.composeCloseWindow} onClick={() => window.close()} />
+        <IconButton icon="close" size="s" label={t.composeCloseWindow} onClick={requestClose} />
       </header>
       {sentNotice && (
         <Banner kind="warning" className="notice" actions={<Button variant="text" onClick={() => api.compose.close(sessionId)}>{t.close}</Button>}>
@@ -446,6 +761,11 @@ export function Composer({ sessionId }) {
         <Banner kind="error" className="compose-error">
           {error}
         </Banner>
+      )}
+      {info && (
+        <p className="compose-info" role="status">
+          {info}
+        </p>
       )}
       <div className="compose-fields">
         <div className="compose-row">
@@ -468,7 +788,7 @@ export function Composer({ sessionId }) {
           <input id="compose-subject" type="text" value={subject} disabled={sent} onChange={e => (setSubject(e.target.value), touch())} />
         </div>
       </div>
-      {showFormat && <Toolbar run={run} />}
+      {showFormat && <Toolbar run={run} barRef={toolbar} current={toolIndex} onLeave={backToText} />}
       <div
         ref={editor}
         className="editor"
@@ -478,20 +798,71 @@ export function Composer({ sessionId }) {
         role="textbox"
         aria-multiline="true"
         aria-label={t.composeBody}
+        aria-keyshortcuts={showFormat ? 'Alt+F10' : undefined}
+        onKeyDown={e => {
+          if (e.key === 'F10' && e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey && showFormat) {
+            e.preventDefault()
+            enterToolbar()
+          }
+          // Enter on a selected pasted image: its size menu (not a new line in place of the image)
+          if (e.key === 'Enter' && !e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey && !sentRef.current) {
+            const img = selectedImage()
+            if (img) {
+              e.preventDefault()
+              openImageMenu(img)
+            }
+          }
+        }}
+        onClick={e => {
+          // a click on a pasted image: the image selected, its size menu at the pointer
+          if (sentRef.current || !ownImage(e.target)) return
+          selectImage(e.target)
+          openImageMenu(e.target, { x: e.clientX, y: e.clientY })
+        }}
         onInput={() => {
           bodyTouched.current = true
           touch()
+        }}
+        onContextMenu={e => {
+          if (sentRef.current) return
+          const img = imageAt(e.target)
+          if (!img) return
+          e.preventDefault()
+          openImageMenu(img, e.target === img ? { x: e.clientX, y: e.clientY } : null)
         }}
         onPaste={e => {
           // only what the composer itself can make survives a paste
           e.preventDefault()
           const html = e.clipboardData.getData('text/html')
-          if (html) document.execCommand('insertHTML', false, sanitizeCompose(DOMPurify, html))
+          // an image on the clipboard (a screenshot, a copied image or image file): the image goes in, unless the HTML
+          // beside it has text to show (then it is a piece of a page: the HTML path, where outside images are dropped)
+          const images = [...e.clipboardData.files].filter(f => f.type.startsWith('image/'))
+          if (images.length && !visibleTextOf(html)) {
+            const sel = window.getSelection()
+            void insertImages(images, sel.rangeCount ? sel.getRangeAt(0).cloneRange() : null)
+            return
+          }
+          if (html) document.execCommand('insertHTML', false, sanitizeCompose(DOMPurify, html, { sessionId }))
           else document.execCommand('insertText', false, e.clipboardData.getData('text/plain'))
           bodyTouched.current = true
           touch()
         }}
       />
+      {imageMenu && (
+        <ImageSizeMenu
+          menu={imageMenu}
+          onPick={pickImageSize}
+          onClose={reason => {
+            const img = imageMenu.img
+            setImageMenu(null)
+            // Esc: back to the image, selected (a choice already put the focus in the text)
+            if (reason === 'escape' && editor.current) {
+              if (ownImage(img)) selectImage(img)
+              else editor.current.focus()
+            }
+          }}
+        />
+      )}
       {attachments.length > 0 && (
         <ul className="compose-attachments" aria-label={t.composeAttachmentsLabel(attachments.length)}>
           {attachments.map(a => (
@@ -515,7 +886,7 @@ export function Composer({ sessionId }) {
       <footer className="compose-actions">
         <Button variant="primary" icon="send" onClick={send} disabled={busy !== null || !accountId || sent}>{busy === 'sending' ? t.composeSending : t.composeSend}</Button>
         <Button variant="outlined" className="compose-send-later" onClick={() => setScheduling(true)} disabled={busy !== null || !accountId || sent}>{t.composeSendLater}</Button>
-        <IconButton icon="formatToggle" label={t.composeFormatting} pressed={showFormat} onClick={() => setShowFormat(f => !f)} />
+        <IconButton icon="formatToggle" label={t.composeFormatting} title={t.composeFormattingHint} pressed={showFormat} onClick={() => setShowFormat(f => !f)} />
         <IconButton icon="attachment" label={t.composeAttach} disabled={sent} onClick={() => addFiles(null)} />
         <span className="hint compose-saved" role="status">{busy === 'saving' ? t.composeSaving : savedAt ? t.composeSavedAt(new Date(savedAt)) : ''}</span>
         <IconButton icon="save" label={t.composeSaveDraft} onClick={saveDraft} disabled={busy !== null || !accountId || sent} />

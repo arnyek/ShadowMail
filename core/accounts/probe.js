@@ -87,15 +87,39 @@ function redact(text, secret) {
 async function leg(fn, timeoutMs, cleanup, secret) {
   const t0 = Date.now()
   try {
-    await withTimeout(fn(), timeoutMs, cleanup)
-    return { ok: true, error: null, detail: null, ms: Date.now() - t0 }
+    // a leg may add its own fields to a success (the IMAP leg: keywords)
+    const extra = await withTimeout(fn(), timeoutMs, cleanup)
+    return { ok: true, error: null, detail: null, ms: Date.now() - t0, ...(extra || {}) }
   } catch (err) {
     const detail = redact(String((err && err.message) || err), secret).slice(0, 300)
     return { ok: false, error: classifyError(err), detail, ms: Date.now() - t0 }
   }
 }
 
-export function probeImap(account, password, { timeoutMs = PROBE_TIMEOUT_MS } = {}) {
+// 0.17.0, read only: may the server keep custom keywords on messages? The PERMANENTFLAGS of a SELECT (read-write) INBOX,
+// in the probe's own login; EXAMINE may answer with an empty list, so not the sync's. \\* in the list = allowed. A failed,
+// silent or flag-less SELECT is "not measurable" (null) and never fails the probe. Nothing is written (no STORE, APPEND,
+// EXPUNGE, CREATE); the SELECT may only use up \\Recent in this session. The flag names are the server's words: printable
+// ASCII only, at most 30, each cut at 64.
+export const KEYWORDS_SELECT_MS = 8000
+const flagNames = set => [...set].filter(f => typeof f === 'string').slice(0, 30).map(f => f.replace(/[^\x21-\x7e]/g, '').slice(0, 64)).filter(Boolean)
+async function keywordsOf(client, ms) {
+  const UNKNOWN = { custom: null, flags: null }
+  let timer
+  const late = new Promise(r => (timer = setTimeout(() => r('late'), ms)))
+  try {
+    const got = await Promise.race([client.mailboxOpen('INBOX').then(() => 'open'), late])
+    if (got === 'late') return { ...UNKNOWN, late: true }
+    const pf = client.mailbox && client.mailbox.permanentFlags
+    return pf instanceof Set ? { custom: pf.has('\\*'), flags: flagNames(pf) } : UNKNOWN
+  } catch {
+    return UNKNOWN
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+export function probeImap(account, password, { timeoutMs = PROBE_TIMEOUT_MS, keywordsMs = KEYWORDS_SELECT_MS } = {}) {
   const client = new ImapFlow({
     ...imapOptions(account, password),
     connectionTimeout: timeoutMs,
@@ -106,7 +130,11 @@ export function probeImap(account, password, { timeoutMs = PROBE_TIMEOUT_MS } = 
   return leg(
     async () => {
       await client.connect()
-      await client.logout()
+      const { late, ...keywords } = await keywordsOf(client, Math.min(keywordsMs, timeoutMs))
+      // a SELECT with no answer leaves the connection busy: closed, no LOGOUT behind it
+      if (late) client.close()
+      else await client.logout()
+      return { keywords }
     },
     timeoutMs,
     () => client.close(),

@@ -107,7 +107,7 @@ test('folder menu: Unsubscribe before Delete for IMAP only, locked on a role fol
   const onPick = (op, m) => picks.push([op, m.path ?? m.accountId])
   const imap = await mount(h(FolderMenu, { menu: { ...base, imap: true }, onPick, onClose() {} }))
   t2.after(imap.unmount)
-  assert.deepEqual(items(imap), ['create', 'rename', 'moveUp', 'moveDown', 'unsubscribe', 'delete'])
+  assert.deepEqual(items(imap), ['create', 'rename', 'move', 'moveUp', 'moveDown', 'unsubscribe', 'delete'])
   await click(imap.container.querySelector('[data-key="unsubscribe"]'))
   assert.deepEqual(picks, [['unsubscribe', 'Ügyfelek']])
   const role = await mount(h(FolderMenu, { menu: { ...base, path: 'Sent', role: 'sent', imap: true }, onPick, onClose() {} }))

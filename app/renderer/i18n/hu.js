@@ -235,7 +235,6 @@ export const hu = {
     error: r => {
       if (r.error === 'too_large' && r.width && (r.width > r.maxWidth || r.height > r.maxHeight)) return `A kép ${r.width} x ${r.height} px, legfeljebb ${r.maxWidth} x ${r.maxHeight} px lehet.`
       if (r.error === 'too_large') return `A kép ${Math.ceil(r.bytes / 1024)} KB, legfeljebb ${Math.round((r.maxBytes || 153600) / 1024)} KB lehet.`
-      if (r.error === 'rotated_image') return 'A kép elforgatási jelzőt tartalmaz; mentsd el elforgatva, és töltsd fel újra.'
       if (r.error === 'unsupported_image') return 'Ez nem PNG vagy JPG kép, vagy sérült (animált PNG sem lehet).'
       if (r.error === 'read_failed') return 'A fájlt nem sikerült beolvasni.'
       return 'A kép mentése nem sikerült.'
@@ -244,6 +243,10 @@ export const hu = {
   probeIncoming: 'Bejövő',
   probeSmtp: 'Kimenő (SMTP)',
   probeOk: 'rendben',
+  // 0.17.0: the connection test's custom-keyword line (true / false / null)
+  // the IMAP server's answer: where this account's labels are kept (on the server as keywords, or locally)
+  probeKeywords: v =>
+    `Egyéni címkét a szerver: ${v === true ? 'enged (a címkék ennél a fióknál a szerveren tárolódnak)' : v === false ? 'nem enged (a címkék ennél a fióknál csak ezen a gépen tárolódnak)' : 'nem mérhető'}`,
   probeErrors: {
     auth_failed: 'Hibás felhasználónév vagy jelszó.',
     auth_not_offered: 'A szerver ezen a kapcsolaton nem enged bejelentkezést (titkosítás nélkül a legtöbb szerver nem engedi: válassz SSL/TLS-t vagy STARTTLS-t).',
@@ -377,7 +380,7 @@ export const hu = {
   splitterContacts: 'Névjegylista szélessége',
   // the draggable dividers' names (the arrows move them, Home or a double click gives back the default)
   splitters: { sidebar: 'Mappasáv szélessége', list: 'Levéllista szélessége', listh: 'Levéllista magassága', settings: 'Beállítások menü szélessége' },
-  settingsNav: { accounts: 'Fiókok', appearance: 'Megjelenés', security: 'Biztonság', claude: 'Claude-hozzáférés', about: 'Névjegy' },
+  settingsNav: { accounts: 'Fiókok', appearance: 'Megjelenés', security: 'Biztonság', claude: 'Claude-hozzáférés', labels: 'Címkék', about: 'Névjegy' },
   // MCP: the "Claude-hozzáférés" page (ClaudeAccess.jsx)
   claudeAccess: {
     title: 'Claude-hozzáférés',
@@ -552,6 +555,23 @@ export const hu = {
   readerLoadImages: 'Képek betöltése',
   readerAttachments: n => `Mellékletek (${n})`,
   readerSave: 'Mentés…',
+  // "Összes mentése": every attachment into one folder (the reader's attachment heading, 2+ attachments)
+  readerSaveAll: n => `Összes mentése (${n})`,
+  readerSavedAll: n => `${n} fájl mentve.`,
+  readerShowInFolder: 'Megnyitás a mappában',
+  readerSaveSkipped: (name, code) =>
+    `Kimaradt: ${name} (${
+      { bad_name: 'a neve nem menthető', name_taken: 'túl sok ilyen nevű fájl van már a mappában', not_writable: 'a mappába nem lehet írni', disk_full: 'betelt a lemez' }[code] ||
+      'nem sikerült kiírni'
+    }).`,
+  readerSavedExecutable: n =>
+    n === 1
+      ? 'A mentett fájlok közt egy futtatható is van: csak akkor indítsd el, ha a feladóban megbízol.'
+      : `A mentett fájlok közt ${n} futtatható is van: csak akkor indítsd el őket, ha a feladóban megbízol.`,
+  readerSavedBrowserActive: n =>
+    n === 1
+      ? 'A mentett fájlok közt egy weboldal-jellegű (HTML, SVG, XML) is van: a böngészőben programot futtathat, csak akkor nyisd meg, ha a feladóban megbízol.'
+      : `A mentett fájlok közt ${n} weboldal-jellegű (HTML, SVG, XML) is van: a böngészőben programot futtathatnak, csak akkor nyisd meg őket, ha a feladóban megbízol.`,
   readerOpen: 'Megnyitás',
   readerExecutable: 'Futtatható fájl: csak menteni lehet, megnyitni innen nem.',
   readerBrowserActive: 'Weboldal-jellegű fájl (HTML, SVG, XML): a böngészőben programot futtathatna, ezért csak menteni lehet.',
@@ -800,6 +820,7 @@ export const hu = {
   composeBody: 'A levél szövege',
   composeSuggestions: 'Címjavaslatok',
   composeFormatting: 'Formázás',
+  composeFormattingHint: 'Formázás (a szövegből az eszköztárra: Alt+F10)',
   composeTools: { bold: 'Félkövér', italic: 'Dőlt', underline: 'Aláhúzott', ul: 'Felsorolás', ol: 'Számozott lista', link: 'Link', quote: 'Idézet', clear: 'Formázás törlése' },
   composeToolLabels: { link: 'Link', quote: 'Idézet', clear: 'Tisztítás' },
   composeLinkUrl: 'Cím (https://… vagy mailto:…)',
@@ -837,6 +858,30 @@ export const hu = {
   composeDiscardText: 'A levél és a mentett piszkozata is törlődik.',
   composeAttachmentsLabel: n => `Mellékletek (${n})`,
   composeKeptAsDraft: 'A levél megmaradt a Piszkozatok között.',
+  // a pasted / dropped image (the main process's codes; too_large with detail.bytes: one image over 10 MB)
+  composeImageError: (code, detail) =>
+    code === 'too_large'
+      ? detail && detail.bytes
+        ? 'A kép nagyobb 10 MB-nál, nem illeszthető be.'
+        : detail && detail.maxPixels
+          ? `Az elforgatott tájolású fotó túl nagy a felállításhoz: ${Math.round((detail.width * detail.height) / 1e6)} megapixel, legfeljebb ${Math.round(detail.maxPixels / 1e6)} lehet.`
+          : 'A képpel együtt a mellékletek és a képek 25 MB fölé mennének (a legtöbb szerver nagyobbat nem fogad).'
+      : code === 'unsupported_image'
+        ? 'A kép nem illeszthető be: nem olvasható PNG vagy JPEG.'
+        : code === 'not_attachable'
+          ? 'Ez a képformátum nem illeszthető a szövegbe, és fájl nélkül mellékletként sem csatolható. Mentsd el fájlba, és csatold úgy.'
+          : hu.composeError(code, detail, 'attach'),
+  composeImageAttached: n => (n === 1 ? 'A kép mellékletként csatolódott: ez a formátum nem illeszthető a szövegbe.' : `${n} kép mellékletként csatolódott: ez a formátum nem illeszthető a szövegbe.`),
+  // the size menu of a pasted image in the text (right click or Shift+F10 on it): only the shown width changes
+  composeImageMenu: {
+    label: 'Kép mérete',
+    small: 'Kicsi (320 px)',
+    medium: 'Közepes (640 px)',
+    large: 'Nagy (800 px)',
+    original: 'Eredeti méret',
+    remove: 'Kép eltávolítása',
+    noEnlarge: 'A kép ennél kisebb, nem nagyítható.',
+  },
   // a message that may be broken or harmful ("e-mail bomb")
   composeSuspectTitle: 'ShadowMail',
   // the shape check (2.): one unbroken run of text longer than `limit` characters in the starting body
@@ -912,7 +957,7 @@ export const hu = {
     return `${prefix}: ${text}`
   },
   // Folder management
-  folderMenu: { newSub: 'Új almappa…', rename: 'Átnevezés…', moveUp: 'Feljebb', moveDown: 'Lejjebb', delete: 'Törlés…', unsubscribe: 'Leiratkozás' },
+  folderMenu: { newSub: 'Új almappa…', rename: 'Átnevezés…', move: 'Áthelyezés…', moveUp: 'Feljebb', moveDown: 'Lejjebb', delete: 'Törlés…', unsubscribe: 'Leiratkozás' },
   // the account head's menu (the manual order)
   accountMenu: { moveUp: 'Feljebb', moveDown: 'Lejjebb', sortFolders: 'Mappák betűrendbe', subscriptions: 'Mappák feliratkozása…' },
   subscriptions: {
@@ -924,6 +969,60 @@ export const hu = {
     close: 'Kész',
   },
   // the reader's End key where archiving is not possible
+  // 0.17.0: Beállítások / Címkék (the list of the labels: name, color, order, delete)
+  labelsPage: {
+    subtitle: 'IMAP-fióknál a címke a szerveren tárolódik (kulcsszóként), POP3-nál ezen a gépen. A név, a szín és a sorrend ezen a gépen él; a lista minden fióké.',
+    add: 'Új címke',
+    name: 'Név',
+    color: 'Szín',
+    create: 'Létrehozás',
+    cancel: 'Mégse',
+    count: n => `${n} levél`,
+    renameOf: name => `${name} neve`,
+    colorOf: name => `${name} színe`,
+    up: name => `${name} feljebb`,
+    down: name => `${name} lejjebb`,
+    remove: name => `${name} törlése`,
+    deleteTitle: 'Címke törlése',
+    deleteText: (name, n) => `A(z) ${name} címke törlése: ${n} levélről lekerül, IMAP-fióknál a szerverről is.`,
+    deleteYes: 'Törlés',
+    deleting: 'Törlés…',
+    // a server could not take the keyword off: the label stays, the folders done stay done, Delete again takes the rest
+    deleteFailed: accounts => `A címke megmaradt: ennél a fióknál nem sikerült levenni a szerverről: ${accounts}. A többi helyről már lekerült; a Törlés újra megpróbálja.`,
+    empty: 'Még nincs címke. A levelekre a listából, a jobb gombos menüből vagy az olvasóból teheted fel, vagy hozz létre itt egyet.',
+  },
+  // 0.17.0: labels on messages (an IMAP account's on its server as keywords, POP3's in this program)
+  labels: {
+    button: 'Címke',
+    menuItem: 'Címkék…',
+    pickerTitle: 'Címkék',
+    filter: 'Címke keresése',
+    create: name => `Új címke: ${name}`,
+    manage: 'Címkék kezelése…',
+    remove: name => `${name} címke levétele`,
+    group: names => `Címkék: ${names}`,
+    none: 'Még nincs címke. Írj be egy nevet, és Enterrel létrehozod.',
+    noMatch: 'Nincs ilyen címke.',
+    errors: {
+      name_taken: 'Már van ilyen nevű címke.',
+      bad_name: 'A címke neve 1-64 látható karakter lehet.',
+      bad_color: 'A szín nem megfelelő.',
+      not_found: 'A címke közben megszűnt.',
+      locked: 'A program zárolva van.',
+      too_many: 'Legfeljebb 1000 címke lehet.',
+    },
+    error: code => ({
+      name_taken: 'Már van ilyen nevű címke.',
+      bad_name: 'A címke neve 1-64 látható karakter lehet.',
+      not_found: 'A címke közben megszűnt.',
+      locked: 'A program zárolva van.',
+      too_many: 'Legfeljebb 1000 címke lehet.',
+    })[code] || `A címke nem változott (hiba: ${code || 'unknown'}).`,
+    // an IMAP account's label goes to its server: a folder out of reach changed nothing (the account's name), and one
+    // whose server does not allow keywords keeps the label on this computer only
+    serverError: (account, code) => `A címke nem változott ennél a fióknál: ${account}. Ok: ${hu.actionErrors[code] || hu.searchError(code)}`,
+    localOnly: 'A szerver ebben a mappában nem enged címkét: a címke csak ezen a gépen látszik.',
+  },
   readerKeys: { no_archive: 'Ebben a fiókban nincs Archívum-mappa: nincs hova archiválni.', in_archive: 'Az Archívumban lévő levél nem archiválható tovább.' },
   // after the label of a field that may stay empty (ui/Fields.jsx TextField optional)
   optionalField: '(nem kötelező)',
@@ -950,12 +1049,36 @@ export const hu = {
     folder_exists: 'Már van ilyen nevű mappa.',
     role_folder: 'Ez a fiók egyik alapmappája: nem lehet róla leiratkozni.',
     protected_folder: 'Ez a fiók egyik alapmappája: nem nevezhető át és nem törölhető.',
+    protected_subfolder: 'A mappa alatt a fiók egyik alapmappája van (pl. Archívum vagy Elküldött), ezért nem nevezhető át és nem helyezhető át. Előbb válassz másik mappát erre a szerepre a fiók beállításaiban (Mappák).',
     has_children: 'A mappának almappái vannak: előbb azokat töröld.',
     no_subfolders: 'Ez a szerver nem támogat almappákat.',
+    bad_target: 'Ide nem helyezhető át: önmagába, a saját almappájába vagy a mostani helyére nem lehet.',
+    trash_target: 'A Kukába és a Levélszemétbe (és alájuk) mappa nem helyezhető át.',
     confirm_needed: 'A törléshez megerősítés kell.',
     order_mismatch: 'A mappák vagy fiókok közben megváltoztak, a sorrend nem mentődött. Próbáld újra.',
   },
   folderError: code => hu.folderErrors[code] || hu.searchError(code),
+  // a folder dragged into another one (or onto the account head: the account's name)
+  moveFolderTitle: 'Mappa áthelyezése',
+  folderMoveYes: 'Áthelyezés',
+  // the folder menu's "Move…" dialog (a listbox of the account's folders); the reasons: folder-order.js moveTargetReason
+  moveDialog: {
+    title: name => `„${name}” áthelyezése`,
+    topLevel: account => `Felső szint (${account})`,
+    help: 'Válaszd ki, hova kerüljön (Fel/Le nyíl, Enter). A halvány helyekre nem helyezhető, mellettük az ok.',
+    listLabel: 'Cél',
+    ok: 'Tovább',
+    reasons: {
+      flat: 'ez a szerver nem enged almappát',
+      role: 'alatta a fiók egyik alapmappája van',
+      top: 'már a felső szinten van',
+      missing: 'nem valódi mappa, csak a fa jelzi',
+      self: 'önmaga vagy a saját almappája',
+      parent: 'most is itt van',
+      trash: 'a Kukába és a Levélszemétbe nem',
+    },
+  },
+  confirmFolderMove: (name, target, subfolders) => `„${name}” áthelyezése ide: „${target}”${subfolders ? `, ${subfolders} almappával` : ''}.`,
   // Global search
   searchLabel: 'Keresés',
   searchPlaceholder: 'Keresés minden levélben (ékezet nélkül is)…',
@@ -970,8 +1093,9 @@ export const hu = {
   },
   // the sender chip's value (its label "Feladó" is already in front of it)
   searchPeople: (from, to) => [from, to && `${hu.searchFilter.to.toLowerCase()}: ${to}`].filter(Boolean).join(', '),
-  searchFilter: { account: 'Fiók', folder: 'Mappa', from: 'Feladó', to: 'Címzett', since: 'Dátumtól', until: 'Dátumig', hasAttachment: 'Van melléklet', unread: 'Olvasatlan', flagged: 'Csillagos', sort: 'Rendezés' },
+  searchFilter: { account: 'Fiók', folder: 'Mappa', from: 'Feladó', to: 'Címzett', since: 'Dátumtól', until: 'Dátumig', hasAttachment: 'Van melléklet', unread: 'Olvasatlan', flagged: 'Csillagos', label: 'Címke', sort: 'Rendezés' },
   searchAllAccounts: 'Minden fiók',
+  searchAnyLabel: 'Mind',
   searchAllFolders: 'Minden mappa',
   searchSort: { relevance: 'Relevancia', date: 'Dátum' },
   searchResultsLabel: 'Találatok',

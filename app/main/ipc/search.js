@@ -34,6 +34,7 @@ export function parseSearchRequest(q) {
     optString(q.folder, 1000) && optString(q.from, 200) && optString(q.to, 200) &&
     optTime(q.since) && optTime(q.before) &&
     optBool(q.hasAttachment) && optBool(q.unread) && optBool(q.flagged) &&
+    (q.label === undefined || q.label === null || (Number.isSafeInteger(q.label) && q.label > 0)) &&
     (q.sort === undefined || q.sort === 'relevance' || q.sort === 'date')
   if (!ok) throw new BadRequest()
   return {
@@ -47,14 +48,18 @@ export function parseSearchRequest(q) {
     hasAttachment: Boolean(q.hasAttachment),
     unread: Boolean(q.unread),
     flagged: Boolean(q.flagged),
+    label: q.label ?? null,
     sort: q.sort || 'relevance',
   }
 }
 
 const hasFlag = (flags, f) => (flags || '').split(' ').includes(f)
 
-/** The filters of the panel applied to a row found outside the index (server / old POP3 text). */
-export function matchesFilters(row, f) {
+/**
+ * The filters of the panel applied to a row found outside the index (server / old POP3 text). `labelsOf`: the rows'
+ * label ids (Labels.labelsOfRows); a label filter without it matches nothing.
+ */
+export function matchesFilters(row, f, labelsOf = null) {
   if (f.accountId && row.account_id !== f.accountId) return false
   if (f.folder && row.folder.toLowerCase() !== f.folder.toLowerCase()) return false
   if (f.since !== null && !(row.date >= f.since)) return false
@@ -62,6 +67,7 @@ export function matchesFilters(row, f) {
   if (f.hasAttachment && !row.has_attachments) return false
   if (f.unread && hasFlag(row.flags, '\\Seen')) return false
   if (f.flagged && !hasFlag(row.flags, '\\Flagged')) return false
+  if (f.label && !(labelsOf?.get(row.id) || []).includes(f.label)) return false
   const contains = (text, needle) => {
     const t = foldForSearch(text)
     return searchWords(needle).every(w => t.includes(foldForSearch(w)))
@@ -71,8 +77,8 @@ export function matchesFilters(row, f) {
   return true
 }
 
-/** Only what the result list shows. */
-export function resultRow(m, accountName) {
+/** Only what the result list shows; `labels`: the row's label ids (core/db/labels.js). */
+export function resultRow(m, accountName, labels = []) {
   return {
     id: m.id,
     account_id: m.account_id,
@@ -85,6 +91,7 @@ export function resultRow(m, accountName) {
     flags: m.flags,
     has_attachments: m.has_attachments,
     snip: m.snip ?? null,
+    labels,
   }
 }
 
@@ -93,7 +100,7 @@ export function resultRow(m, accountName) {
  * Shared by the search:server IPC and the MCP search_server tool. onHits(rows, accountName) gets the
  * rows that pass the filters. Returns { hits, errors, failedFolders, cancelled, done, total }.
  */
-export async function runServerSearch({ f, accounts, store, index, manager, signal, now = () => Date.now(), onProgress = () => {}, onHits = () => {} }) {
+export async function runServerSearch({ f, accounts, store, index, manager, signal, labels = null, now = () => Date.now(), onProgress = () => {}, onHits = () => {} }) {
   const t = now()
   const plan = accounts
     .map(a => {
@@ -125,7 +132,8 @@ export async function runServerSearch({ f, accounts, store, index, manager, sign
           signal,
           onProgress: pr => onProgress({ done: base + pr.done, total, folder: pr.folder, account: p.row.name }),
           onHits: rows => {
-            const shown = rows.filter(r => matchesFilters(r, f))
+            const labelsOf = f.label && labels ? labels.labelsOfRows(rows.map(r => r.id)) : null
+            const shown = rows.filter(r => matchesFilters(r, f, labelsOf))
             hits += shown.length
             if (shown.length) onHits(shown, p.row.name)
           },
@@ -149,7 +157,7 @@ export async function runServerSearch({ f, accounts, store, index, manager, sign
  * @param sealed    SealedStore of data/store: the POP3 old-text search reads through it
  * @param notify    app:status sender
  */
-export function registerSearchIpc({ ipcMain, db, index, store, manager, sealed, notify, isTrustedSender, log = () => {}, now = () => Date.now(), messageTextOf = undefined }) {
+export function registerSearchIpc({ ipcMain, db, index, store, manager, sealed, notify, labels = null, isTrustedSender, log = () => {}, now = () => Date.now(), messageTextOf = undefined }) {
   const jobs = new Map() // source -> { id, controller }
   let seq = 0
 
@@ -166,6 +174,11 @@ export function registerSearchIpc({ ipcMain, db, index, store, manager, sealed, 
     })
 
   const accountsInScope = f => store.list().filter(a => !f.accountId || a.id === f.accountId)
+  // the hits with their label ids: one query per batch (the local page, a folder's server hits, a POP3 hit)
+  const shown = (rows, nameOf) => {
+    const of = labels ? labels.labelsOfRows(rows.map(r => r.id)) : new Map()
+    return rows.map(r => resultRow(r, nameOf(r), of.get(r.id) || []))
+  }
   const names = () => new Map(store.list().map(a => [a.id, a.name]))
 
   handle('search:local', async q => {
@@ -186,6 +199,7 @@ export function registerSearchIpc({ ipcMain, db, index, store, manager, sealed, 
           hasAttachment: f.hasAttachment,
           unread: f.unread,
           flagged: f.flagged,
+          label: f.label,
           sort: f.sort,
           limit: MAX_RESULTS,
         })
@@ -194,7 +208,7 @@ export function registerSearchIpc({ ipcMain, db, index, store, manager, sealed, 
       .map(a => ({ accountId: a.id, name: a.name, type: a.type, count: index.stats(a.id).headers_only || 0 }))
       .filter(x => x.count > 0)
     return {
-      rows: rows.map(m => resultRow(m, nameOf.get(m.account_id))),
+      rows: shown(rows, m => nameOf.get(m.account_id)),
       truncated: rows.length >= MAX_RESULTS,
       headersOnly,
       scope: { imap: scope.some(a => a.type === 'imap'), pop3: scope.some(a => a.type === 'pop3') },
@@ -231,9 +245,10 @@ export function registerSearchIpc({ ipcMain, db, index, store, manager, sealed, 
         index,
         manager,
         signal,
+        labels,
         now,
         onProgress: progress => send({ progress }),
-        onHits: (rows, accountName) => send({ hits: rows.map(r => resultRow(r, accountName)) }),
+        onHits: (rows, accountName) => send({ hits: shown(rows, () => accountName) }),
       })
       send({ progress: { done: finished.done, total: finished.total }, finished: { hits: finished.hits, errors: finished.errors, failedFolders: finished.failedFolders, cancelled: finished.cancelled } })
     })
@@ -257,9 +272,9 @@ export function registerSearchIpc({ ipcMain, db, index, store, manager, sealed, 
         ...(messageTextOf ? { textOf: messageTextOf } : {}),
         onHit: id => {
           const row = index.get(id)
-          if (row && matchesFilters(row, f)) {
+          if (row && matchesFilters(row, f, f.label && labels ? labels.labelsOfRows([row.id]) : null)) {
             hits++
-            send({ hits: [resultRow(row, nameOf.get(row.account_id))] })
+            send({ hits: shown([row], r => nameOf.get(r.account_id)) })
           }
         },
       })

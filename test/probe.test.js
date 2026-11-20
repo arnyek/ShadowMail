@@ -141,3 +141,57 @@ test('POP3: CR/LF in the user or the password never reaches the server as a seco
   assert.equal((await probePop3(pop3Acc(port, { in_user: `${USER}\r\nDELE 1` }), PASS, FAST)).error, 'auth_failed')
   assert.equal((await probePop3(pop3Acc(port), `${PASS}\r\nDELE 1`, FAST)).error, 'auth_failed')
 })
+
+// --- 0.17.0: custom keywords (PERMANENTFLAGS of a SELECT INBOX in the probe's own login), only for information --------
+const WRITES = ['STORE', 'UID', 'APPEND', 'EXPUNGE', 'CREATE', 'DELETE', 'RENAME', 'COPY', 'MOVE', 'SUBSCRIBE']
+const count = (cmds, name) => cmds.filter(c => c === name || c.startsWith(`${name} `)).length
+
+test('custom keywords: \\* in PERMANENTFLAGS = allowed, without it = not allowed; one LOGIN, one SELECT INBOX (read-write, not EXAMINE), no write', async t => {
+  for (const [select, custom, flags] of [['star', true, ['\\Seen', '\\Flagged', '\\*']], ['nostar', false, ['\\Seen', '\\Flagged']]]) {
+    const commands = []
+    const port = await startImap(t, { user: USER, pass: PASS, select, commands })
+    const res = await probeImap(imapAcc(port), PASS, FAST)
+    assert.equal(res.ok, true, select)
+    assert.deepEqual(res.keywords, { custom, flags }, select)
+    assert.equal(count(commands, 'LOGIN'), 1, `${select}: one login`)
+    assert.deepEqual(commands.filter(c => /^(SELECT|EXAMINE) /.test(c)), ['SELECT INBOX'], `${select}: ${commands.join(',')}`)
+    assert.ok(!commands.some(c => WRITES.includes(c.split(' ')[0])), `${select}: no write: ${commands.join(',')}`)
+    assert.equal(count(commands, 'LOGOUT'), 1)
+  }
+})
+
+test('custom keywords not measurable: SELECT NO, no PERMANENTFLAGS line, a silent SELECT; the probe stays ok, still one login', async t => {
+  for (const select of ['no', 'none']) {
+    const commands = []
+    const port = await startImap(t, { user: USER, pass: PASS, select, commands })
+    const res = await probeImap(imapAcc(port), PASS, FAST)
+    assert.deepEqual([res.ok, res.keywords], [true, { custom: null, flags: null }], select)
+    assert.equal(count(commands, 'LOGIN'), 1, select)
+  }
+  const commands = []
+  const closes = { n: 0 }
+  const port = await startImap(t, { user: USER, pass: PASS, select: 'hang', commands, closes })
+  const t0 = Date.now()
+  const res = await probeImap(imapAcc(port), PASS, { ...FAST, keywordsMs: 300 })
+  assert.deepEqual([res.ok, res.keywords], [true, { custom: null, flags: null }], 'a silent SELECT: unknown, not a failed probe')
+  assert.ok(Date.now() - t0 < 2000, `${Date.now() - t0} ms: the SELECT's own limit, not the probe's`)
+  assert.equal(count(commands, 'LOGOUT'), 0, 'the busy connection is closed, no LOGOUT behind the silent SELECT')
+  await new Promise(r => setTimeout(r, 300))
+  assert.equal(closes.n, 1, 'the connection is gone, not left open behind the silent SELECT')
+})
+
+test('custom keywords: a refused login sends no SELECT and gives no keywords; odd flag names are cut to printable ASCII, at most 30', async t => {
+  const commands = []
+  const port = await startImap(t, { user: USER, pass: PASS, select: 'star', commands })
+  const bad = await probeImap(imapAcc(port), 'rossz-jelszo', FAST)
+  assert.deepEqual([bad.ok, bad.keywords], [false, undefined])
+  assert.equal(commands.filter(c => c.startsWith('SELECT')).length, 0)
+  const many = `(${Array.from({ length: 40 }, (_, i) => `$K${i}`).join(' ')} \\*)`
+  const port2 = await startImap(t, { user: USER, pass: PASS, select: many })
+  const res = await probeImap(imapAcc(port2), PASS, FAST)
+  assert.equal(res.keywords.custom, true, 'the \\* is read from the whole list')
+  assert.equal(res.keywords.flags.length, 30)
+  // POP3 has no keywords line
+  const pop = await startPop3(t, { user: USER, pass: PASS })
+  assert.equal((await probePop3(pop3Acc(pop), PASS, FAST)).keywords, undefined)
+})

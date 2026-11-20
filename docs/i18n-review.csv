@@ -248,6 +248,8 @@ signatureImage.error (2);"A kép 1920 x 1080 px, legfeljebb 800 x 400 px lehet."
 probeIncoming;Bejövő;Incoming
 probeSmtp;Kimenő (SMTP);Outgoing (SMTP)
 probeOk;rendben;OK
+probeKeywords (1);Egyéni címkét a szerver: enged (a címkék ennél a fióknál a szerveren tárolódnak);Custom keywords on the server: allowed (this account's labels are stored on the server)
+probeKeywords (2);Egyéni címkét a szerver: enged (a címkék ennél a fióknál a szerveren tárolódnak);Custom keywords on the server: allowed (this account's labels are stored on the server)
 probeErrors.auth_failed;Hibás felhasználónév vagy jelszó.;Wrong user name or password.
 probeErrors.auth_not_offered;A szerver ezen a kapcsolaton nem enged bejelentkezést (titkosítás nélkül a legtöbb szerver nem engedi: válassz SSL/TLS-t vagy STARTTLS-t).;The server does not allow signing in on this connection (most servers do not without encryption: choose SSL/TLS or STARTTLS).
 probeErrors.host_not_found;A szerver nem található (ellenőrizd a szervernevet).;The server was not found (check the server name).
@@ -403,6 +405,7 @@ settingsNav.accounts;Fiókok;Accounts
 settingsNav.appearance;Megjelenés;Appearance
 settingsNav.security;Biztonság;Security
 settingsNav.claude;Claude-hozzáférés;Claude access
+settingsNav.labels;Címkék;Labels
 settingsNav.about;Névjegy;About
 claudeAccess.title;Claude-hozzáférés;Claude access
 claudeAccess.intro;"Bekapcsolva a gépeden futó Claude (Claude Desktop vagy Claude Code) eléri a leveleidet ezen a programon keresztül, amíg a ShadowMail fut és fel van oldva. Kikapcsolva, zárolva vagy bezárt programmal Claude semmit nem ér el.";"When it is on, the Claude running on your computer (Claude Desktop or Claude Code) can reach your mail through this program, while ShadowMail is running and unlocked. When it is off, locked or the program is closed, Claude can reach nothing."
@@ -595,6 +598,17 @@ readerLoadImages;Képek betöltése;Load images
 readerAttachments (1);Mellékletek (1);Attachments (1)
 readerAttachments (2);Mellékletek (2);Attachments (2)
 readerSave;Mentés…;Save…
+readerSaveAll (1);Összes mentése (1);Save all (1)
+readerSaveAll (2);Összes mentése (2);Save all (2)
+readerSavedAll (1);1 fájl mentve.;1 file saved.
+readerSavedAll (2);2 fájl mentve.;2 files saved.
+readerShowInFolder;Megnyitás a mappában;Show in folder
+readerSaveSkipped (1);Kimaradt: szamla.pdf (a neve nem menthető).;Left out: szamla.pdf (its name cannot be saved).
+readerSaveSkipped (2);Kimaradt: szamla.pdf (a neve nem menthető).;Left out: szamla.pdf (its name cannot be saved).
+readerSavedExecutable (1);"A mentett fájlok közt egy futtatható is van: csak akkor indítsd el, ha a feladóban megbízol.";One of the saved files is a program: only run it if you trust the sender.
+readerSavedExecutable (2);"A mentett fájlok közt 2 futtatható is van: csak akkor indítsd el őket, ha a feladóban megbízol.";2 of the saved files are programs: only run them if you trust the sender.
+readerSavedBrowserActive (1);"A mentett fájlok közt egy weboldal-jellegű (HTML, SVG, XML) is van: a böngészőben programot futtathat, csak akkor nyisd meg, ha a feladóban megbízol.";"One of the saved files is web-page-like (HTML, SVG, XML): in a browser it could run a program, so only open it if you trust the sender."
+readerSavedBrowserActive (2);"A mentett fájlok közt 2 weboldal-jellegű (HTML, SVG, XML) is van: a böngészőben programot futtathatnak, csak akkor nyisd meg őket, ha a feladóban megbízol.";"2 of the saved files are web-page-like (HTML, SVG, XML): in a browser they could run a program, so only open them if you trust the sender."
 readerOpen;Megnyitás;Open
 readerExecutable;"Futtatható fájl: csak menteni lehet, megnyitni innen nem.";"Executable file: it can only be saved, not opened from here."
 readerBrowserActive;"Weboldal-jellegű fájl (HTML, SVG, XML): a böngészőben programot futtathatna, ezért csak menteni lehet.";"Web-page-like file (HTML, SVG, XML): in a browser it could run a program, so it can only be saved."
@@ -857,6 +871,7 @@ composeSubject;Tárgy;Subject
 composeBody;A levél szövege;The message text
 composeSuggestions;Címjavaslatok;Address suggestions
 composeFormatting;Formázás;Formatting
+composeFormattingHint;Formázás (a szövegből az eszköztárra: Alt+F10);Formatting (from the text to the toolbar: Alt+F10)
 composeTools.bold;Félkövér;Bold
 composeTools.italic;Dőlt;Italic
 composeTools.underline;Aláhúzott;Underline
@@ -903,6 +918,17 @@ composeDiscardText;A levél és a mentett piszkozata is törlődik.;The message 
 composeAttachmentsLabel (1);Mellékletek (1);Attachments (1)
 composeAttachmentsLabel (2);Mellékletek (2);Attachments (2)
 composeKeptAsDraft;A levél megmaradt a Piszkozatok között.;The message was kept in Drafts.
+composeImageError (1);"A kép nagyobb 10 MB-nál, nem illeszthető be.";The image is over 10 MB and cannot go into the text.
+composeImageError (2);"A kép nagyobb 10 MB-nál, nem illeszthető be.";The image is over 10 MB and cannot go into the text.
+composeImageAttached (1);A kép mellékletként csatolódott: ez a formátum nem illeszthető a szövegbe.;The image was attached as a file: this format cannot go into the text.
+composeImageAttached (2);2 kép mellékletként csatolódott: ez a formátum nem illeszthető a szövegbe.;2 images were attached as files: this format cannot go into the text.
+composeImageMenu.label;Kép mérete;Image size
+composeImageMenu.small;Kicsi (320 px);Small (320 px)
+composeImageMenu.medium;Közepes (640 px);Medium (640 px)
+composeImageMenu.large;Nagy (800 px);Large (800 px)
+composeImageMenu.original;Eredeti méret;Original size
+composeImageMenu.remove;Kép eltávolítása;Remove the image
+composeImageMenu.noEnlarge;"A kép ennél kisebb, nem nagyítható.";"The image is smaller than this; it is not enlarged."
 composeSuspectTitle;ShadowMail;ShadowMail
 composeSuspectText (1);"A levél hibás vagy káros tartalmú lehet: egyetlen, 1 karakternél hosszabb, tördeletlen szövegrészt tartalmaz. Megnyitod a választ az eredeti szöveg idézése nélkül?";The message may be broken or harmful: it contains one unbroken run of text longer than 1 character. Open the reply without quoting the original text?
 composeSuspectText (2);"A levél hibás vagy káros tartalmú lehet: egyetlen, 2 karakternél hosszabb, tördeletlen szövegrészt tartalmaz. Megnyitod a választ az eredeti szöveg idézése nélkül?";The message may be broken or harmful: it contains one unbroken run of text longer than 2 characters. Open the reply without quoting the original text?
@@ -938,6 +964,7 @@ composeError (1);Legalább egy perccel későbbi időpontot válassz.;Choose a t
 composeError (2);Legalább egy perccel későbbi időpontot válassz.;Choose a time at least a minute from now.
 folderMenu.newSub;Új almappa…;New subfolder…
 folderMenu.rename;Átnevezés…;Rename…
+folderMenu.move;Áthelyezés…;Move…
 folderMenu.moveUp;Feljebb;Move up
 folderMenu.moveDown;Lejjebb;Move down
 folderMenu.delete;Törlés…;Delete…
@@ -953,6 +980,56 @@ subscriptions.loading;A szerver mappái betöltődnek…;Loading the server’s 
 subscriptions.roleLocked;"Ez a fiók egyik alapmappája: mindig látszik, nem lehet róla leiratkozni.";This is one of the account’s main folders: it always shows and cannot be unsubscribed.
 subscriptions.kept;a korábbi verzióból megtartva;kept from the earlier version
 subscriptions.close;Kész;Done
+labelsPage.subtitle;"IMAP-fióknál a címke a szerveren tárolódik (kulcsszóként), POP3-nál ezen a gépen. A név, a szín és a sorrend ezen a gépen él; a lista minden fióké.";"On an IMAP account a label is stored on the server (as a keyword), on POP3 on this computer. Name, color and order live on this computer; the list is shared by all accounts."
+labelsPage.add;Új címke;New label
+labelsPage.name;Név;Name
+labelsPage.color;Szín;Color
+labelsPage.create;Létrehozás;Create
+labelsPage.cancel;Mégse;Cancel
+labelsPage.count (1);1 levél;1 message
+labelsPage.count (2);2 levél;2 messages
+labelsPage.renameOf (1);Invoice neve;Name of Invoice
+labelsPage.renameOf (2);Invoice neve;Name of Invoice
+labelsPage.colorOf (1);Invoice színe;Color of Invoice
+labelsPage.colorOf (2);Invoice színe;Color of Invoice
+labelsPage.up (1);Invoice feljebb;Move Invoice up
+labelsPage.up (2);Invoice feljebb;Move Invoice up
+labelsPage.down (1);Invoice lejjebb;Move Invoice down
+labelsPage.down (2);Invoice lejjebb;Move Invoice down
+labelsPage.remove (1);Invoice törlése;Delete Invoice
+labelsPage.remove (2);Invoice törlése;Delete Invoice
+labelsPage.deleteTitle;Címke törlése;Delete the label
+labelsPage.deleteText (1);"A(z) Invoice címke törlése: 1 levélről lekerül, IMAP-fióknál a szerverről is.";"Deleting the label Invoice: it comes off 1 message, on an IMAP account from the server too."
+labelsPage.deleteText (2);"A(z) Invoice címke törlése: 2 levélről lekerül, IMAP-fióknál a szerverről is.";"Deleting the label Invoice: it comes off 2 messages, on an IMAP account from the server too."
+labelsPage.deleteYes;Törlés;Delete
+labelsPage.deleting;Törlés…;Deleting…
+labelsPage.deleteFailed (1);"A címke megmaradt: ennél a fióknál nem sikerült levenni a szerverről: Work. A többi helyről már lekerült; a Törlés újra megpróbálja.";"The label stays: it could not be taken off the server for this account: Work. It is already off everywhere else; Delete tries again."
+labelsPage.deleteFailed (2);"A címke megmaradt: ennél a fióknál nem sikerült levenni a szerverről: Work. A többi helyről már lekerült; a Törlés újra megpróbálja.";"The label stays: it could not be taken off the server for this account: Work. It is already off everywhere else; Delete tries again."
+labelsPage.empty;"Még nincs címke. A levelekre a listából, a jobb gombos menüből vagy az olvasóból teheted fel, vagy hozz létre itt egyet.";"No labels yet. Put one on messages from the list, the right-click menu or the reader, or make one here."
+labels.button;Címke;Label
+labels.menuItem;Címkék…;Labels…
+labels.pickerTitle;Címkék;Labels
+labels.filter;Címke keresése;Find a label
+labels.create (1);Új címke: Invoice;New label: Invoice
+labels.create (2);Új címke: Invoice;New label: Invoice
+labels.manage;Címkék kezelése…;Manage labels…
+labels.remove (1);Invoice címke levétele;Remove the label Invoice
+labels.remove (2);Invoice címke levétele;Remove the label Invoice
+labels.group (1);"Címkék: Invoice, Client";"Labels: Invoice, Client"
+labels.group (2);"Címkék: Invoice, Client";"Labels: Invoice, Client"
+labels.none;"Még nincs címke. Írj be egy nevet, és Enterrel létrehozod.";No labels yet. Type a name and press Enter to make one.
+labels.noMatch;Nincs ilyen címke.;No such label.
+labels.errors.name_taken;Már van ilyen nevű címke.;A label with this name already exists.
+labels.errors.bad_name;A címke neve 1-64 látható karakter lehet.;A label name is 1 to 64 visible characters.
+labels.errors.bad_color;A szín nem megfelelő.;This color cannot be used.
+labels.errors.not_found;A címke közben megszűnt.;The label is gone meanwhile.
+labels.errors.locked;A program zárolva van.;The program is locked.
+labels.errors.too_many;Legfeljebb 1000 címke lehet.;There can be at most 1000 labels.
+labels.error (1);Már van ilyen nevű címke.;A label with this name already exists.
+labels.error (2);Már van ilyen nevű címke.;A label with this name already exists.
+labels.serverError (1);A címke nem változott ennél a fióknál: Work. Ok: a szerver elutasította.;The label did not change for this account: Work. Reason: the server refused it.
+labels.serverError (2);A címke nem változott ennél a fióknál: Work. Ok: a szerver elutasította.;The label did not change for this account: Work. Reason: the server refused it.
+labels.localOnly;A szerver ebben a mappában nem enged címkét: a címke csak ezen a gépen látszik.;The server does not allow labels in this folder: the label is shown on this computer only.
 readerKeys.no_archive;Ebben a fiókban nincs Archívum-mappa: nincs hova archiválni.;This account has no Archive folder: there is nowhere to archive to.
 readerKeys.in_archive;Az Archívumban lévő levél nem archiválható tovább.;A message in the Archive cannot be archived again.
 optionalField;(nem kötelező);(optional)
@@ -976,12 +1053,33 @@ folderErrors.name_has_delimiter;"A név nem tartalmazhat elválasztó karaktert 
 folderErrors.folder_exists;Már van ilyen nevű mappa.;There is already a folder with this name.
 folderErrors.role_folder;Ez a fiók egyik alapmappája: nem lehet róla leiratkozni.;This is one of the account’s main folders: it cannot be unsubscribed.
 folderErrors.protected_folder;Ez a fiók egyik alapmappája: nem nevezhető át és nem törölhető.;This is one of the account’s standard folders: it cannot be renamed or deleted.
+folderErrors.protected_subfolder;"A mappa alatt a fiók egyik alapmappája van (pl. Archívum vagy Elküldött), ezért nem nevezhető át és nem helyezhető át. Előbb válassz másik mappát erre a szerepre a fiók beállításaiban (Mappák).";"One of the account’s standard folders (e.g. Archive or Sent) is inside this folder, so it cannot be renamed or moved. First choose another folder for that role in the account settings (Folders)."
 folderErrors.has_children;A mappának almappái vannak: előbb azokat töröld.;The folder has subfolders: delete those first.
 folderErrors.no_subfolders;Ez a szerver nem támogat almappákat.;This server does not support subfolders.
+folderErrors.bad_target;"Ide nem helyezhető át: önmagába, a saját almappájába vagy a mostani helyére nem lehet.";"It cannot be moved there: not into itself, one of its own subfolders, or where it is now."
+folderErrors.trash_target;A Kukába és a Levélszemétbe (és alájuk) mappa nem helyezhető át.;A folder cannot be moved into the Trash or the Junk folder (or under them).
 folderErrors.confirm_needed;A törléshez megerősítés kell.;Deleting needs a confirmation.
 folderErrors.order_mismatch;"A mappák vagy fiókok közben megváltoztak, a sorrend nem mentődött. Próbáld újra.";"The folders or accounts changed in the meantime, the order was not saved. Try again."
 folderError (1);"Érvénytelen név (üres, túl hosszú, vagy tiltott karaktert tartalmaz: % * "" \).";"Invalid name (empty, too long, or it contains a forbidden character: % * "" \)."
 folderError (2);"Érvénytelen név (üres, túl hosszú, vagy tiltott karaktert tartalmaz: % * "" \).";"Invalid name (empty, too long, or it contains a forbidden character: % * "" \)."
+moveFolderTitle;Mappa áthelyezése;Move folder
+folderMoveYes;Áthelyezés;Move
+moveDialog.title (1);„Projects” áthelyezése;Move “Projects”
+moveDialog.title (2);„Projects” áthelyezése;Move “Projects”
+moveDialog.topLevel (1);Felső szint (Work);Top level (Work)
+moveDialog.topLevel (2);Felső szint (Work);Top level (Work)
+moveDialog.help;"Válaszd ki, hova kerüljön (Fel/Le nyíl, Enter). A halvány helyekre nem helyezhető, mellettük az ok.";"Choose where it goes (Up/Down arrows, Enter). The dimmed places cannot take it; the reason is next to them."
+moveDialog.listLabel;Cél;Target
+moveDialog.ok;Tovább;Next
+moveDialog.reasons.flat;ez a szerver nem enged almappát;this server does not allow subfolders
+moveDialog.reasons.role;alatta a fiók egyik alapmappája van;one of the account’s standard folders is inside it
+moveDialog.reasons.top;már a felső szinten van;it is at the top level already
+moveDialog.reasons.missing;"nem valódi mappa, csak a fa jelzi";"not a real folder, only shown in the tree"
+moveDialog.reasons.self;önmaga vagy a saját almappája;itself or one of its subfolders
+moveDialog.reasons.parent;most is itt van;it is here already
+moveDialog.reasons.trash;a Kukába és a Levélszemétbe nem;not into the Trash or the Junk folder
+confirmFolderMove (1);"„Projects” áthelyezése ide: „Archive”, 1 almappával.";"Move “Projects” into “Archive”, with 1 subfolder."
+confirmFolderMove (2);"„Projects” áthelyezése ide: „Archive”, 2 almappával.";"Move “Projects” into “Archive”, with 2 subfolders."
 searchLabel;Keresés;Search
 searchPlaceholder;Keresés minden levélben (ékezet nélkül is)…;Search all messages (accents optional)…
 searchFiltersButton;Szűrők;Filters
@@ -1001,8 +1099,10 @@ searchFilter.until;Dátumig;To date
 searchFilter.hasAttachment;Van melléklet;Has attachment
 searchFilter.unread;Olvasatlan;Unread
 searchFilter.flagged;Csillagos;Starred
+searchFilter.label;Címke;Label
 searchFilter.sort;Rendezés;Sort
 searchAllAccounts;Minden fiók;All accounts
+searchAnyLabel;Mind;All
 searchAllFolders;Minden mappa;All folders
 searchSort.relevance;Relevancia;Relevance
 searchSort.date;Dátum;Date

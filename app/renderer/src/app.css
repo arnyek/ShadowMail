@@ -472,6 +472,15 @@ main.app > .error {
   bottom: -1px;
 }
 
+/* a dragged folder goes INTO this folder (or to the top level on the account head): the row framed in the accent colour
+   of every theme (a line means the manual order) */
+.folder-tree li.drop-into > .folder,
+.folder-tree .account-head.drop-into {
+  outline: 2px solid var(--c-accent);
+  outline-offset: -2px;
+  border-radius: var(--radius-s);
+}
+
 .folder-tree .folder {
   display: flex;
   box-sizing: border-box;
@@ -970,6 +979,14 @@ main.app > .error {
   align-self: center;
 }
 
+/* The narrowest reader (360 px: the list at its widest beside it in an 860 px window) has more icons than 40 px slots
+   since the label icon came in: the icons may give a little width, down to the compact theme's 32 px, instead of the
+   row running out of the toolbar. A wide reader is unchanged (nothing to give). */
+.reader-tools .icon-btn {
+  flex: 0 1 var(--icon-btn);
+  min-width: 32px;
+}
+
 .reader-header {
   padding: var(--space-4) var(--space-5) var(--space-3);
 }
@@ -1072,6 +1089,22 @@ main.app > .error {
 .reader-thread ol {
   margin: 0;
   padding-left: 18px;
+}
+
+/* the attachment heading with "Összes mentése (N)" beside it */
+.reader-attachments-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.reader-attachments-head > .btn {
+  align-self: center;
+}
+.save-all-result p {
+  margin: 0 0 var(--space-1);
+}
+.save-all-result .save-all-show {
+  margin-left: var(--space-2);
 }
 
 .reader-attachments ul {
@@ -1409,6 +1442,271 @@ main.app > .error {
 }
 
 /* the small "Claude" mark on a draft Claude made (the Drafts list, search hits) */
+/* 0.17.0 labels: the chips in a row (at most 3 + "+N", before the subject) and in the reader (all, with an x).
+   The chip's own background is the label's color, its text black or white by contrast (label-chips.js). The row's
+   height does not change: the chip is 16 px high in every density. */
+.label-chips {
+  display: inline-flex;
+  gap: var(--space-1);
+  align-items: center;
+  margin-right: var(--space-2);
+  vertical-align: middle;
+}
+
+.label-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  max-width: 100%;
+  height: 16px;
+  padding: 0 6px;
+  border-radius: 8px;
+  font-size: 11px;
+  font-weight: var(--fw-normal);
+  line-height: 16px;
+  white-space: nowrap;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, currentColor 15%, transparent);
+}
+
+/* The label group's form by the width of the row's text cell (.col-main: the cell after the search hit's account /
+   folder tag, its own container msg-text; the list row and the search hit both). THE THREE THRESHOLDS LIVE HERE (a var() cannot stand in a @container condition);
+   label-chips.js LABEL_FIT repeats them and test/label-fit.test.js checks the two agree.
+     >= 240 px: chips, at most 3, the group at most half of the cell (the subject keeps >= 120 px, the --subject-min),
+                the chips shrink to 24 px with the name cut by an ellipsis, a chip is never cut
+     90-239 px: up to 3 dots (8 px, 2 px apart) + "+N"
+     52-89 px:  1 dot + "+N" (the rest after the first)
+     < 52 px:   nothing in the cell (1 dot + "+3" is 26 px: the subject keeps half from 52 px on); the cell's tooltip and a hidden text name the labels */
+.msg-row .col-text,
+.result-open .col-text {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.col-text > .tag,
+.col-text > .badge {
+  flex: none;
+}
+
+.col-main {
+  flex: 1 1 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  container: msg-text / inline-size;
+}
+
+.label-chips {
+  max-width: 50%;
+  vertical-align: middle;
+}
+
+.label-chips .label-chip {
+  flex: 0 1 auto;
+  min-width: 24px;
+}
+
+.label-chip-more {
+  flex: none;
+}
+
+.label-more-1,
+.label-chips-none {
+  display: none;
+}
+
+@container msg-text (width < 240px) {
+  .label-chips {
+    max-width: none;
+    flex-shrink: 0;
+    gap: 1px;
+    margin-right: 2px;
+  }
+
+  .label-chips .label-chip-more {
+    font-size: 10px;
+  }
+
+  /* the dot: 8 px of the label's color in a 1 px ring of the theme's secondary text color, which stands out from the
+     row (plain and selected) in every theme; a mid-tone label color alone does not on a dark row (WCAG 1.4.11; the
+     theme-contrast test measures fill and ring on every theme) */
+  .label-chips .label-chip {
+    flex: none;
+    width: 8px;
+    min-width: 0;
+    height: 8px;
+    padding: 0;
+    border-radius: 4px;
+    box-shadow: inset 0 0 0 1px var(--c-text-2);
+  }
+
+  .label-chips .label-chip-name {
+    display: none;
+  }
+}
+
+@container msg-text (width < 90px) {
+  .label-chips .label-chip:nth-child(n + 2),
+  .label-chips .label-more-3 {
+    display: none;
+  }
+
+  .label-chips .label-more-1 {
+    display: inline;
+  }
+}
+
+@container msg-text (width < 52px) {
+  .label-chips {
+    display: none;
+  }
+
+  .label-chips-none {
+    display: inline;
+  }
+}
+
+.label-chip-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.label-chip-more {
+  color: var(--c-text-2);
+  font-size: 11px;
+  font-weight: var(--fw-normal);
+}
+
+.reader-labels {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  align-items: center;
+  margin: calc(-1 * var(--space-2)) 0 var(--space-3);
+}
+
+.reader-labels .label-chip {
+  height: 24px;
+  padding: 0 4px 0 8px;
+  border-radius: 12px;
+  font-size: var(--fs-s);
+  line-height: 24px;
+}
+
+/* align-self: the global `button` rule's flex-start would put the x at the chip's top edge (2 px above its centre) */
+.label-chip-remove {
+  display: inline-flex;
+  align-self: center;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
+.label-chip-remove:hover,
+.label-chip-remove:focus-visible {
+  background: color-mix(in srgb, currentColor 25%, transparent);
+}
+
+.label-chip-remove .icon {
+  width: 14px;
+  height: 14px;
+}
+
+/* Beállítások / Címkék */
+.labels-list {
+  margin: 0;
+  padding: var(--space-2) var(--space-4);
+  list-style: none;
+}
+
+.labels-row {
+  display: grid;
+  grid-template-columns: 14px minmax(0, 1fr) auto 40px repeat(3, var(--icon-btn));
+  gap: var(--space-2);
+  align-items: center;
+  min-height: 48px;
+  border-bottom: 1px solid var(--c-border);
+}
+
+.labels-row:focus-visible {
+  outline: 2px solid var(--c-accent);
+  outline-offset: -2px;
+}
+
+.labels-row:last-child {
+  border-bottom: 0;
+}
+
+.labels-row-name .labels-name {
+  width: 100%;
+  max-width: 420px;
+}
+
+.labels-count {
+  color: var(--c-text-2);
+  font-size: var(--fs-s);
+  white-space: nowrap;
+}
+
+.labels-color {
+  width: 36px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius-s);
+  background: var(--c-bg);
+}
+
+.labels-new {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  align-items: flex-end;
+  padding: var(--space-4);
+}
+
+.labels-new-color {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.labels-new-actions {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.label-picker .label-picker-list {
+  max-height: 320px;
+  margin: var(--space-2) 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.label-picker-item {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+  min-height: 32px;
+}
+
+.label-swatch {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  border: 1px solid;
+  border-radius: 7px;
+}
+
 .claude-mark {
   margin-right: var(--space-2);
   padding: 0 6px;
@@ -1618,6 +1916,9 @@ main.app > .error {
   background: var(--c-bg);
   outline: none;
 }
+/* a pasted image: at most the editor's width (the sent HTML gets width="800" above 800 px, the main process) */
+.editor img { max-width: 100%; height: auto; }
+.compose-info { margin: 0; padding: var(--space-2) var(--space-4); color: var(--c-text-2); font-size: var(--fs-s); }
 
 .editor blockquote {
   margin: 0 0 0 var(--space-2);
@@ -2554,6 +2855,29 @@ section.contacts {
 .subscriptions-error {
   margin-top: var(--space-3);
 }
+/* "Áthelyezés…": the folder menu's target list (MoveFolderDialog.jsx), a listbox scrolling inside the Modal */
+.move-targets {
+  max-height: min(420px, calc(100vh - 260px));
+  margin: var(--space-3) 0 0;
+  padding: var(--space-1);
+  overflow-y: auto;
+  list-style: none;
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius-s, 4px);
+}
+.move-targets:focus-visible { outline: 2px solid var(--c-accent); outline-offset: 2px; }
+.move-target {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  min-height: 28px;
+  padding: var(--space-1) var(--space-2) var(--space-1) calc(var(--space-2) + var(--depth, 0) * var(--space-4));
+  border-radius: var(--radius-s, 4px);
+  cursor: default;
+}
+.move-target.active { background: var(--c-accent-soft); box-shadow: inset 2px 0 0 var(--c-accent); }
+.move-target.disabled .move-target-name { color: var(--c-text-2); }
+.move-target-why { color: var(--c-text-2); font-size: var(--fs-s); }
 /* a page header inside the settings card column: the column gap already separates it from the first card */
 .settings-cards > .page-head { margin-bottom: 0; }
 

@@ -45,6 +45,24 @@ const OLD_DATE = new Date(2008, 0, 28, 9, 0).getTime()
 }
 const esc = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 
+// a context menu opened on <loc> at a point of the window (x, y; negative = from the right / bottom edge): its box
+const menuAt = async (page, loc, x, y) => {
+  await loc.evaluate((el, [px, py]) => {
+    const cx = px < 0 ? innerWidth + px : px
+    const cy = py < 0 ? innerHeight + py : py
+    el.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, button: 2, clientX: cx, clientY: cy }))
+  }, [x, y])
+  const menu = page.getByRole('menu')
+  await menu.waitFor()
+  const r = await menu.evaluate(el => { const b = el.getBoundingClientRect(); return { left: b.left, top: b.top, right: b.right, bottom: b.bottom, w: innerWidth, h: innerHeight } })
+  await page.keyboard.press('Escape')
+  await menu.waitFor({ state: 'detached' })
+  return r
+}
+// at the bottom-right corner (2 px in): inside the window, its bottom-right corner at the point (opened up and left)
+const cornerOk = r => r.left >= 0 && r.top >= 0 && r.right <= r.w && r.bottom <= r.h && Math.abs(r.right - (r.w - 2)) <= 1 && Math.abs(r.bottom - (r.h - 2)) <= 1
+// at a point with room: its top-left corner at the point
+const pointOk = (r, x, y) => Math.abs(r.left - x) <= 1 && Math.abs(r.top - y) <= 1
 const results = []
 const check = (name, ok, detail = '') => {
   results.push(Boolean(ok))
@@ -266,6 +284,10 @@ try {
   await page.getByRole('menu').waitFor({ state: 'detached' })
   await page.waitForTimeout(100)
   check('context menu closed with Esc: the focus is on the list again', await page.evaluate(() => document.activeElement?.classList.contains('msg-viewport')))
+  // the row's menu stays inside the window: at the bottom-right corner it opens up and left, with room at the point
+  const rowCorner = await menuAt(page, page.locator('.msg-row[data-id]').nth(2), -2, -2)
+  const rowPoint = await menuAt(page, page.locator('.msg-row[data-id]').nth(2), 400, 200)
+  check('the row menu: at the window corner up and left, inside; with room at the point', cornerOk(rowCorner) && pointOk(rowPoint, 400, 200), JSON.stringify({ rowCorner, rowPoint }))
   await page.locator('.select-all input').click() // the right click selected the row
   await page.locator('.list-tools').waitFor()
   // hover: the quick actions take the date's place
@@ -317,6 +339,13 @@ try {
   await box.fill('ajánlat')
   await page.locator('.result').first().waitFor()
   await page.waitForTimeout(300)
+  // the field's buttons (filters, clear) and its magnifier on the field's centre line
+  const centres = await page.evaluate(() => {
+    const mid = el => { const b = el.getBoundingClientRect(); return b.top + b.height / 2 }
+    const f = document.querySelector('.search-bar .search-field')
+    return { field: mid(f), parts: [f.querySelector(':scope > svg'), ...f.querySelectorAll(':scope > .icon-btn')].map(mid) }
+  })
+  check('the search field: the magnifier, the clear and the filters button on its centre line', centres.parts.length === 3 && centres.parts.every(c => Math.abs(c - centres.field) <= 0.5), JSON.stringify(centres))
   const allHits = await page.locator('.result').count()
   await unreadChip.click()
   await page.waitForFunction(n => document.querySelectorAll('.result').length > 0 && document.querySelectorAll('.result').length < n, allHits)

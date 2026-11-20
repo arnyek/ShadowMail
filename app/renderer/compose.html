@@ -1,0 +1,24 @@
+<!doctype html>
+<!-- SPDX-License-Identifier: GPL-3.0-or-later -->
+<!--
+  The composer window's own page: the same app as index.html (src/main.jsx picks the composer by #compose=<session>),
+  with ONE difference in its policy, the style-src hash. MEASURED (Electron 45.3.0): the editor's own commands that put
+  an image into the text (insertHTML, insertImage) write one constant inline style each time on an element of their own
+  (none is left in the text), and style-src 'self' reported it on the console at every pasted image. Only this exact
+  style text is allowed ('unsafe-hashes' with its hash); no other inline style is. The main window (index.html) and a
+  received message's frame (mail-view:, its own policy) keep style-src 'self' only. test/compose-csp.test.js holds the
+  two pages to this, test/e2e/paste-image-e2e.mjs measures that no policy line shows (a Chromium that changes the style
+  text makes it red).
+-->
+<html lang="hu">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy"
+    content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-hashes' 'sha256-fFC89QmtxDk/dIQSVl8wDRNRgE5CdR0b9SsBNcFgSGg='; img-src 'self' data: sig-img: inl-img:; font-src 'self'; connect-src 'none'; base-uri 'none'; form-action 'none'; frame-src mail-view:; object-src 'none'">
+  <title>ShadowMail</title>
+</head>
+<body>
+  <div id="root"></div>
+  <script type="module" src="./src/main.jsx"></script>
+</body>
+</html>

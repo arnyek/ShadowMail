@@ -145,9 +145,13 @@ try {
       return s && s.url.includes(new URL(LINKS.find(l => l[0] === id)[2]).hostname)
     })
   }
+  // a non-link spot INSIDE the frame: the middle of the link-less paragraph, scrolled into view first (since the reader
+  // header holds the label row the frame is lower, and a fixed offset below it fell out of the frame: leaving the frame
+  // straight from a link sends no '', the known limit, and the bar stayed)
   const offLink = async () => {
+    await frame.locator('#empty').scrollIntoViewIfNeeded()
     const box = await frame.locator('#empty').boundingBox()
-    await page.mouse.move(box.x + box.width / 2, box.y + 30)
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
   }
 
   // 1. same registered domain: the real target, no warning

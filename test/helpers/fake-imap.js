@@ -72,6 +72,8 @@ export class FakeImapServer {
     this.statusLog = [] // { path, query }
     this.refuseStatus = new Set() // paths whose STATUS is answered NO
     this.refuseOps = new Set() // 'flags+', 'flags-', 'move', 'expunge': answered NO (imapflow: false)
+    this.renameKeepsUidValidity = false // true: like the measured live server (a RENAME keeps the UIDVALIDITY)
+    this.afterList = null // async () => {}: awaited after a LIST answer is made (a change racing the caller's LIST)
   }
 
   /** Like ImapFlow#connect(): resolves with a connected client or fails as a real server would. */
@@ -108,8 +110,9 @@ export class FakeImapServer {
 
   // specialUseSource: 'extension' = the server sent the flag (the default when there is one); 'name' = imapflow's
   // guess from the folder name on a server without SPECIAL-USE (the real list() reports both the same way)
-  addMailbox(path, { uidValidity = 1, specialUse = null, specialUseSource = specialUse ? 'extension' : undefined } = {}) {
-    this.mailboxes.set(path, { path, uidValidity, specialUse, specialUseSource, messages: new Map(), nextUid: 1 })
+  // permanentFlags: the SELECT's PERMANENTFLAGS (default: the system flags and \*, as Dovecot; null = the server sends none)
+  addMailbox(path, { uidValidity = 1, specialUse = null, specialUseSource = specialUse ? 'extension' : undefined, permanentFlags = ['\\Answered', '\\Flagged', '\\Deleted', '\\Seen', '\\Draft', '\\*'] } = {}) {
+    this.mailboxes.set(path, { path, uidValidity, specialUse, specialUseSource, permanentFlags, messages: new Map(), nextUid: 1 })
     return this
   }
 
@@ -205,7 +208,7 @@ class FakeImapClient extends EventEmitter {
 
   async list() {
     const d = this.server.delimiter
-    return [...this.server.mailboxes.values()].map(mb => ({
+    const listed = [...this.server.mailboxes.values()].map(mb => ({
       path: mb.path,
       name: mb.path.split(d).pop(),
       delimiter: d,
@@ -217,6 +220,9 @@ class FakeImapClient extends EventEmitter {
       // with NO): true for every folder
       ...(!this.server.subscriptionsKnown || this.server.subscribed.has(mb.path) || mb.path.toUpperCase() === 'INBOX' ? { subscribed: true } : {}),
     }))
+    // a test hook: runs after the answer is made, before it reaches the caller (a change the caller's LIST does not show)
+    if (this.server.afterList) await this.server.afterList()
+    return listed
   }
 
   /** STATUS (MESSAGES only); every call is in server.statusLog. refuseStatus: answered like a NO (imapflow throws). */
@@ -235,6 +241,8 @@ class FakeImapClient extends EventEmitter {
     this.server.openLog.push({ path, readOnly, via: 'lock' })
     const uids = [...mb.messages.keys()]
     this.mailbox = { path, uidValidity: BigInt(mb.uidValidity), exists: uids.length, highestModseq: null, readOnly }
+    // like imapflow: a Set on SELECT (read-write) when the server sent PERMANENTFLAGS
+    if (!readOnly && mb.permanentFlags) this.mailbox.permanentFlags = new Set(mb.permanentFlags)
     return { release: () => {} }
   }
 
@@ -330,6 +338,11 @@ class FakeImapClient extends EventEmitter {
     const uids = this._uids(range, byUid)
     const mb = this.server.mailboxes.get(this.mailbox.path)
     if (this.server.refuseOps.has('flags+')) return false
+    // imapflow's canUseFlag: a flag the PERMANENTFLAGS do not allow (exact spelling) is dropped with a warning only, and
+    // with nothing left the call is false, no command sent
+    const perm = this.mailbox.permanentFlags
+    flags = flags.filter(f => !perm || perm.has('\\*') || perm.has(f))
+    if (!flags.length) return false
     this.server.actionLog.push({ op: 'flags+', path: mb.path, uids, flags })
     let any = false
     for (const u of uids) {
@@ -429,7 +442,14 @@ class FakeImapClient extends EventEmitter {
       if (p !== f && !p.startsWith(f + d)) continue
       const np = t + p.slice(f.length)
       this.server.mailboxes.delete(p)
-      this.server.mailboxes.set(np, { ...mb, path: np, uidValidity: mb.uidValidity + 1000 })
+      this.server.mailboxes.set(np, { ...mb, path: np, uidValidity: this.server.renameKeepsUidValidity ? mb.uidValidity : mb.uidValidity + 1000 })
+    }
+    if (this.server.renameCarriesSubscriptions) {
+      for (const s of [...this.server.subscribed]) {
+        if (s !== f && !s.startsWith(f + d)) continue
+        this.server.subscribed.delete(s)
+        this.server.subscribed.add(t + s.slice(f.length))
+      }
     }
     this.server.actionLog.push({ op: 'rename', path: f, to: t })
     return { path: f, newPath: t }

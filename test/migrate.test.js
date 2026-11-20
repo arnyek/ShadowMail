@@ -135,8 +135,8 @@ test('MCP settings: a v3 database (0.10.1) migrates to 4: the settings table is 
   }
 })
 
-test('the migration list: 1..14 without a gap or a repeat; 6 the signature image, 7 the partial unread index, 8 the folder order, 9 the folder role, 10 the chosen role, 11 the archive mode, 12 the kept folders, 13 the scheduled messages, 14 the Bcc recipients', () => {
-  assert.deepEqual(MIGRATIONS.map(m => m.version), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14])
+test('the migration list: 1..15 without a gap or a repeat; 6 the signature image, 7 the partial unread index, 8 the folder order, 9 the folder role, 10 the chosen role, 11 the archive mode, 12 the kept folders, 13 the scheduled messages, 14 the Bcc recipients, 15 the labels', () => {
+  assert.deepEqual(MIGRATIONS.map(m => m.version), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17])
   assert.match(MIGRATIONS[5].name, /signature image/)
   assert.match(MIGRATIONS[6].name, /partial index of the unread rows/)
   assert.match(MIGRATIONS[6].up.toString(), /CREATE INDEX idx_messages_unread ON messages \(account_id, folder\) WHERE instr\(flags, '\\\\Seen'\) = 0/)
@@ -155,9 +155,11 @@ test('the migration list: 1..14 without a gap or a repeat; 6 the signature image
   assert.match(MIGRATIONS[12].up.toString(), /CREATE TABLE scheduled/)
   assert.match(MIGRATIONS[13].name, /Bcc recipients/)
   assert.match(MIGRATIONS[13].up.toString(), /ALTER TABLE messages ADD COLUMN bcc_addrs TEXT'/)
+  assert.match(MIGRATIONS[14].name, /labels/)
+  assert.match(MIGRATIONS[14].up.toString(), /ALTER TABLE messages ADD COLUMN label_key TEXT;/)
 })
 
-test('a schema 7 database migrates to the latest (8 .. 14): the .bak-7 is made, every folder has no manual order, the folder trees and the account list are byte for byte the old ones', t => {
+test('a schema 7 database migrates to the latest (8 .. 17): the .bak-7 is made, every folder has no manual order, the folder trees and the account list are byte for byte the old ones', t => {
   const dir = tempDir(t)
   const file = path.join(dir, 'mail.sqlite')
   const key = Buffer.alloc(32, 7)
@@ -186,7 +188,7 @@ test('a schema 7 database migrates to the latest (8 .. 14): the .bak-7 is made, 
 
   const { db, migration } = openMailDatabase(file, { key })
   try {
-    assert.deepEqual(migration, { from: 7, to: 14, backup: backupPath(file, 7) })
+    assert.deepEqual(migration, { from: 7, to: 17, backup: backupPath(file, 7) })
     assert.ok(fs.existsSync(`${file}.bak-7`), 'the pre-migration copy')
     assert.equal(db.prepare('SELECT COUNT(*) FROM folders WHERE sort_order IS NOT NULL').pluck().get(), 0, 'no manual order anywhere')
     assert.equal(db.prepare('SELECT COUNT(*) FROM folders').pluck().get(), 25)
@@ -211,7 +213,7 @@ test('a schema 7 database migrates to the latest (8 .. 14): the .bak-7 is made, 
   }
 })
 
-test('a 0.12.0 database (schema 5, encrypted) migrates to the latest: the .bak-5 is made, 6 to 14 are applied, the data stays', t => {
+test('a 0.12.0 database (schema 5, encrypted) migrates to the latest: the .bak-5 is made, 6 to 17 are applied, the data stays', t => {
   const dir = tempDir(t)
   const file = path.join(dir, 'mail.sqlite')
   const key = Buffer.alloc(32, 9)
@@ -223,7 +225,7 @@ test('a 0.12.0 database (schema 5, encrypted) migrates to the latest: the .bak-5
   old.close()
   const { db, migration } = openMailDatabase(file, { key })
   try {
-    assert.deepEqual(migration, { from: 5, to: 14, backup: backupPath(file, 5) })
+    assert.deepEqual(migration, { from: 5, to: 17, backup: backupPath(file, 5) })
     assert.ok(fs.existsSync(`${file}.bak-5`), 'the pre-migration copy')
     assert.ok(db.prepare("SELECT name FROM pragma_table_info('accounts')").pluck().all().includes('signature_image'), 'migration 6')
     assert.equal(db.prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'idx_messages_unread'").pluck().get(), 'idx_messages_unread', 'migration 7')
@@ -236,6 +238,10 @@ test('a 0.12.0 database (schema 5, encrypted) migrates to the latest: the .bak-5
     // migration 14: the old rows' Bcc is not known (NULL), the sync fills only the Sent / Drafts rows that need it
     assert.ok(db.prepare("SELECT name FROM pragma_table_info('messages')").pluck().all().includes('bcc_addrs'), 'migration 14')
     assert.equal(db.prepare('SELECT COUNT(*) FROM messages WHERE bcc_addrs IS NOT NULL').pluck().get(), 0, 'migration 14: unknown')
+    // migration 15: every old row has its label key (no Message-ID here: the h: fallback), no label yet
+    assert.equal(db.prepare('SELECT COUNT(*) FROM messages WHERE label_key IS NULL').pluck().get(), 0, 'migration 15')
+    assert.equal(db.prepare("SELECT COUNT(*) FROM messages WHERE label_key LIKE 'h:%'").pluck().get(), 6, 'migration 15: the fallback key')
+    assert.equal(db.prepare('SELECT COUNT(*) FROM labels').pluck().get(), 0, 'migration 15: no label')
   } finally {
     db.close()
   }
@@ -249,7 +255,7 @@ test('a 0.12.0 database (schema 5, encrypted) migrates to the latest: the .bak-5
 
 test('migration 13: the scheduled table is empty after the upgrade, its account goes with the account (CASCADE), the due index is there', t => {
   const { db } = memoryIndex(t)
-  assert.equal(currentVersion(db), 14)
+  assert.equal(currentVersion(db), MIGRATIONS.length)
   assert.equal(db.prepare('SELECT count(*) AS n FROM scheduled').get().n, 0)
   const acc = addAccount(db).id
   db.prepare("INSERT INTO scheduled (account_id, send_at, created_at, payload_path) VALUES (?, 1, 1, 'x')").run(acc)

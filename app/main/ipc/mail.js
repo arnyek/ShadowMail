@@ -29,8 +29,9 @@ export function listSortFor(index, accountId, folder, sort) {
  * @param store    AccountStore
  * @param index    MailIndex
  * @param manager  SyncManager (status, syncNow)
+ * @param labels   Labels (core/db/labels.js): every list row gets its `labels: [label id]` (one query per page); null = none
  */
-export function registerMailIpc({ ipcMain, store, index, manager, isTrustedSender, log = () => {}, onUserSync = () => {} }) {
+export function registerMailIpc({ ipcMain, store, index, manager, labels = null, isTrustedSender, log = () => {}, onUserSync = () => {} }) {
   const handle = (channel, fn) =>
     ipcMain.handle(channel, async (event, ...args) => {
       if (!isTrustedSender(event)) return { ok: false, error: 'untrusted_sender' }
@@ -60,10 +61,13 @@ export function registerMailIpc({ ipcMain, store, index, manager, isTrustedSende
     const filter = parseListFilter(q.filter)
     if (!filter) throw new BadRequest()
     const folderTotal = index.countFolder(q.accountId, q.folder)
+    // the filtered count first: the page uses it to pick the label filter's cheaper side
+    const total = listFilterSql(filter).shape ? index.countFolder(q.accountId, q.folder, filter) : folderTotal
+    const rows = index.listFolder({ accountId: q.accountId, folder: q.folder, sort: listSortFor(index, q.accountId, q.folder, sort), dir, offset, limit, filter, matches: total })
     return {
-      total: listFilterSql(filter).shape ? index.countFolder(q.accountId, q.folder, filter) : folderTotal,
+      total,
       folderTotal,
-      rows: index.listFolder({ accountId: q.accountId, folder: q.folder, sort: listSortFor(index, q.accountId, q.folder, sort), dir, offset, limit, filter }),
+      rows: labels ? labels.attach(rows) : rows,
     }
   })
 

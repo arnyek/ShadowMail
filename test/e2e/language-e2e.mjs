@@ -83,6 +83,9 @@ const chooseLanguage = async (page, from, to, label) => {
   await page.waitForFunction(lang => document.documentElement.lang === lang && document.querySelector('header.app-header'), to, { timeout: 20_000 })
 }
 const settingsTabs = page => page.locator('.settings-tab').allInnerTexts()
+// the tabs in the interface's order (App.jsx: Labels after Appearance), not the dictionary's key order
+const TAB_ORDER = ['accounts', 'appearance', 'labels', 'security', 'claude', 'about']
+const tabNames = dict => TAB_ORDER.map(k => dict.settingsNav[k])
 
 let app = null
 try {
@@ -113,7 +116,7 @@ try {
   check('data\\ui.json holds the choice', uiJson() === '{"language":"en"}', String(uiJson()))
   check('after the reload: Beállítások / Megjelenés again, the vault still open', (await page.locator('.settings-appearance').count()) === 1 && (await page.locator('#vault-unlock').count()) === 0 && (await page.locator('.settings-tab[aria-current="page"]').innerText()) === en.settingsNav.appearance)
   check('the language menu shows English', (await page.locator('#ui-language').innerText()).trim() === en.languageOptions.en)
-  check('the settings menu is English', JSON.stringify(await settingsTabs(page)) === JSON.stringify(Object.values(en.settingsNav)), JSON.stringify(await settingsTabs(page)))
+  check('the settings menu is English', JSON.stringify(await settingsTabs(page)) === JSON.stringify(tabNames(en)), JSON.stringify(await settingsTabs(page)))
   check('header buttons are English', (await page.getByRole('button', { name: en.viewSettings, exact: true }).count()) === 1 && (await page.getByRole('button', { name: en.vaultLockButton, exact: true }).count()) === 1 && (await page.getByRole('button', { name: en.viewContacts, exact: true }).count()) === 1)
   await page.getByRole('button', { name: en.backToMail }).click()
   await page.locator('.list-count[data-total="3"]').waitFor({ timeout: 20_000 })
@@ -163,7 +166,7 @@ try {
   // 4. back to Hungarian
   await chooseLanguage(page, en, 'hu', en.languageOptions.hu)
   check('back to Magyar: data\\ui.json says hu', uiJson() === '{"language":"hu"}', String(uiJson()))
-  check('back to Magyar: the settings menu is Hungarian', JSON.stringify(await settingsTabs(page)) === JSON.stringify(Object.values(hu.settingsNav)))
+  check('back to Magyar: the settings menu is Hungarian', JSON.stringify(await settingsTabs(page)) === JSON.stringify(tabNames(hu)))
   check('back to Magyar: header buttons are Hungarian', (await page.getByRole('button', { name: hu.viewSettings, exact: true }).count()) === 1 && (await page.getByRole('button', { name: hu.vaultLockButton, exact: true }).count()) === 1)
   await page.getByRole('button', { name: hu.backToMail }).click()
   await page.locator('.list-count[data-total="3"]').waitFor({ timeout: 20_000 })

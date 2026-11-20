@@ -70,7 +70,7 @@ test('test_account: stopped 0, locked after auth_failed 0, within 60 s 0; the us
   s.pw.incoming = 'jo-pop'
   const second = await s.call()
   assert.equal(second.isError, false)
-  assert.deepEqual(second._meta['shadowmail/data'], { incoming: { ok: true, error: null }, smtp: { ok: true, error: null } })
+  assert.deepEqual(second._meta['shadowmail/data'], { incoming: { ok: true, error: null }, smtp: { ok: true, error: null }, custom_keywords: null }, 'POP3: no keywords')
   const afterSecond = s.attempts()
   assert.ok(afterSecond > afterFirst)
 
@@ -84,4 +84,47 @@ test('test_account: stopped 0, locked after auth_failed 0, within 60 s 0; the us
   const third = await s.call()
   assert.equal(third.isError, false)
   assert.ok(s.attempts() > afterSecond, 'after 60 s it tries again')
+})
+
+test('0.17.0 test_account: custom_keywords true / false / null from the IMAP probe, in the text too; the log line without host and user', async () => {
+  const row = {
+    id: 1, type: 'imap', name: 'I', email: 'i@example.invalid', display_name: '', in_host: 'imap.titkos-szerver.invalid', in_port: 993, in_security: 'tls', in_user: 'titkos-felhasznalo-77',
+    smtp_host: 'smtp.titkos-szerver.invalid', smtp_port: 465, smtp_security: 'tls', smtp_user: 'titkos-felhasznalo-77', smtp_same_password: 1, tls_verify: 1,
+    index_years: 3, sync_interval_min: 15, save_sent_to_server: 1, pop3_delete_after_days: 0, signature: '',
+  }
+  const store = { list: () => [row], getRow: id => (id === row.id ? row : null), passwordsFor: () => ({ incoming: 'x', smtp: null }) }
+  let incoming = null
+  const probe = async () => ({ incoming, smtp: { ok: true, error: null } })
+  const logs = []
+  let clock = Date.UTC(2026, 10, 18, 12, 0, 0)
+  const tools = createMcpTools({ appVersion: 't', store, index: null, reader: null, manager: { status: () => [] }, testAccount: id => testAccountConnection(accountEditorForm(store.getRow(id)), { store, probe, log: m => logs.push(m) }), now: () => clock })
+  const dispatch = createDispatcher({ serverInfo: { name: 's', version: '1' }, tools, log: () => {} })
+  let n = 0
+  const call = async () => (await dispatch(JSON.stringify({ jsonrpc: '2.0', id: ++n, method: 'tools/call', params: { name: 'test_account', arguments: { account_id: row.id } } }))).result
+  const cases = [
+    [{ ok: true, error: null, keywords: { custom: true, flags: ['\\Seen', '\\*'] } }, true, 'enged (a címkék ennél a fióknál a szerveren tárolódnak).', 'imap probe: custom keywords yes, permanentflags=(\\Seen \\*)'],
+    [{ ok: true, error: null, keywords: { custom: false, flags: ['\\Seen'] } }, false, 'nem enged (a címkék ennél a fióknál csak ezen a gépen tárolódnak).', 'imap probe: custom keywords no, permanentflags=(\\Seen)'],
+    [{ ok: true, error: null, keywords: { custom: null, flags: null } }, null, 'nem mérhető.', 'imap probe: custom keywords unknown, permanentflags=()'],
+  ]
+  for (const [inc, want, word, line] of cases) {
+    incoming = inc
+    clock += 61_000
+    const r = await call()
+    assert.equal(r.isError, false, r.content[0].text)
+    assert.equal(r._meta['shadowmail/data'].custom_keywords, want)
+    assert.ok(r.content[0].text.endsWith(` Egyéni címkét a szerver: ${word}`), r.content[0].text)
+    assert.doesNotMatch(r.content[0].text, /tájékoztató|helyben tárol/)
+    assert.equal(logs.at(-1), line)
+  }
+  const desc = tools.list().find(x => x.name === 'test_account').description
+  assert.match(desc, /with true this account's labels are stored on the server, with false only in this program/)
+  assert.doesNotMatch(desc, /only for information|labels are local/)
+  // a failed login: not measured, no line in the text, no log line
+  incoming = { ok: false, error: 'timeout', detail: 'x' }
+  clock += 61_000
+  const failed = await call()
+  assert.equal(failed._meta['shadowmail/data'].custom_keywords, null)
+  assert.doesNotMatch(failed.content[0].text, /Egyéni címkét/)
+  assert.equal(logs.length, 3)
+  for (const l of logs) for (const secret of ['titkos-szerver', 'titkos-felhasznalo']) assert.ok(!l.includes(secret), l)
 })

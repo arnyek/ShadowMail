@@ -16,6 +16,7 @@ import { searchOldPop3 } from '../core/pop3/local-search.js'
 import { Pop3Client } from '../core/pop3/client.js'
 import { Pop3Fetcher } from '../core/pop3/fetcher.js'
 import { searchWords, foldForSearch } from '../core/mime/text.js'
+import { Labels } from '../core/db/labels.js'
 
 const NOW = Date.UTC(2026, 10, 12, 9, 0, 0)
 const sleep = ms => new Promise(r => setTimeout(r, ms))
@@ -61,7 +62,8 @@ async function setup(t, { imapMessages = [], pop3Messages = [], imapLimitDays = 
   manager.startAll()
   await until(() => manager.entries.get(imapRow.id).idle.connected && manager.status().find(s => s.accountId === popRow.id).lastFinished)
   const ipc = fakeIpc()
-  registerSearchIpc({ ipcMain: ipc, db, index, store, manager, sealed: sealedStore(storeDir), notify: e => events.push(e), isTrustedSender: () => true, now: () => NOW })
+  const labels = new Labels(db)
+  registerSearchIpc({ ipcMain: ipc, db, index, store, manager, sealed: sealedStore(storeDir), notify: e => events.push(e), labels, isTrustedSender: () => true, now: () => NOW })
   const local = q => ipc.call('search:local', { query: '', ...q })
   const job = async (channel, q) => {
     const res = await ipc.call(channel, { query: '', ...q })
@@ -70,7 +72,7 @@ async function setup(t, { imapMessages = [], pop3Messages = [], imapLimitDays = 
     const mine = events.filter(e => e.jobId === res.jobId)
     return { jobId: res.jobId, hits: mine.flatMap(e => e.hits || []), finished: mine.find(e => e.finished).finished, progress: mine.filter(e => e.progress).map(e => e.progress) }
   }
-  return { db, index, imap, pop, imapRow, popRow, manager, ipc, local, job, events, storeDir }
+  return { db, index, imap, pop, imapRow, popRow, manager, ipc, local, job, events, storeDir, labels }
 }
 
 const recent = NOW - 10 * DAY
@@ -280,4 +282,75 @@ test('server search: a folder gone from the server is listed as failed, the othe
   assert.deepEqual(res.failedFolders, ['Gone'])
   assert.equal(res.done, 3)
   assert.equal(res.hits, 1, 'Z-last after the missing folder was searched')
+})
+
+test('labels: the local hits, the server hits and the POP3 old-text hits carry the message\'s label ids; unlabelled hits an empty list', async t => {
+  const s = await setup(t, {
+    pop3LimitDays: 365,
+    imapMessages: [
+      { from: 'a@example.invalid', to: 'en@example.invalid', subject: 'Régi címkés', messageId: '<lo1@x>', date: fourYears, body: 'szentjánoskenyér' },
+      { from: 'b@example.invalid', to: 'en@example.invalid', subject: 'Friss címkés', messageId: '<ln1@x>', date: recent, body: 'szentjánoskenyér' },
+    ],
+    pop3Messages: [
+      { subject: 'POP régi', body: 'szentjánoskenyér a régiben', date: fourYears },
+      { subject: 'POP friss', body: 'szentjánoskenyér a frissben', date: recent },
+    ],
+  })
+  const red = s.labels.create('Piros', '#d32f2f').id
+  const blue = s.labels.create('Kék', '#1e88e5').id
+  const bySubject = subject => s.db.prepare('SELECT id FROM messages WHERE subject = ?').pluck().get(subject)
+  s.labels.setLabels([bySubject('Régi címkés'), bySubject('POP régi'), bySubject('Friss címkés')], { add: [red] })
+  s.labels.setLabels([bySubject('Friss címkés')], { add: [blue] })
+  const local = await s.local({ query: 'szentjánoskenyér' })
+  const of = rows => Object.fromEntries(rows.map(r => [r.subject, r.labels]))
+  assert.deepEqual(of(local.rows), { 'Friss címkés': [red, blue], 'POP friss': [] })
+  const server = await s.job('search:server', { query: 'szentjánoskenyér' })
+  assert.deepEqual(of(server.hits), { 'Régi címkés': [red] })
+  const old = await s.job('search:pop3Old', { query: 'szentjanoskenyer' })
+  assert.deepEqual(of(old.hits), { 'POP régi': [red] })
+})
+
+test('the label filter: local hits in every account, the server hits and the POP3 old-text hits only with the label; with unread; a bad label is bad_request', async t => {
+  const s = await setup(t, {
+    pop3LimitDays: 365,
+    imapMessages: [
+      { from: 'a@example.invalid', to: 'en@example.invalid', subject: 'Régi címkés', messageId: '<fo1@x>', date: fourYears, body: 'galagonyaszörp' },
+      { from: 'a@example.invalid', to: 'en@example.invalid', subject: 'Régi címke nélkül', messageId: '<fo2@x>', date: fourYears, body: 'galagonyaszörp' },
+      { from: 'b@example.invalid', to: 'en@example.invalid', subject: 'Friss címkés', messageId: '<fn1@x>', date: recent, body: 'galagonyaszörp' },
+      { from: 'b@example.invalid', to: 'en@example.invalid', subject: 'Friss címke nélkül', messageId: '<fn2@x>', date: recent, body: 'galagonyaszörp' },
+    ],
+    pop3Messages: [
+      { subject: 'POP régi címkés', body: 'galagonyaszörp a régiben', date: fourYears },
+      { subject: 'POP régi címke nélkül', body: 'galagonyaszörp a régiben', date: fourYears - DAY },
+      { subject: 'POP friss címkés', body: 'galagonyaszörp a frissben', date: recent },
+      { subject: 'POP friss címke nélkül', body: 'galagonyaszörp a frissben', date: recent - DAY },
+    ],
+  })
+  const red = s.labels.create('Piros', '#d32f2f').id
+  const other = s.labels.create('Másik', '#1e88e5').id
+  const bySubject = subject => s.db.prepare('SELECT id FROM messages WHERE subject = ?').pluck().get(subject)
+  s.labels.setLabels(['Régi címkés', 'Friss címkés', 'POP régi címkés', 'POP friss címkés'].map(bySubject), { add: [red] })
+  s.labels.setLabels(['Friss címke nélkül', 'POP friss címke nélkül'].map(bySubject), { add: [other] })
+  const subjects = rows => rows.map(r => r.subject).sort()
+  const local = await s.local({ query: 'galagonyaszörp', label: red })
+  assert.deepEqual(subjects(local.rows), ['Friss címkés', 'POP friss címkés'], 'both accounts, only the labelled')
+  assert.ok(local.rows.every(r => r.labels.includes(red)))
+  assert.deepEqual(subjects((await s.local({ query: 'galagonyaszörp' })).rows), ['Friss címke nélkül', 'Friss címkés', 'POP friss címke nélkül', 'POP friss címkés'], 'without the filter: all four')
+  assert.deepEqual(subjects((await s.local({ query: '', from: 'b@example.invalid', label: red })).rows), ['Friss címkés'], 'a sender search with the label')
+  // with unread: the IMAP one read, the POP3 one unread
+  s.db.prepare("UPDATE messages SET flags = '\\Seen' WHERE id = ?").run(bySubject('Friss címkés'))
+  s.db.prepare("UPDATE messages SET flags = '' WHERE id = ?").run(bySubject('POP friss címkés'))
+  assert.deepEqual(subjects((await s.local({ query: 'galagonyaszörp', label: red, unread: true })).rows), ['POP friss címkés'])
+  const server = await s.job('search:server', { query: 'galagonyaszörp', label: red })
+  assert.deepEqual(subjects(server.hits), ['Régi címkés'])
+  assert.equal(server.finished.hits, 1, 'the count is the filtered one')
+  assert.deepEqual(subjects((await s.job('search:server', { query: 'galagonyaszörp' })).hits), ['Régi címke nélkül', 'Régi címkés'])
+  const old = await s.job('search:pop3Old', { query: 'galagonyaszorp', label: red })
+  assert.deepEqual(subjects(old.hits), ['POP régi címkés'])
+  assert.equal(old.finished.hits, 1)
+  for (const label of [0, -1, 1.5, '1', true, [red], Number.MAX_SAFE_INTEGER + 2]) {
+    assert.deepEqual(await s.ipc.call('search:local', { query: 'galagonyaszörp', label }), { ok: false, error: 'bad_request' }, JSON.stringify(label))
+  }
+  assert.deepEqual((await s.local({ query: 'galagonyaszörp', label: null })).rows.length, 4, 'null = no label filter')
+  assert.deepEqual((await s.local({ query: 'galagonyaszörp', label: 999 })).rows, [], 'an unknown label: nothing, not everything')
 })

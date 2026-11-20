@@ -6,7 +6,7 @@ import { noRecent } from '../dialog-options.js'
 import fs from 'node:fs'
 import path from 'node:path'
 import { ActionError } from '../sync-manager.js'
-import { openMarked, saveMarked, fallbackTmpDir } from '../motw.js'
+import { openMarked, saveMarked, saveAllMarked, fallbackTmpDir } from '../motw.js'
 import { errCode } from '../../../core/log-safe.js'
 import { rawView, sourceFileName } from '../../../core/mime/raw-view.js'
 import { safeFileName } from '../../../core/mime/message.js'
@@ -14,6 +14,8 @@ import { t } from '../../renderer/i18n/index.js'
 
 export const READER_CHANNELS = Object.freeze([
   'mail:open', 'mail:thread', 'mail:allowImages', 'mail:render', 'mail:saveAttachment', 'mail:openAttachment',
+  // "Összes mentése": every offered attachment into one chosen folder, and that folder shown
+  'mail:saveAllAttachments', 'mail:showSavedAttachments',
   // the "Fejlécek / Eredeti" view and the .eml save
   'mail:source', 'mail:saveSource',
 ])
@@ -28,10 +30,10 @@ class BadRequest extends Error {}
  * @param reader     MessageReader
  * @param tmpDir     data/tmp (opened attachments; emptied on start and on quit)
  * @param dialog     Electron dialog (showSaveDialog), injected for the tests
- * @param shell      Electron shell (openPath), injected for the tests
+ * @param shell      Electron shell (openPath, showItemInFolder), injected for the tests
  * @param getWindow  () => BrowserWindow | null, the save dialog's parent
  */
-export function registerReaderIpc({ ipcMain, reader, tmpDir, fallbackDir = fallbackTmpDir(tmpDir), dialog, shell, getWindow = () => null, isTrustedSender, log = () => {} }) {
+export function registerReaderIpc({ ipcMain, reader, tmpDir, fallbackDir = fallbackTmpDir(tmpDir), dialog, shell, getWindow = () => null, labels = null, isTrustedSender, log = () => {} }) {
   const handle = (channel, fn) =>
     ipcMain.handle(channel, async (event, ...args) => {
       if (!isTrustedSender(event)) return { ok: false, error: 'untrusted_sender' }
@@ -47,7 +49,9 @@ export function registerReaderIpc({ ipcMain, reader, tmpDir, fallbackDir = fallb
 
   handle('mail:open', async id => {
     if (!isId(id)) throw new BadRequest()
-    return { message: await reader.open(id) }
+    const message = await reader.open(id)
+    // the open message's label ids (0.17.0; Labels.labelsOfRows), for the reader's chips
+    return { message: labels ? { ...message, labels: labels.labelsOfRows([id]).get(id) || [] } : message }
   })
 
   handle('mail:thread', async id => {
@@ -75,6 +79,37 @@ export function registerReaderIpc({ ipcMain, reader, tmpDir, fallbackDir = fallb
     if (res.canceled || !res.filePath) return { saved: false }
     saveMarked({ filePath: res.filePath, content: part.content, log }) // Mark-of-the-Web
     return { saved: true }
+  })
+
+  // "Összes mentése": the folder chosen in the main process's own dialog (the page never names a path), every offered
+  // attachment written there (saveAllAttachments: numbered, never over a file, marked). The log has counts and codes,
+  // never a file name or the folder.
+  let lastSaved = null // the first file of the last "Összes mentése": what "Megnyitás a mappában" shows
+  handle('mail:saveAllAttachments', async id => {
+    if (!isId(id)) throw new BadRequest()
+    const parts = reader.offeredAttachments(id)
+    if (!parts.length) throw new ActionError('not_found')
+    const win = getWindow()
+    const opts = { properties: ['openDirectory', 'createDirectory'] }
+    const res = win ? await dialog.showOpenDialog(win, noRecent(opts)) : await dialog.showOpenDialog(noRecent(opts))
+    if (res.canceled || !res.filePaths || !res.filePaths[0]) return { saved: false }
+    const files = await saveAllMarked({ folder: res.filePaths[0], files: parts.map(p => ({ filename: p.filename, content: p.content })), fallback: t.attachmentFallback, log })
+    const saved = files.filter(f => f.ok)
+    lastSaved = saved.length ? saved[0].path : null
+    const codes = [...new Set(files.filter(f => !f.ok).map(f => f.error))]
+    log(`attachments saved: ${saved.length} of ${files.length}${codes.length ? ` (${codes.join(', ')})` : ''}`)
+    return {
+      saved: true,
+      files: files.map(({ name, ok, error }) => (ok ? { name, ok } : { name, ok, error })),
+      executable: parts.filter((p, i) => files[i].ok && p.executable).length,
+      // the same save-only rule as the single Save (isBrowserActiveName): the browser would run it from file://
+      browserActive: parts.filter((p, i) => files[i].ok && p.browserActive).length,
+    }
+  })
+  handle('mail:showSavedAttachments', async () => {
+    if (!lastSaved) throw new ActionError('not_found')
+    shell.showItemInFolder(lastSaved)
+    return {}
   })
 
   // the raw message (MessageReader.source: the sealed store, or downloaded WITHOUT \Seen),

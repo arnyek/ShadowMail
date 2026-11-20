@@ -50,3 +50,31 @@ export function visibleFolders(items, isFolded, selectedPath = null) {
   }
   return out
 }
+
+/**
+ * The folded set after the folder `from` of `accountId` was renamed / moved to `to`: the keys of its subtree follow it,
+ * and `expand` (the new parent, or null) is unfolded so the moved folder shows. Returns the same set when nothing
+ * changes.
+ */
+export function movedFolded(set, accountId, from, to, delimiter, expand = null) {
+  const prefix = foldKey(accountId, '')
+  const next = new Set()
+  let changed = false
+  for (const key of set) {
+    if (key.startsWith(prefix)) {
+      const p = key.slice(prefix.length)
+      const moved = p === from ? to : delimiter && p.startsWith(from + delimiter) ? to + p.slice(from.length) : null
+      if (moved !== null) {
+        next.add(foldKey(accountId, moved))
+        changed = true
+        continue
+      }
+      if (expand !== null && p === expand) {
+        changed = true
+        continue
+      }
+    }
+    next.add(key)
+  }
+  return changed ? next : set
+}

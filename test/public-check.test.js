@@ -151,6 +151,14 @@ test('public check: the second set of reference forms (technical-looking card co
   assert.deepEqual(checkText('clean.js', clean.join('\n')), [])
 })
 
+test('public check: a function key in a key chord is no card code, a bare one or another code after a plus still is', async () => {
+  const { checkText } = await load()
+  assert.deepEqual(checkText('clean.js', ['// Alt+F10 enters the bar', '// ctrl+shift+F5 reloads', '// the toolbar (Shift+F1)'].join('\n')), [])
+  for (const line of [j('// the F', '10 card'), j('// see F', '8, the switch'), j('// Alt+K', '10 rule'), j('// a+F', '10 here')]) {
+    assert.deepEqual(checkText('x.js', line).map((f) => f.category), ['card-code'], line)
+  }
+})
+
 test('public check: separators, suffixes and ordinal rounds of the second set; routes, years and algorithm names stay clean', async () => {
   const { checkText } = await load()
   const cases = [

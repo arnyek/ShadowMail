@@ -14,15 +14,22 @@ import { SearchBox, SearchChips, SearchResults, EMPTY_FILTERS, clearedFilters, f
 import { Icon } from './Icon.jsx'
 import { Banner, Button, Checkbox, IconButton, Menu, MenuButton, Modal, Splitter } from './ui/index.js'
 import { folderIcon } from './folder-icons.js'
-import { dropAfter, dropped, siblingLists, stepped } from './folder-order.js'
-import { foldKey, foldedSet, visibleFolders } from './folder-fold.js'
+import { dropAfter, dropped, dropZone, followPath, moveTarget, moveTargetReason, siblingLists, stepped } from './folder-order.js'
+import { foldKey, foldedSet, movedFolded, visibleFolders } from './folder-fold.js'
 import { getPref, setPref } from './prefs.js'
 import { formatRange, previewLine } from './list-format.js'
 import { RowText } from './RowText.jsx'
 import { RECIPIENT_ROLES } from '../../../core/mime/recipient-label.js'
 import { SubscriptionsDialog } from './Subscriptions.jsx'
+import { MoveFolderDialog } from './MoveFolderDialog.jsx'
 import { neighbor, afterRemoval, archiveFor, readerKeyOf } from './reader-nav.js'
 import { ScheduledList, useScheduledRows } from './Scheduled.jsx'
+import { LabelPicker, nextLabelColor } from './LabelPicker.jsx'
+import { labelsWithDeltas } from './label-chips.js'
+import { rangeSelect } from './range-select.js'
+
+// a stored label change the list has not shown yet is dropped after this at the latest
+const DELTA_TIMEOUT_MS = 5000
 
 const api = window.shadowMail
 export const ROW_HEIGHT = 40 // the default --row-h of theme.css (a density may change it: useRowHeight)
@@ -119,9 +126,10 @@ function folderLabel(node) {
  * Alt+Down on a folder or an account head steps it. onReorderFolders({ accountId, parentKey, paths, focus }),
  * onReorderAccounts(ids, focusId); the menus get the folder's / account's list to know their edges.
  */
-export function FolderTree({ accounts, selected, onSelect, onDropMessages, onFolderMenu, onNewFolder, onAccountMenu = () => {}, onReorderFolders = () => {}, onReorderAccounts = () => {}, collapsed = false }) {
-  // the drag in progress (dragover cannot read the data, only its types): { kind: 'folder', accountId, path } or
-  // { kind: 'account', id }; the line: { key, after }
+export function FolderTree({ accounts, selected, onSelect, onDropMessages, onFolderMenu, onNewFolder, onAccountMenu = () => {}, onReorderFolders = () => {}, onReorderAccounts = () => {}, onMoveFolder = () => {}, movedFolder = null, collapsed = false }) {
+  // the drag in progress (dragover cannot read the data, only its types): { kind: 'folder', accountId, path, label }
+  // or { kind: 'account', id }; the mark: a line { key, after } (the manual order) or { key, into: true } (a move
+  // under that folder, or to the top level on the account head)
   const dragRef = useRef(null)
   const [mark, setMark] = useState(null)
   const accountIds = accounts.map(a => a.id)
@@ -164,6 +172,19 @@ export function FolderTree({ accounts, selected, onSelect, onDropMessages, onFol
       setPref('foldedFolders', [...next])
       return next
     })
+  // a folder moved or renamed (the caller's movedFolder, one per change): the folded keys of its subtree follow it, and
+  // the new parent opens so the moved folder shows
+  const movedSeq = movedFolder ? movedFolder.seq : null
+  useEffect(() => {
+    if (!movedFolder) return
+    const { accountId, from, to, delimiter, expand } = movedFolder
+    setFoldedFolders(prev => {
+      const next = movedFolded(prev, accountId, from, to, delimiter, expand)
+      if (next !== prev) setPref('foldedFolders', [...next])
+      return next
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [movedSeq])
   if (!accounts.length) return <p className="hint pad">{t.noMailAccounts}</p>
   return (
     <nav className={`folder-tree${collapsed ? ' collapsed' : ''}`} aria-label={t.foldersHeading}>
@@ -172,6 +193,15 @@ export function FolderTree({ accounts, selected, onSelect, onDropMessages, onFol
         // on a sidebar folded to icons every folder shows (it has no fold toggles)
         const items = visibleFolders(flattenTree(tree), path => !collapsed && foldedFolders.has(foldKey(a.id, path)), selected && selected.accountId === a.id ? selected.folder : null)
         const lists = siblingLists(tree)
+        // a dragged folder of this account: may it go under `to` (null = the top level)? the main process refuses the same
+        const roles = assignRoles(a.folders)
+        const canMove = (from, to) => moveTarget(a.folders, roles, from, to)
+        const subfolders = p => {
+          const d = a.folders.find(f => f.path === p)?.delimiter
+          return d ? a.folders.filter(f => f.path.startsWith(p + d)).length : 0
+        }
+        const askMove = (d, parent, targetLabel) => onMoveFolder({ accountId: a.id, path: d.path, parent, label: d.label, targetLabel, subfolders: subfolders(d.path), delimiter: a.folders.find(f => f.path === d.path)?.delimiter || null })
+        const markClass = k => (mark && mark.key === k ? (mark.into ? ' drop-into' : mark.after ? ' drop-after' : ' drop-before') : '')
         const isFolded = folded.has(a.id) && !collapsed
         const accountKey = `a:${a.id}`
         const stepAccount = delta => {
@@ -181,7 +211,7 @@ export function FolderTree({ accounts, selected, onSelect, onDropMessages, onFol
         return (
           <section key={a.id} className="account" data-account={a.id}>
             <div
-              className={`account-head${mark && mark.key === accountKey ? (mark.after ? ' drop-after' : ' drop-before') : ''}`}
+              className={`account-head${markClass(accountKey)}`}
               draggable
               onDragStart={e => {
                 dragRef.current = { kind: 'account', id: a.id }
@@ -191,6 +221,14 @@ export function FolderTree({ accounts, selected, onSelect, onDropMessages, onFol
               onDragEnd={endDrag}
               onDragOver={e => {
                 const d = dragRef.current
+                // a folder of this account onto its head: to the top level
+                if (d && d.kind === 'folder') {
+                  if (d.accountId !== a.id || !canMove(d.path, null)) return
+                  e.preventDefault()
+                  e.dataTransfer.dropEffect = 'move'
+                  if (!mark || mark.key !== accountKey || !mark.into) setMark({ key: accountKey, into: true })
+                  return
+                }
                 if (!d || d.kind !== 'account' || d.id === a.id) return
                 e.preventDefault()
                 e.dataTransfer.dropEffect = 'move'
@@ -199,6 +237,13 @@ export function FolderTree({ accounts, selected, onSelect, onDropMessages, onFol
               }}
               onDrop={e => {
                 const d = dragRef.current
+                if (d && d.kind === 'folder') {
+                  if (d.accountId !== a.id || !canMove(d.path, null) || !e.dataTransfer.types.includes(FOLDER_DRAG_TYPE)) return
+                  e.preventDefault()
+                  endDrag()
+                  askMove(d, null, a.name)
+                  return
+                }
                 if (!d || d.kind !== 'account' || !e.dataTransfer.types.includes(ACCOUNT_DRAG_TYPE)) return
                 e.preventDefault()
                 const ids = dropped(accountIds, d.id, a.id, dropAfter(e, e.currentTarget))
@@ -252,7 +297,7 @@ export function FolderTree({ accounts, selected, onSelect, onDropMessages, onFol
                   )
                   const foldLabel = folderFolded ? t.folderFoldShow(label) : t.folderFoldHide(label)
                   return (
-                    <li key={node.path} className={mark && mark.key === key ? (mark.after ? 'drop-after' : 'drop-before') : undefined}>
+                    <li key={node.path} className={markClass(key).trim() || undefined}>
                       {hasChildren && !collapsed && (
                         <button
                           type="button"
@@ -278,7 +323,7 @@ export function FolderTree({ accounts, selected, onSelect, onDropMessages, onFol
                           onClick={() => onSelect({ accountId: a.id, folder: node.path })}
                           onContextMenu={e => {
                             e.preventDefault()
-                            onFolderMenu({ x: e.clientX, y: e.clientY, accountId: a.id, path: node.path, label, role: node.role, count: node.count, parentKey: list.parentKey, siblings: list.paths, imap: a.type === 'imap' })
+                            onFolderMenu({ x: e.clientX, y: e.clientY, accountId: a.id, path: node.path, label, role: node.role, count: node.count, parentKey: list.parentKey, siblings: list.paths, imap: a.type === 'imap', moveBlocked: ['flat', 'role'].find(r => r === moveTargetReason(a.folders, roles, node.path, null)) || null })
                           }}
                           onKeyDown={e => {
                             if (!e.altKey || e.ctrlKey || e.metaKey || e.shiftKey || (e.key !== 'ArrowUp' && e.key !== 'ArrowDown')) return
@@ -287,7 +332,7 @@ export function FolderTree({ accounts, selected, onSelect, onDropMessages, onFol
                             if (paths) onReorderFolders({ accountId: a.id, parentKey: list.parentKey, paths, focus: node.path })
                           }}
                           onDragStart={e => {
-                            dragRef.current = { kind: 'folder', accountId: a.id, path: node.path }
+                            dragRef.current = { kind: 'folder', accountId: a.id, path: node.path, label }
                             e.dataTransfer.setData(FOLDER_DRAG_TYPE, node.path)
                             e.dataTransfer.effectAllowed = 'move'
                           }}
@@ -295,15 +340,22 @@ export function FolderTree({ accounts, selected, onSelect, onDropMessages, onFol
                           onDragOver={e => {
                             const d = dragRef.current
                             if (d && d.kind === 'folder') {
-                              // another parent (or itself): no line, no drop
-                              if (!sibling(d)) {
+                              // a sibling's top / bottom quarter: the manual order (the line); its middle, or any other
+                              // row of the same account: into it, when the move is allowed; anything else takes nothing
+                              const zone = d.accountId === a.id ? dropZone(e, e.currentTarget, sibling(d)) : null
+                              const ok = zone === 'into' ? canMove(d.path, node.path) : zone !== null && sibling(d)
+                              if (!ok) {
                                 if (mark) setMark(null)
                                 return
                               }
                               e.preventDefault()
                               e.dataTransfer.dropEffect = 'move'
-                              const after = dropAfter(e, e.currentTarget)
-                              if (!mark || mark.key !== key || mark.after !== after) setMark({ key, after })
+                              if (zone === 'into') {
+                                if (!mark || mark.key !== key || !mark.into) setMark({ key, into: true })
+                              } else {
+                                const after = zone === 'after'
+                                if (!mark || mark.key !== key || mark.into || mark.after !== after) setMark({ key, after })
+                              }
                               return
                             }
                             // messages: only into another folder of the same account
@@ -316,8 +368,13 @@ export function FolderTree({ accounts, selected, onSelect, onDropMessages, onFol
                             const d = dragRef.current
                             if (d && d.kind === 'folder') {
                               e.preventDefault()
-                              const paths = sibling(d) && e.dataTransfer.types.includes(FOLDER_DRAG_TYPE) ? dropped(list.paths, d.path, node.path, dropAfter(e, e.currentTarget)) : null
+                              const zone = d.accountId === a.id && e.dataTransfer.types.includes(FOLDER_DRAG_TYPE) ? dropZone(e, e.currentTarget, sibling(d)) : null
                               endDrag()
+                              if (zone === 'into') {
+                                if (canMove(d.path, node.path)) askMove(d, node.path, label)
+                                return
+                              }
+                              const paths = zone && sibling(d) ? dropped(list.paths, d.path, node.path, zone === 'after') : null
                               if (paths) onReorderFolders({ accountId: a.id, parentKey: list.parentKey, paths, focus: d.path })
                               return
                             }
@@ -354,7 +411,7 @@ export function FolderTree({ accounts, selected, onSelect, onDropMessages, onFol
  * One list row, memoized: it re-renders only when its own message, flags, selection,
  * open or hover state changes. The hover actions exist only on the row under the mouse.
  */
-const MessageRow = memo(function MessageRow({ m, index, top, flags, selected, open, leaving, archive, hovered, recipient, h }) {
+const MessageRow = memo(function MessageRow({ m, index, top, flags, labels, labelList, selected, open, leaving, archive, hovered, recipient, h }) {
   const unread = !hasFlag(flags, '\\Seen')
   const flagged = hasFlag(flags, '\\Flagged')
   const preview = previewLine(m.preview)
@@ -384,7 +441,7 @@ const MessageRow = memo(function MessageRow({ m, index, top, flags, selected, op
       }}
     >
       <div role="gridcell" className="col-check" onClick={stop}>
-        <Checkbox label={t.selectRow} hideLabel checked={selected} onChange={() => h.toggle(m.id)} />
+        <Checkbox label={t.selectRow} hideLabel checked={selected} onChange={e => h.toggle(m.id, Boolean(e.nativeEvent && e.nativeEvent.shiftKey))} />
       </div>
       <div role="gridcell" className="col-star" onClick={stop}>
         <IconButton
@@ -397,7 +454,7 @@ const MessageRow = memo(function MessageRow({ m, index, top, flags, selected, op
           onClick={() => h.action(flagged ? 'unstar' : 'star', [m.id])}
         />
       </div>
-      <RowText m={m} preview={preview} recipient={recipient} />
+      <RowText m={m} preview={preview} recipient={recipient} labels={labels} labelList={labelList} />
       {hovered && !leaving && (
         // mouse shortcuts of the toolbar's actions: hidden from assistive tech, the toolbar has them
         <div className="row-quick" aria-hidden="true" onClick={stop}>
@@ -423,7 +480,7 @@ const MessageRow = memo(function MessageRow({ m, index, top, flags, selected, op
  * count; on the right the visible range ("(szűrve, összesen N)" when filtered).
  */
 function ListHeader({ ctx }) {
-  const { selection, total, folderTotal, filtered, range, folders, folder, archive, sortItems, onSelectAll, onSelectNone, onSelectSeen, onAction, onRefresh, onClearFilters, selectedInfo } = ctx
+  const { selection, total, folderTotal, filtered, range, folders, folder, archive, sortItems, onSelectAll, onSelectNone, onSelectSeen, onAction, onLabel, onRefresh, onClearFilters, selectedInfo } = ctx
   const n = selection.size
   const ids = [...selection]
   const all = total > 0 && n === total
@@ -478,6 +535,7 @@ function ListHeader({ ctx }) {
           ) : (
             <IconButton icon="star" label={t.actions.star} onClick={() => onAction('star', ids)} />
           )}
+          {onLabel && <IconButton icon="tag" className="label-open" label={t.labels.button} onClick={() => onLabel(ids)} />}
           <span className="selection-count">{t.selectedCount(n)}</span>
         </div>
       )}
@@ -492,7 +550,7 @@ function ListHeader({ ctx }) {
  * The virtual list. `version` changes when the main process reports a change in this folder: the
  * visible pages are re-read in place (no jump, no flash), the others when they come into view.
  */
-function MessageList({ accountId, folder, folders, version, openId, onOpen, selection, onSelection, overlay, onAction, onContextMenu, sort, dir, onSort, filter, keepRef, onRefresh, onClearFilters, idsRef = null }) {
+function MessageList({ accountId, folder, folders, version, openId, onOpen, selection, onSelection, overlay, onAction, onContextMenu, sort, dir, onSort, filter, keepRef, onRefresh, onClearFilters, idsRef = null, labelList = null, labelDeltas = [], onLabel = null, onDeltaSettled = () => {} }) {
   const [total, setTotal] = useState(null)
   const [folderTotal, setFolderTotal] = useState(null)
   const [loadError, setLoadError] = useState(null) // a refused list request: said, not an endless "busy"
@@ -530,7 +588,22 @@ function MessageList({ accountId, folder, folders, version, openId, onOpen, sele
   // the reader's Up / Down and the next message after a delete or an archive go by this order (the list's own)
   if (idsRef) idsRef.current = () => allIds()
 
-  const toggleOne = id => {
+  // the Shift anchor belongs to one view: another folder, order or filter drops it
+  useEffect(() => {
+    anchor.current = null
+  }, [viewKey])
+
+  // a row's checkbox; with Shift (and an anchor in the list) every row from the anchor to this one takes the state this
+  // one turns to. Either way this row is the new anchor
+  const toggleOne = async (id, shift = false) => {
+    if (shift && anchor.current !== null) {
+      window.getSelection()?.removeAllRanges()
+      const ids = await allIds()
+      if (!ids) return
+      const next = rangeSelect(selection, ids, anchor.current, id, 'set')
+      anchor.current = id
+      if (next) return onSelection(next)
+    }
     const next = new Set(selection)
     if (next.has(id)) next.delete(id)
     else next.add(id)
@@ -539,12 +612,13 @@ function MessageList({ accountId, folder, folders, version, openId, onOpen, sele
   }
 
   const clickRow = async (e, id) => {
+    // Shift: the range from the anchor (the anchor stays); with Ctrl too it joins the selection
     if (e.shiftKey && anchor.current !== null) {
+      window.getSelection()?.removeAllRanges()
       const ids = await allIds()
       if (!ids) return
-      const a = ids.indexOf(anchor.current)
-      const b = ids.indexOf(id)
-      if (a >= 0 && b >= 0) onSelection(new Set(ids.slice(Math.min(a, b), Math.max(a, b) + 1)))
+      const next = rangeSelect(selection, ids, anchor.current, id, e.ctrlKey || e.metaKey ? 'add' : 'replace')
+      if (next) onSelection(next)
       return
     }
     if (e.ctrlKey || e.metaKey) {
@@ -671,6 +745,23 @@ function MessageList({ accountId, folder, folders, version, openId, onOpen, sele
     return ov && ov.change ? changedFlags(m.flags, ov.change) : m.flags
   }
 
+  // a stored label change is no longer needed once every loaded row it touches carries it in its own labels (the
+  // reloaded page): then it goes, so a later change made elsewhere is not hidden behind it
+  useEffect(() => {
+    for (const d of labelDeltas) {
+      if (!d.stored) continue
+      let stale = false
+      for (const entry of pages.current.values()) {
+        for (const m of entry.rows) {
+          if (!d.ids.has(m.id)) continue
+          const has = (m.labels || []).includes(d.labelId)
+          if (has !== (d.action === 'add')) stale = true
+        }
+      }
+      if (!stale) onDeltaSettled(d)
+    }
+  })
+
   // the toolbar's Read/Unread and Star choice: from the loaded rows of the selection
   let anyUnread = false
   let allFlagged = selection.size > 0
@@ -718,6 +809,8 @@ function MessageList({ accountId, folder, folders, version, openId, onOpen, sele
         index={i}
         top={top}
         flags={flagsOf(m)}
+        labels={labelsWithDeltas(m.labels, m.id, labelDeltas)}
+        labelList={labelList}
         selected={selection.has(m.id)}
         open={openId === m.id}
         leaving={Boolean(ov && ov.leaving)}
@@ -740,6 +833,7 @@ function MessageList({ accountId, folder, folders, version, openId, onOpen, sele
     archive: archive && !inArchive(folders, archive, folder) ? archive : null, // no Archive action in the Archive or its years
     sortItems: sortMenuItems(sort, dir, onSort, recipientView),
     onAction,
+    onLabel,
     onRefresh,
     onClearFilters,
     selectedInfo: { anyUnread, allFlagged },
@@ -766,6 +860,10 @@ function MessageList({ accountId, folder, folders, version, openId, onOpen, sele
         ref={viewport}
         tabIndex={0}
         onKeyDown={keyDown}
+        // Shift+mousedown on a row would extend the browser's text selection over the rows: a Shift click selects rows
+        onMouseDown={e => {
+          if (e.shiftKey && e.target.closest && e.target.closest('.msg-row')) e.preventDefault()
+        }}
         onScroll={e => setScrollTop(e.currentTarget.scrollTop)}
       >
         <div className="msg-canvas" style={{ height: count * rowH }}>
@@ -789,13 +887,14 @@ function MessageList({ accountId, folder, folders, version, openId, onOpen, sele
 }
 
 /** The row's context menu (the shared Menu, keyboard included). */
-function ContextMenu({ menu, onAction, onClose }) {
+function ContextMenu({ menu, onAction, onLabel = null, onClose }) {
   const items = [
     { key: 'read', label: t.actions.read, icon: 'markRead', onSelect: () => onAction('read', menu.ids) },
     { key: 'unread', label: t.actions.unread, icon: 'markUnread', onSelect: () => onAction('unread', menu.ids) },
     menu.flagged
       ? { key: 'unstar', label: t.actions.unstar, icon: 'star', onSelect: () => onAction('unstar', menu.ids) }
       : { key: 'star', label: t.actions.star, icon: 'star', onSelect: () => onAction('star', menu.ids) },
+    ...(onLabel ? [{ key: 'labels', label: t.labels.menuItem, icon: 'tag', onSelect: () => onLabel(menu.ids) }] : []),
     { separator: true },
     { key: 'delete', label: t.actions.delete, icon: 'trash', danger: true, onSelect: () => onAction('delete', menu.ids) },
   ]
@@ -808,13 +907,14 @@ export function FolderMenu({ menu, onPick, onClose }) {
   const items = [
     { key: 'create', label: t.folderMenu.newSub, icon: 'plus', onSelect: () => onPick('create', menu) },
     { key: 'rename', label: t.folderMenu.rename, icon: 'compose', disabled: locked, title: locked ? t.folderProtected : undefined, onSelect: () => onPick('rename', menu) },
+    { key: 'move', label: t.folderMenu.move, icon: 'move', disabled: Boolean(menu.moveBlocked), title: menu.moveBlocked ? t.moveDialog.reasons[menu.moveBlocked] : undefined, onSelect: () => onPick('move', menu) },
     { key: 'moveUp', label: t.folderMenu.moveUp, icon: 'moveUp', disabled: !stepped(menu.siblings, menu.path, -1), onSelect: () => onPick('moveUp', menu) },
     { key: 'moveDown', label: t.folderMenu.moveDown, icon: 'moveDown', disabled: !stepped(menu.siblings, menu.path, 1), onSelect: () => onPick('moveDown', menu) },
     { key: 'delete', label: t.folderMenu.delete, icon: 'trash', danger: true, disabled: locked, title: locked ? t.folderProtected : undefined, onSelect: () => onPick('delete', menu) },
   ]
   // IMAP: unsubscribe (the folder leaves the app, it stays on the server); a role folder always shows
   if (menu.imap) {
-    items.splice(4, 0, { key: 'unsubscribe', label: t.folderMenu.unsubscribe, icon: 'hide', disabled: locked, title: locked ? t.subscriptions.roleLocked : undefined, onSelect: () => onPick('unsubscribe', menu) })
+    items.splice(items.findIndex(i => i.key === 'delete'), 0, { key: 'unsubscribe', label: t.folderMenu.unsubscribe, icon: 'hide', disabled: locked, title: locked ? t.subscriptions.roleLocked : undefined, onSelect: () => onPick('unsubscribe', menu) })
   }
   // the pick itself closes the menu (pickFolderAction); a closing click elsewhere only closes it
   return <Menu items={items} at={{ x: menu.x, y: menu.y }} className="context-menu" label={menu.label} onClose={reason => reason !== 'select' && onClose()} />
@@ -829,6 +929,24 @@ export function AccountMenu({ menu, onPick, onClose }) {
     ...(menu.imap ? [{ key: 'subscriptions', label: t.accountMenu.subscriptions, icon: 'folder', onSelect: () => onPick('subscriptions', menu) }] : []),
   ]
   return <Menu items={items} at={{ x: menu.x, y: menu.y }} className="context-menu account-menu" label={menu.label} onClose={reason => reason !== 'select' && onClose()} />
+}
+
+/** The menu's "Move…" dialog of one folder; the chosen target in the shape a drop asks with (Mail's askMoveFolder). */
+function MoveDialogFor({ dialog, accounts, onChoose, onCancel }) {
+  const account = dialog && accounts.find(a => a.id === dialog.accountId)
+  if (!account) return null
+  const row = account.folders.find(f => f.path === dialog.path)
+  const delimiter = row?.delimiter || null
+  const subfolders = delimiter ? account.folders.filter(f => f.path.startsWith(dialog.path + delimiter)).length : 0
+  return (
+    <MoveFolderDialog
+      account={account}
+      from={dialog.path}
+      label={dialog.label}
+      onCancel={onCancel}
+      onChoose={c => onChoose({ accountId: account.id, path: dialog.path, parent: c.parent, label: dialog.label, targetLabel: c.parent === null ? account.name : c.label, subfolders, delimiter })}
+    />
+  )
 }
 
 /** In-app name prompt (window.prompt is a native window; it is also not available in Electron): a Modal. */
@@ -869,7 +987,7 @@ function ConfirmDialog({ confirm, onYes, onNo }) {
       onClose={onNo}
       actions={[
         <Button key="no" variant="text" onClick={onNo}>{t.confirmCancel}</Button>,
-        <Button key="yes" variant="danger" data-autofocus onClick={onYes}>{confirm.yesLabel || t.confirmDeleteYes}</Button>,
+        <Button key="yes" variant={confirm.yesVariant || 'danger'} data-autofocus onClick={onYes}>{confirm.yesLabel || t.confirmDeleteYes}</Button>,
       ]}
     >
       <p className="confirm-text">{confirm.text || (confirm.inTrash ? t.confirmDeleteTrash(confirm.ids.length) : t.confirmDeleteNoTrash(confirm.ids.length))}</p>
@@ -904,7 +1022,7 @@ function StatusBar({ accounts }) {
   )
 }
 
-export function Mail({ collapsed = false, readerPane = 'none', searchSlot = null, claudeRequest = null, onClaudeTaken = () => {} }) {
+export function Mail({ collapsed = false, readerPane = 'none', searchSlot = null, claudeRequest = null, onClaudeTaken = () => {}, onManageLabels = null }) {
   const [accounts, setAccounts] = useState([])
   const [selected, setSelected] = useState(null)
   // the "Időzített" view (every account's scheduled messages) in the list's place; a folder leaves it
@@ -966,6 +1084,12 @@ export function Mail({ collapsed = false, readerPane = 'none', searchSlot = null
   const [selection, setSelection] = useState(() => new Set())
   const [overlay, setOverlay] = useState(() => new Map()) // id -> { change } | { leaving: true }
   const [menu, setMenu] = useState(null)
+  // 0.17.0 labels: the label list, the pending changes (the optimistic view), the last change for the reader and the
+  // search hits, and the open picker ({ ids, from: 'list' | 'reader' })
+  const [labelList, setLabelList] = useState([])
+  const [labelDeltas, setLabelDeltas] = useState([])
+  const [labelEvent, setLabelEvent] = useState(null)
+  const [picker, setPicker] = useState(null)
   const [confirm, setConfirm] = useState(null)
   const [actionError, setActionError] = useState(null)
   const [actionNotice, setActionNotice] = useState(null)
@@ -975,6 +1099,10 @@ export function Mail({ collapsed = false, readerPane = 'none', searchSlot = null
   const [subsDialog, setSubsDialog] = useState(null) // the subscriptions dialog: { accountId, label }
   const [nameDialog, setNameDialog] = useState(null)
   const [folderError, setFolderError] = useState(null)
+  // a folder moved or renamed: the tree's folded keys follow it ({ seq, accountId, from, to, delimiter, expand })
+  const [movedFolder, setMovedFolder] = useState(null)
+  // the menu's "Move…": the folder whose target is being chosen ({ accountId, path, label })
+  const [moveDialog, setMoveDialog] = useState(null)
   const selectedRef = useRef(null)
   selectedRef.current = selected
 
@@ -1052,10 +1180,22 @@ export function Mail({ collapsed = false, readerPane = 'none', searchSlot = null
     }
   }, [])
 
+  // a label deleted (Settings / Labels, another window) while it is the filter: the filter goes, not an empty list
+  useEffect(() => {
+    if (filters.label && !labelList.some(l => l.id === filters.label)) setFilters(f => ({ ...f, label: null }))
+  }, [labelList, filters.label])
+
+  const loadLabels = useCallback(() => {
+    // a stand-in bridge without labels (older tests) simply has none
+    if (api.labels) api.labels.list().then(res => res && res.ok && setLabelList(res.labels))
+  }, [])
+
   useEffect(() => {
     loadFolders()
+    loadLabels()
     api.mail.status().then(res => res.ok && setStatus(res.accounts))
     return api.onStatus(payload => {
+      if (payload.kind === 'labels') loadLabels()
       if (payload.kind === 'sync') setStatus(payload.accounts)
       if (payload.kind === 'mail' || payload.kind === 'reindex' || payload.kind === 'accounts') {
         loadFolders()
@@ -1065,7 +1205,7 @@ export function Mail({ collapsed = false, readerPane = 'none', searchSlot = null
         }
       }
     })
-  }, [loadFolders])
+  }, [loadFolders, loadLabels])
 
   // a deleted account or a vanished folder: drop the selection
   const exists = useMemo(
@@ -1092,6 +1232,61 @@ export function Mail({ collapsed = false, readerPane = 'none', searchSlot = null
       return m
     })
 
+  /**
+   * Puts a label on ('add') or takes it off ('remove') the given messages: shown at once (a pending change), sent in
+   * batches of 500 (the IPC's cap; a selection can be a whole folder). A failure takes the change back, shows the
+   * error and reloads the list. On an IMAP account the label goes to the server: a folder out of reach changes nothing
+   * (the other folders stand; the change is taken back, the reloaded list shows what is stored, the error names the
+   * account), and a folder whose server does not allow keywords keeps the label here (a notice). Returns true when
+   * every message got the change.
+   */
+  const runLabel = async (ids, labelId, action) => {
+    keep(ids) // a label taken off in the Label-filtered view: the row stays until the view changes
+    const delta = { ids: new Set(ids), labelId, action }
+    setActionError(null)
+    setLabelDeltas(d => [...d, delta])
+    const drop = () => setLabelDeltas(d => d.filter(x => x !== delta))
+    const failures = new Map() // "<account>:<code>" -> { accountId, error }
+    let localOnly = false
+    for (let i = 0; i < ids.length; i += 500) {
+      const res = await api.mail.label({ ids: ids.slice(i, i + 500), [action]: [labelId] })
+      if (!res || !res.ok) {
+        drop()
+        setLabelEvent({ ids, labelId, action, failed: true, at: Date.now() })
+        setActionError(t.labels.error(res && res.error))
+        setVersion(v => v + 1)
+        return false
+      }
+      for (const f of res.failed || []) failures.set(`${f.accountId}:${f.error}`, f)
+      if ((res.local || []).length) localOnly = true
+    }
+    if (localOnly) setActionNotice(t.labels.localOnly)
+    if (failures.size) {
+      const nameOf = id => (accounts.find(a => a.id === id) || {}).name || `#${id}`
+      drop()
+      setLabelEvent({ ids, labelId, action, failed: true, at: Date.now() })
+      setActionError([...failures.values()].map(f => t.labels.serverError(nameOf(f.accountId), f.error)).join(' '))
+      setVersion(v => v + 1)
+      loadLabels()
+      return false
+    }
+    setLabelEvent({ ids, labelId, action, at: Date.now() })
+    // stored now: the list drops it once its reloaded rows show the change (onDeltaSettled); the timeout only guards
+    // against a row that never comes back into view
+    delta.stored = true
+    setLabelDeltas(d => [...d])
+    setVersion(v => v + 1)
+    loadLabels() // the counts of the list
+    setTimeout(drop, DELTA_TIMEOUT_MS)
+    return true
+  }
+  const createLabel = async name => {
+    const res = await api.labels.create(name, nextLabelColor(labelList))
+    if (res && res.ok) setLabelList(list => [...list, res.label])
+    return res && res.ok ? { label: res.label } : { error: res && res.error }
+  }
+  const openPicker = (ids, from = 'list') => ids.length && setPicker({ ids, from })
+
   /** Folders: create / rename (after the name dialog) and delete (after the confirmation). */
   const folderOp = async (op, target, name) => {
     setFolderError(null)
@@ -1104,7 +1299,7 @@ export function Mail({ collapsed = false, readerPane = 'none', searchSlot = null
     if (!res.ok) return t.folderError(res.error)
     await loadFolders()
     const sel = selectedRef.current
-    if (op === 'rename' && sel && sel.accountId === target.accountId && sel.folder === target.path) setSelected({ accountId: sel.accountId, folder: res.path })
+    if (op === 'rename') followFolder(target.accountId, target.path, res.path, folderDelimiter(target.accountId, target.path), null)
     if (op === 'delete' && sel && sel.accountId === target.accountId && sel.folder === target.path) {
       setSelected(null)
       setOpenId(null)
@@ -1115,9 +1310,37 @@ export function Mail({ collapsed = false, readerPane = 'none', searchSlot = null
 
   // the manual order (local, the main process checks the list against the same tree); the focus stays on the moved
   // folder / account head (a keyed move takes the DOM node out and back, and the focus with it)
+  // the selection (the folder itself or one under it) and the folded keys follow a renamed / moved folder
+  const folderDelimiter = (accountId, path) => accounts.find(a => a.id === accountId)?.folders.find(f => f.path === path)?.delimiter || null
+  const followFolder = (accountId, from, to, delimiter, expand) => {
+    const sel = selectedRef.current
+    const next = sel && sel.accountId === accountId ? followPath(sel.folder, from, to, delimiter) : null
+    if (next !== null && next !== sel.folder) setSelected({ accountId, folder: next })
+    setMovedFolder(m => ({ seq: (m ? m.seq : 0) + 1, accountId, from, to, delimiter, expand }))
+  }
+  // a dropped folder: the move after the confirmation (always asked)
+  const askMoveFolder = m =>
+    setConfirm({
+      move: m,
+      title: t.moveFolderTitle,
+      text: t.confirmFolderMove(m.label, m.targetLabel, m.subfolders),
+      yesLabel: t.folderMoveYes,
+      yesVariant: 'primary',
+    })
+  const moveFolder = async m => {
+    setFolderError(null)
+    const res = await api.folders.move({ accountId: m.accountId, path: m.path, parent: m.parent })
+    if (!res.ok) return setFolderError(t.folderError(res.error))
+    await loadFolders()
+    followFolder(m.accountId, m.path, res.path, m.delimiter, m.parent)
+    focusFolder(m.accountId, res.path)
+  }
   const focusFolder = (accountId, path) =>
     setTimeout(() => document.querySelector(`.folder-tree section[data-account="${accountId}"] .folder[data-path="${CSS.escape(path)}"]`)?.focus(), 0)
-  const focusAccount = accountId => setTimeout(() => document.querySelector(`.folder-tree section[data-account="${accountId}"] .account-toggle`)?.focus(), 0)
+  // a menu closed: its deferred focus return must not take the focus from a menu opened in the meantime (a right
+  // click right after Esc: the new menu has focused its first item already)
+  const noMenuOpen = () => !document.querySelector('[role="menu"]')
+  const focusAccount = accountId => setTimeout(() => noMenuOpen() && document.querySelector(`.folder-tree section[data-account="${accountId}"] .account-toggle`)?.focus(), 0)
   const reorderFolders = async ({ accountId, parentKey, paths, focus }) => {
     setFolderError(null)
     const res = await api.folders.reorder({ accountId, parentKey, paths })
@@ -1167,6 +1390,7 @@ export function Mail({ collapsed = false, readerPane = 'none', searchSlot = null
       }
       return
     }
+    if (op === 'move') return setMoveDialog({ accountId: m.accountId, path: m.path, label: m.label })
     if (op === 'create') setNameDialog({ op, target: m, title: t.newSubfolderTitle(m.label), okLabel: t.folderCreate })
     else if (op === 'rename') setNameDialog({ op, target: m, title: t.renameFolderTitle(m.label), okLabel: t.folderRename, initial: m.label })
     else {
@@ -1419,6 +1643,8 @@ export function Mail({ collapsed = false, readerPane = 'none', searchSlot = null
             onAccountMenu={setAccountMenu}
             onReorderFolders={reorderFolders}
             onReorderAccounts={reorderAccounts}
+            onMoveFolder={askMoveFolder}
+            movedFolder={movedFolder}
             onNewFolder={accountId =>
               setNameDialog({ op: 'create', target: { accountId, path: null }, title: t.newFolderTitle(accounts.find(a => a.id === accountId)?.name || ''), okLabel: t.folderCreate })
             }
@@ -1454,10 +1680,11 @@ export function Mail({ collapsed = false, readerPane = 'none', searchSlot = null
               onNavigate={navigate}
               listSort={listSort}
               sortItems={sortMenuItems(listSort.sort, listSort.dir, onSort, Boolean(account) && isRecipientFolder(account.folders, selected.folder))}
+              labels={labelList}
             />
           )}
           {searching ? (
-            <SearchResults request={toRequest(searchText, filters)} accounts={accounts} selectedId={openId} onOpen={setOpenId} idsRef={searchIdsRef} />
+            <SearchResults request={toRequest(searchText, filters)} accounts={accounts} selectedId={openId} onOpen={setOpenId} idsRef={searchIdsRef} labelList={labelList} labelEvent={labelEvent} />
           ) : scheduledOpen ? (
             <div className="list-pane scheduled-pane">
               <ScheduledList rows={scheduledRows} onNotice={setActionNotice} onError={setActionError} />
@@ -1482,6 +1709,10 @@ export function Mail({ collapsed = false, readerPane = 'none', searchSlot = null
                 filter={listFilter}
                 keepRef={keepRef}
                 idsRef={listIdsRef}
+                labelList={labelList}
+                labelDeltas={labelDeltas}
+                onDeltaSettled={d => setLabelDeltas(ds => (ds.includes(d) ? ds.filter(x => x !== d) : ds))}
+                onLabel={openPicker}
                 onRefresh={refresh}
                 onClearFilters={() => setFilters(f => clearedFilters(f))}
               />
@@ -1507,6 +1738,10 @@ export function Mail({ collapsed = false, readerPane = 'none', searchSlot = null
             onLoaded={m => setOpenInfo(m ? { id: m.id, accountId: m.accountId, folder: m.folder } : null)}
             flagEvent={flagEvent}
             accounts={accounts}
+            labelList={labelList}
+            labelEvent={labelEvent}
+            onLabel={runLabel}
+            onLabelPick={id => openPicker([id], 'reader')}
           />
           </div>
         </div>
@@ -1516,10 +1751,28 @@ export function Mail({ collapsed = false, readerPane = 'none', searchSlot = null
         <ContextMenu
           menu={menu}
           onAction={runAction}
+          onLabel={ids => openPicker(ids)}
           onClose={() => {
             setMenu(null)
-            // the focus back on the list (it went into the menu; the rows themselves are not focusable)
-            setTimeout(() => document.querySelector('.msg-viewport')?.focus(), 0)
+            // the focus back on the list (it went into the menu; the rows themselves are not focusable); not when the
+            // menu opened the label picker, which has the focus now
+            setTimeout(() => !document.querySelector('.label-picker') && noMenuOpen() && document.querySelector('.msg-viewport')?.focus(), 0)
+          }}
+        />
+      )}
+      {picker && (
+        <LabelPicker
+          ids={picker.ids}
+          list={labelList}
+          onToggle={(labelId, action) => runLabel(picker.ids, labelId, action)}
+          onCreate={createLabel}
+          onManage={onManageLabels ? () => (setPicker(null), onManageLabels()) : null}
+          onClose={() => {
+            const from = picker.from
+            setPicker(null)
+            // from the list: the focus back on the list (the menu that opened it is gone); the reader's own button
+            // gets it back by itself (the dialog gives the focus back to what had it)
+            if (from === 'list') setTimeout(() => document.querySelector('.msg-viewport')?.focus(), 0)
           }}
         />
       )}
@@ -1530,7 +1783,7 @@ export function Mail({ collapsed = false, readerPane = 'none', searchSlot = null
           onClose={() => {
             const m = folderMenu
             setFolderMenu(null)
-            setTimeout(() => document.querySelector(`.folder-tree section[data-account="${m.accountId}"] .folder[data-path="${CSS.escape(m.path)}"]`)?.focus(), 0)
+            setTimeout(() => noMenuOpen() && document.querySelector(`.folder-tree section[data-account="${m.accountId}"] .folder[data-path="${CSS.escape(m.path)}"]`)?.focus(), 0)
           }}
         />
       )}
@@ -1557,6 +1810,21 @@ export function Mail({ collapsed = false, readerPane = 'none', searchSlot = null
           }}
         />
       )}
+      {moveDialog && (
+        <MoveDialogFor
+          dialog={moveDialog}
+          accounts={accounts}
+          onCancel={() => {
+            const d = moveDialog
+            setMoveDialog(null)
+            focusFolder(d.accountId, d.path)
+          }}
+          onChoose={m => {
+            setMoveDialog(null)
+            askMoveFolder(m)
+          }}
+        />
+      )}
       {nameDialog && (
         <NameDialog
           dialog={nameDialog}
@@ -1574,12 +1842,18 @@ export function Mail({ collapsed = false, readerPane = 'none', searchSlot = null
           onYes={async () => {
             const c = confirm
             setConfirm(null)
-            if (c.folder) {
+            if (c.move) await moveFolder(c.move)
+            else if (c.folder) {
               const err = await folderOp('delete', c.folder)
               if (err) setFolderError(err)
             } else runAction('delete', c.ids, { permanent: true, ...(c.ctx || {}) })
           }}
-          onNo={() => setConfirm(null)}
+          onNo={() => {
+            const c = confirm
+            setConfirm(null)
+            // a folder move not made (Esc, Cancel; from the menu or a drop): the focus back on that folder, not the page
+            if (c.move) focusFolder(c.move.accountId, c.move.path)
+          }}
         />
       )}
     </div>

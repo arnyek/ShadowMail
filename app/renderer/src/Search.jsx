@@ -13,7 +13,7 @@ import { RECIPIENT_ROLES } from '../../../core/mime/recipient-label.js'
 
 const api = window.shadowMail
 export const SEARCH_DELAY_MS = 300
-export const EMPTY_FILTERS = Object.freeze({ accountId: null, folder: '', from: '', to: '', since: '', until: '', hasAttachment: false, unread: false, flagged: false, sort: 'relevance' })
+export const EMPTY_FILTERS = Object.freeze({ accountId: null, folder: '', from: '', to: '', since: '', until: '', hasAttachment: false, unread: false, flagged: false, label: null, sort: 'relevance' })
 
 const hasFlag = (flags, flag) => (flags || '').split(' ').includes(flag)
 
@@ -49,6 +49,7 @@ export function toRequest(text, f) {
     hasAttachment: f.hasAttachment,
     unread: f.unread,
     flagged: f.flagged,
+    label: f.label,
     sort: f.sort,
   }
 }
@@ -61,6 +62,7 @@ export function toListFilter(f) {
   const out = {}
   if (f.unread) out.unread = true
   if (f.flagged) out.flagged = true
+  if (f.label) out.label = f.label
   if (f.hasAttachment) out.hasAttachment = true
   // mail dates are after 1970: a day before it filters the same as 0, which the list accepts (#3)
   if (f.since) out.since = Math.max(0, day(f.since))
@@ -85,6 +87,7 @@ export function fromConditions(c) {
     hasAttachment: c.hasAttachment === true,
     unread: c.unread === true,
     flagged: c.flagged === true,
+    label: null,
     sort: c.sort === 'date' ? 'date' : 'relevance',
   }
 }
@@ -143,10 +146,12 @@ function ChipValue({ label, value }) {
  * search panel. Without one (`view` = the open folder): the attachment / unread / starred / date chips filter
  * the folder list, the account and folder chips open that account's INBOX or that folder
  * (`onNavigate`), and the order is the list's own (`listSort`, `sortItems`: the More menu's items).
+ * `labels`: the label list (0.17.0); the Label chip (one label, in the search and in the folder view alike) shows
+ * when there is a label or one is chosen.
  * The folder view's row fits one line at 1280 px: names cut at 160 px, the order as
  * "Dátum ↓"; the full texts stay the accessible names and tooltips.
  */
-export function SearchChips({ accounts, filters, onChange, searching = true, view = null, onNavigate, listSort, sortItems }) {
+export function SearchChips({ accounts, filters, onChange, searching = true, view = null, onNavigate, listSort, sortItems, labels = [] }) {
   const set = patch => onChange({ ...filters, ...patch })
   const folderView = !searching && view
   const account = accounts.find(a => a.id === (folderView ? view.accountId : filters.accountId))
@@ -227,6 +232,15 @@ export function SearchChips({ accounts, filters, onChange, searching = true, vie
       <Chip active={filters.hasAttachment} onClick={() => set({ hasAttachment: !filters.hasAttachment })}>{t.searchFilter.hasAttachment}</Chip>
       <Chip active={filters.unread} onClick={() => set({ unread: !filters.unread })}>{t.searchFilter.unread}</Chip>
       <Chip active={filters.flagged} onClick={() => set({ flagged: !filters.flagged })}>{t.searchFilter.flagged}</Chip>
+      {labels.length || filters.label ? (
+        <ChipSelect
+          label={t.searchFilter.label}
+          value={filters.label}
+          className="label-filter-chip"
+          options={[{ value: null, label: t.searchAnyLabel }, ...labels.map(l => ({ value: l.id, label: l.name, swatch: l.color }))]}
+          onChange={v => set({ label: v })}
+        />
+      ) : null}
       <span className="search-chips-end">
         {folderView ? (
           <ChipMenu
@@ -278,7 +292,7 @@ function JobLine({ job, source, onCancel }) {
 }
 
 /** One hit, memoized: a background job adds hits by the thousand, the old rows stay as they are. */
-const ResultRow = memo(function ResultRow({ m, source, selected, onOpen }) {
+const ResultRow = memo(function ResultRow({ m, source, selected, onOpen, labels = null, labelList = null }) {
   return (
     <li data-id={m.id} data-source={source} className={`result${selected ? ' selected' : ''}${hasFlag(m.flags, '\\Seen') ? '' : ' unread'}`}>
       <button type="button" className="result-open" onClick={() => onOpen.current(m.id)}>
@@ -288,6 +302,8 @@ const ResultRow = memo(function ResultRow({ m, source, selected, onOpen }) {
           subjectClass="result-subject"
           previewClass="result-snippet"
           preview={m.snip ? <Snippet text={m.snip} /> : null}
+          labels={labels}
+          labelList={labelList}
           before={
             <>
               <span className="tag result-where" title={`${m.account} · ${m.folder}`}>{m.account} · {m.folder}</span>
@@ -301,7 +317,7 @@ const ResultRow = memo(function ResultRow({ m, source, selected, onOpen }) {
   )
 })
 
-export function SearchResults({ request, accounts, selectedId, onOpen, idsRef = null }) {
+export function SearchResults({ request, accounts, selectedId, onOpen, idsRef = null, labelList = null, labelEvent = null }) {
   const openRef = useRef(onOpen)
   openRef.current = onOpen
   const [local, setLocal] = useState(null)
@@ -311,6 +327,31 @@ export function SearchResults({ request, accounts, selectedId, onOpen, idsRef = 
   // events of a job may arrive before its id does (the job starts before the invoke answers): kept here
   const early = useRef([])
   const reqKey = JSON.stringify(request)
+  // the hits are not searched again on a change: a label put on or taken off (Mail's labelEvent) follows here, by id
+  const [fixes, setFixes] = useState(() => new Map())
+
+  useEffect(() => {
+    if (!labelEvent || !api.mail.labelsOf) return
+    // every shown hit asked again (mail:labelsOf, by the message's account and key): another copy of a changed message
+    // (the same letter in another folder) follows too, not only the changed row ids
+    const ids = [...new Set([...(local && local.rows ? local.rows : []), ...extra.map(x => x.row)].map(r => r.id))]
+    let live = true
+    ;(async () => {
+      for (let i = 0; i < ids.length && live; i += 500) {
+        const res = await api.mail.labelsOf(ids.slice(i, i + 500))
+        if (!live || !res || !res.ok) return
+        setFixes(prev => {
+          const next = new Map(prev)
+          for (const [id, ls] of Object.entries(res.labels)) next.set(Number(id), ls)
+          return next
+        })
+      }
+    })()
+    return () => {
+      live = false
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [labelEvent])
 
   const cancelAll = () => {
     for (const id of Object.values(jobIds.current)) api.search.cancel(id)
@@ -323,6 +364,7 @@ export function SearchResults({ request, accounts, selectedId, onOpen, idsRef = 
     cancelAll()
     setExtra([])
     setJobs({})
+    setFixes(new Map())
     api.search.local(request).then(res => live && setLocal(res.ok ? res : { error: res.error }))
     return () => {
       live = false
@@ -384,7 +426,7 @@ export function SearchResults({ request, accounts, selectedId, onOpen, idsRef = 
       {/* the same row cells as the message list, with the account / folder chip in front */}
       <ol className="result-list" tabIndex={-1}>
         {rows.map(({ row: m, source }) => (
-          <ResultRow key={m.id} m={m} source={source} selected={selectedId === m.id} onOpen={openRef} />
+          <ResultRow key={m.id} m={m} source={source} selected={selectedId === m.id} onOpen={openRef} labels={fixes.get(m.id) ?? m.labels} labelList={labelList} />
         ))}
       </ol>
       {!rows.length && <p className="hint pad">{t.searchNoHits}</p>}

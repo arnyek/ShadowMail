@@ -166,12 +166,15 @@
   font-size: var(--fs-s);
   color: var(--c-text-2);
 }
+/* The 1 px bottom padding lifts a one-line field's text by half a pixel: Segoe UI's line metrics (a tall ascent)
+   put the capitals below the box's middle (measured, 40 px field: 16 px above, 13-14 px below, the same on a Windows
+   screenshot; with it 15 / 15 at 100 and 150 %; 2 px overshot to 14 / 16). A textarea sets its own padding. */
 .text-field-input,
 .field input:not([type="checkbox"]):not([type="radio"]),
 .field textarea {
   height: var(--field-h);
   box-sizing: border-box;
-  padding: 0 var(--space-3);
+  padding: 0 var(--space-3) 1px;
   border: 1px solid var(--c-border-strong);
   border-radius: var(--radius-s);
   background: var(--c-bg);
@@ -208,6 +211,11 @@
   background: var(--c-surface-2);
   color: var(--c-text-2);
 }
+/* a button in the field (filters, clear) on the field's centre line: the global `button` rule's
+   align-self: flex-start would put it at the field's top edge */
+.search-field > .icon-btn {
+  align-self: center;
+}
 .search-field:focus-within {
   background: var(--c-bg);
   box-shadow: var(--shadow-1);
@@ -216,6 +224,9 @@
   flex: 1;
   min-width: 0;
   height: 100%;
+  /* the text lifted as in .text-field-input (Segoe UI's metrics) */
+  padding-top: 0;
+  padding-bottom: 1px;
   border: 0;
   background: transparent;
   color: var(--c-text);
@@ -487,6 +498,19 @@
 }
 .menu-align-end {
   right: 0;
+}
+/* an anchored menu that does not fit below / at the side (Menu.jsx measures it) */
+.menu.menu-up {
+  top: auto;
+  bottom: calc(100% + var(--space-1));
+}
+.menu.menu-to-end {
+  left: auto;
+  right: 0;
+}
+.menu.menu-to-start {
+  left: 0;
+  right: auto;
 }
 .menu-fixed {
   position: fixed;

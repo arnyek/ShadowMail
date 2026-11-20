@@ -151,8 +151,9 @@ try {
   const tools = (await c.ask('tools/list')).result.tools
   const ss = tools.find(t => t.name === 'show_search')
   const sm = tools.find(t => t.name === 'search_messages')
-  const props = x => Object.keys(x.inputSchema.properties).filter(k => k !== 'limit').sort().join(',')
-  check('tools/list: show_search, read only, hits not returned; its properties are search_messages\' without limit', ss && ss.annotations.readOnlyHint === true && /hits themselves are NOT returned/.test(ss.description) && !('limit' in ss.inputSchema.properties) && props(ss) === props(sm), props(ss))
+  // search_messages' own: limit, and the label filter (the search box shows no label, show_search takes none)
+  const props = x => Object.keys(x.inputSchema.properties).filter(k => k !== 'limit' && k !== 'label').sort().join(',')
+  check('tools/list: show_search, read only, hits not returned; its properties are search_messages\' without limit', ss && ss.annotations.readOnlyHint === true && /hits themselves are NOT returned/.test(ss.description) && !('limit' in ss.inputSchema.properties) && !('label' in ss.inputSchema.properties) && props(ss) === props(sm), props(ss))
 
   // the view before: account A's INBOX with the folder filter "Olvasatlan" on
   await page.locator('.folder-tree section', { hasText: 'A-fiók' }).locator('.folder[data-path="INBOX"]').click()

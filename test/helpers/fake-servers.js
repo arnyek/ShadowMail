@@ -62,15 +62,29 @@ function lines(socket, onLine) {
 const unquote = s => (s.startsWith('"') ? s.slice(1, -1).replace(/\\(.)/g, '$1') : s)
 
 /** IMAP: greeting, CAPABILITY, LOGIN, LOGOUT; every other command answers OK. */
-export async function startImap(t, { user, pass, tlsCert = null }) {
+/**
+ * select (0.17.0, the connection test's PERMANENTFLAGS): 'star' -> (\\Seen \\Flagged \\*), 'nostar' -> (\\Seen \\Flagged),
+ * 'none' -> no PERMANENTFLAGS line, 'no' -> SELECT NO, 'hang' -> no answer, or a raw '(...)' list. commands: an array
+ * that gets every command name the server hears (with its argument for SELECT / EXAMINE); closes: an object whose n
+ * counts the connections the client closed.
+ */
+export async function startImap(t, { user, pass, tlsCert = null, select = 'none', commands = null, closes = null }) {
   const handler = socket => {
+    if (closes) socket.on('close', () => closes.n++)
     socket.write('* OK [CAPABILITY IMAP4rev1] fake IMAP ready\r\n')
     lines(socket, line => {
       const m = /^(\S+) (\S+)(?: (.*))?$/.exec(line)
       if (!m) return
       const [, tag, cmd, rest = ''] = m
       const c = cmd.toUpperCase()
+      if (commands) commands.push(c === 'SELECT' || c === 'EXAMINE' ? `${c} ${rest}` : c)
       if (c === 'CAPABILITY') socket.write(`* CAPABILITY IMAP4rev1\r\n${tag} OK done\r\n`)
+      else if (c === 'SELECT' || c === 'EXAMINE') {
+        if (select === 'hang') return
+        if (select === 'no') return socket.write(`${tag} NO [NONEXISTENT] no such mailbox\r\n`)
+        const pf = select === 'star' ? '(\\Seen \\Flagged \\*)' : select === 'nostar' ? '(\\Seen \\Flagged)' : select.startsWith('(') ? select : null
+        socket.write(`* FLAGS (\\Seen \\Flagged)\r\n* 0 EXISTS\r\n* 0 RECENT\r\n${pf ? `* OK [PERMANENTFLAGS ${pf}] flags\r\n` : ''}* OK [UIDVALIDITY 1] ok\r\n${tag} OK [READ-WRITE] ${c} done\r\n`)
+      }
       else if (c === 'LOGIN') {
         const [u, p] = rest.match(/"(?:[^"\\]|\\.)*"|\S+/g).map(unquote)
         if (u === user && p === pass) socket.write(`${tag} OK [CAPABILITY IMAP4rev1] logged in\r\n`)

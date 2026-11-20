@@ -28,6 +28,8 @@ import { fallbackTmpDir } from './motw.js'
 import { registerSearchIpc, SEARCH_CHANNELS } from './ipc/search.js'
 import { MailActions } from './actions.js'
 import { registerActionIpc, ACTION_CHANNELS } from './ipc/actions.js'
+import { registerLabelIpc, LABEL_CHANNELS } from './ipc/labels.js'
+import { Labels } from '../../core/db/labels.js'
 import { FolderActions } from './folders.js'
 import { registerFolderIpc, FOLDER_CHANNELS } from './ipc/folders.js'
 import { registerScheduledIpc, SCHEDULED_CHANNELS } from './ipc/scheduled.js'
@@ -58,9 +60,13 @@ import { Scheduled } from '../../core/db/scheduled.js'
 import { createScheduler } from './scheduler.js'
 import { SearchTextService } from '../../core/mime/search-text-service.js'
 import { createSearchRefiner, createFtsReindex } from './search-index.js'
+import { imageCodec } from './image-codec.js'
 
 // The message frame's schemes must be registered before 'ready'.
 registerMailSchemes(protocol)
+
+// the signature image's and a pasted image's decoder and upright-turner (nativeImage)
+const codec = imageCodec(nativeImage)
 
 // no proxy auto-detection (WPAD) at start: a measurement of the first build saw it as a network
 // request on launch. Mail (IMAP/POP3/SMTP) goes through Node sockets and is not affected; the only
@@ -120,6 +126,8 @@ let syncManager = null
 let reader = null
 // the composer's sig-img:// images, of the open session (null when locked)
 let signatureSource = null
+// the composer's pasted inl-img:// images, of the open session (null when locked)
+let pastedSource = null
 let sealedStore = null // the session's SealedStore, closed (key wiped) on lock
 let searchWork = null // the session's search-text worker, refiner and re-index; stopped on lock
 let unlocked = null // what the unlocked session opened (db, services); null while locked
@@ -143,10 +151,16 @@ const applyOverlay = overlayApplier({
 function rendererIndex() {
   return path.join(app.getAppPath(), 'out', 'renderer', 'index.html')
 }
+// the composer window's page: the same app with its own policy (app/renderer/compose.html)
+function rendererCompose() {
+  return path.join(app.getAppPath(), 'out', 'renderer', 'compose.html')
+}
 
 function isTrustedSender(event) {
   const url = event.senderFrame && event.senderFrame.url
-  return typeof url === 'string' && url.split('#')[0] === pathToFileURL(rendererIndex()).href
+  if (typeof url !== 'string') return false
+  const page = url.split('#')[0]
+  return page === pathToFileURL(rendererIndex()).href || page === pathToFileURL(rendererCompose()).href
 }
 
 function hardenSession() {
@@ -212,7 +226,7 @@ function createComposerWindow(sessionId) {
   guardComposerClose(win, () => quitting)
   // no show on 'ready-to-show'; the page's compose:checked shows it (ipc/compose.js), after
   // its starting body was measured: a suspect one never shows
-  win.loadFile(rendererIndex(), { hash: `compose=${sessionId}` })
+  win.loadFile(rendererCompose(), { hash: `compose=${sessionId}` })
   return win
 }
 
@@ -435,12 +449,13 @@ function main() {
     })
     vault = new Vault(vaultPath(dataDir))
     routed = createRoutedIpc(ipcMain)
-    routed.reserve([...ACCOUNT_CHANNELS, ...MAIL_CHANNELS, ...ACTION_CHANNELS, ...FOLDER_CHANNELS, ...COMPOSE_CHANNELS, ...SEARCH_CHANNELS, ...READER_CHANNELS, ...MCP_CHANNELS, ...CONTACTS_CHANNELS, ...TASKBAR_CHANNELS, ...SCHEDULED_CHANNELS])
+    routed.reserve([...ACCOUNT_CHANNELS, ...MAIL_CHANNELS, ...ACTION_CHANNELS, ...LABEL_CHANNELS, ...FOLDER_CHANNELS, ...COMPOSE_CHANNELS, ...SEARCH_CHANNELS, ...READER_CHANNELS, ...MCP_CHANNELS, ...CONTACTS_CHANNELS, ...TASKBAR_CHANNELS, ...SCHEDULED_CHANNELS])
     // the message frame's schemes live as long as the app; they ask the reader of the open session
     handleMailProtocols({
       protocol,
       reader: { view: token => (reader ? reader.view(token) : null), cidImage: (id, cid) => (reader ? reader.cidImage(id, cid) : null) },
       signature: (kind, ref) => (signatureSource ? signatureSource(kind, ref) : null),
+      pasted: (sid, id) => (pastedSource ? pastedSource(sid, id) : null),
       log,
     })
     vault.onLock(() => closeSession())
@@ -580,6 +595,7 @@ function closeSession({ now = false } = {}) {
   if (reader) reader.clear()
   reader = null
   signatureSource = null
+  pastedSource = null
   openMailto = null
   saveAllForLock = null
   syncManager = null
@@ -623,7 +639,10 @@ function buildServices(ipcMain) {
   const searchSettings = openSettings(db)
   const refiner = createSearchRefiner({ service: searchService, index, settings: searchSettings, sealed, log })
   searchWork = { service: searchService, refiner, reindex: createFtsReindex({ index, store, sealed, settings: searchSettings, service: searchService, log, onComplex: item => refiner.retryLater(item) }) }
-  const sm = new SyncManager({ store, index, notify, log, sealed, searchText: refiner })
+  // the labels (0.17.0): an IMAP account's on its server (keywords), POP3's in the database; the sync uploads the old local
+  // ones of an IMAP account after its first full run
+  const labels = new Labels(db)
+  const sm = new SyncManager({ store, index, notify, log, sealed, searchText: refiner, labels })
   syncManager = sm
   reader = new MessageReader({
     searchText: refiner,
@@ -651,13 +670,21 @@ function buildServices(ipcMain) {
     onTested: (id, r) => r.incoming.ok && r.smtp.ok && mcpTestUnlock(id),
     dialog,
     getWindow: () => mainWindow,
-    // the signature image: decodable at all, and of which size (a check only, the stored bytes are the file's own)
-    decodeImage: bytes => {
-      const img = nativeImage.createFromBuffer(bytes)
-      return img.isEmpty() ? null : img.getSize()
-    },
+    // the signature image: decodable at all, and of which size (a check only); a turned photo turned upright
+    decodeImage: codec.decode,
+    uprightImage: codec.upright,
   })
-  registerMailIpc({ ipcMain, store, index, manager: sm, isTrustedSender, log, onUserSync: id => (id === null ? store.list().forEach(a => mcpTestUnlock(a.id)) : mcpTestUnlock(id)) })
+  registerLabelIpc({
+    ipcMain,
+    labels,
+    withConnection: (accountId, fn) => sm.withConnection(accountId, fn),
+    requestSync: (accountId, folders) => sm.requestSync(accountId, folders),
+    onChange: change => sm.notifyChange(change),
+    notify,
+    isTrustedSender,
+    log,
+  })
+  registerMailIpc({ ipcMain, store, index, manager: sm, labels, isTrustedSender, log, onUserSync: id => (id === null ? store.list().forEach(a => mcpTestUnlock(a.id)) : mcpTestUnlock(id)) })
   const actions = new MailActions({
     index,
     store,
@@ -685,6 +712,7 @@ function buildServices(ipcMain) {
   const scheduledRows = new Scheduled(db)
   const composer = new Composer({
     scheduled: scheduledRows,
+    labels, // an IMAP draft saved again keeps its labels (the old copy's keywords)
     index,
     store,
     contacts,
@@ -697,6 +725,9 @@ function buildServices(ipcMain) {
     onChange: change => sm.notifyChange(change),
     log,
     searchText: refiner,
+    // a pasted image: decodable at all, and of which size (a check only); a turned photo turned upright
+    decodeImage: codec.decode,
+    uprightImage: codec.upright,
     // a composer opened from the "Időzített" list saved, sent or discarded it: the list reloads
     onScheduledChange: () => {
       notify({ kind: 'scheduledList' })
@@ -705,6 +736,7 @@ function buildServices(ipcMain) {
     },
   })
   signatureSource = (kind, ref) => composer.signatureImageOf(kind, ref)
+  pastedSource = (sid, id) => composer.inlineImageOf(sid, id)
   const composeIpc = registerComposeIpc({
     ipcMain,
     composer,
@@ -745,7 +777,7 @@ function buildServices(ipcMain) {
   openMailto = composeIpc.openMailto
   saveAllForLock = composeIpc.saveAllForLock
   registerSearchIpc({
-    ipcMain, db, index, store, manager: sm, sealed, notify, isTrustedSender, log,
+    ipcMain, db, index, store, manager: sm, sealed, notify, labels, isTrustedSender, log,
     // the POP3 old-text search reads the visible text from the worker (null when dropped: counted as skipped)
     messageTextOf: async bytes => {
       if (!(await searchService.admit(bytes.length))) return null
@@ -798,6 +830,11 @@ function buildServices(ipcMain) {
   const confirmPolicy = createConfirmPolicy({ settings: openSettings(db), people, log })
   mcpTools = createMcpTools({
     appVersion: app.getVersion(),
+    // the labels: Claude's label_messages goes the UI's own way (applyLabels, on the server through manager), the list
+    // follows the change event
+    labels,
+    onMailChange: change => sm.notifyChange(change),
+    onLabels: notify, // { kind: 'labels' }: the label counts (Settings / Labels, the list) load again
     people, // search_contacts
     confirm,
     policy: confirmPolicy,
@@ -823,7 +860,7 @@ function buildServices(ipcMain) {
     folders: folderActions,
     // the account as the editor gets it (accounts:list: index_years, no secrets), unchanged: the saved settings
     // the editor's form of the saved account (booleans), exactly what the UI's Kapcsolat próbája sends
-    testAccount: id => testAccountConnection(accountEditorForm(store.list().find(a => a.id === id)), { store }),
+    testAccount: id => testAccountConnection(accountEditorForm(store.list().find(a => a.id === id)), { store, log }),
     composer,
     // the app says it ("Claude piszkozatot készített: <tárgy>" + Megnyitás)
     onClaudeDraft: ({ accountId, subject, messageId }) => notify({ kind: 'claudeDraft', accountId, subject, messageId }),
@@ -872,7 +909,7 @@ function buildServices(ipcMain) {
     }),
     copyText: text => clipboard.writeText(text),
   })
-  registerReaderIpc({ ipcMain, reader, tmpDir: paths.temp, fallbackDir: fallbackTmpDir(dataDir), dialog, shell, getWindow: () => mainWindow, isTrustedSender, log })
+  registerReaderIpc({ ipcMain, reader, tmpDir: paths.temp, fallbackDir: fallbackTmpDir(dataDir), dialog, shell, getWindow: () => mainWindow, labels, isTrustedSender, log })
   // the unread badge: counts now, then after every write of this connection (TEMP triggers)
   taskbar = startTaskbarBadge({ db, settings: openSettings(db), apply: applyOverlay, log })
   registerTaskbarIpc({ ipcMain, taskbar, isTrustedSender, log })

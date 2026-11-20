@@ -7,6 +7,7 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import { THEMES } from '../app/renderer/src/themes.js'
 import { viewDocument } from '../app/main/protocols.js'
+import { LABEL_PALETTE, chipTextColor } from '../app/renderer/src/label-chips.js'
 
 const css = fs.readFileSync(new URL('../app/renderer/src/theme.css', import.meta.url), 'utf8')
 
@@ -170,6 +171,63 @@ for (const theme of THEMES) {
     assert.deepEqual(weakPairs(themeTokens(css, theme.id)), [])
   })
 }
+
+// 0.17.0 labels: a chip's background is the label's own color (the same in every theme), its text black or white by
+// label-chips.js; measured here with this file's own contrast, in every theme (the chip does not take a theme token),
+// for the 12 offered colors and two custom ones. The "+N" next to the chips is --c-text-2 on the row: in TEXT_PAIRS.
+const hexRgb = h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16))
+for (const theme of THEMES) {
+  test(`theme ${theme.id}: every label chip's text at least 4.5:1 (the 12 offered colors, #ffff00, #000080)`, () => {
+    const weak = [...LABEL_PALETTE, '#ffff00', '#000080']
+      .map(bg => [bg, contrast(hexRgb(chipTextColor(bg)), hexRgb(bg))])
+      .filter(([, c]) => c < 4.5)
+      .map(([bg, c]) => `${bg}: ${c.toFixed(2)}`)
+    assert.deepEqual(weak, [])
+  })
+}
+
+// the dot form of a chip (a narrow text cell, app.css @container msg-text < 240px): 8 px of the label's color; its ring
+// token is read from app.css itself. WCAG 1.4.11: the fill OR the ring at least 3:1 against the row it sits on, the plain
+// row (--c-bg) and the selected one (--c-surface-2), in every theme
+const appCss = fs.readFileSync(new URL('../app/renderer/src/app.css', import.meta.url), 'utf8')
+export function dotRing(text) {
+  const at = text.indexOf('@container msg-text (width < 240px)')
+  if (at < 0) return null
+  const rule = /\.label-chips \.label-chip\s*\{([^}]*)\}/.exec(text.slice(at))
+  const ring = rule && /box-shadow:\s*inset 0 0 0 1px var\((--[\w-]+)\)\s*;/.exec(rule[1])
+  return ring ? ring[1] : null
+}
+export function weakDots(tokens, ring, colors = [...LABEL_PALETTE, '#ffff00', '#000080']) {
+  T = tokens
+  const out = []
+  for (const bgName of ['--c-bg', '--c-surface-2']) {
+    const bg = solid(bgName, '--c-bg')
+    for (const c of colors) {
+      const fill = contrast(hexRgb(c), bg)
+      const edge = ring ? contrast(solid(ring, bgName, '--c-bg'), bg) : 0
+      if (Math.max(fill, edge) < 3) out.push(`${c} on ${bgName}: fill ${fill.toFixed(2)}, ring ${edge.toFixed(2)}`)
+    }
+  }
+  T = themeTokens(css, 'default')
+  return out
+}
+for (const theme of THEMES) {
+  test(`theme ${theme.id}: every label dot stands out from the plain and the selected row at 3:1 (fill or ring)`, () => {
+    assert.equal(dotRing(appCss), '--c-text-2', 'the dot has its ring')
+    assert.deepEqual(weakDots(themeTokens(css, theme.id), dotRing(appCss)), [])
+  })
+}
+test('the dot check catches a missing ring, and a ring in the chip\'s text color (black / white): both leave weak dots', () => {
+  const noRing = appCss.replace('box-shadow: inset 0 0 0 1px var(--c-text-2);', '')
+  assert.equal(dotRing(noRing), null)
+  assert.ok(weakDots(themeTokens(css, 'default'), null).some(w => w.startsWith('#fbc02d on --c-bg')))
+  assert.ok(weakDots(themeTokens(css, 'dark'), null).some(w => w.startsWith('#3949ab on --c-bg')))
+  // the first try: a ring of black on a dark row for a mid-tone (teal, green), measured weak
+  const textRing = appCss.replace('box-shadow: inset 0 0 0 1px var(--c-text-2);', 'box-shadow: inset 0 0 0 1px var(--probe-ring);')
+  assert.equal(dotRing(textRing), '--probe-ring')
+  const probe = `${css}\n[data-theme="dark"] { --probe-ring: #000000; }\n`
+  assert.ok(weakDots(themeTokens(probe, 'dark'), dotRing(textRing)).some(w => w.startsWith('#00897b')))
+})
 
 test('the check catches a weak pair in a theme (a probe theme on top of theme.css)', () => {
   const probe = `${css}\n[data-theme="probe"] { --c-text-2: #c0c0c0; --c-star: #fff3c4; }\n`

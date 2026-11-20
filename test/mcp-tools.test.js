@@ -23,6 +23,8 @@ import { ConfirmationQueue, EXPIRE_MS } from '../app/main/mcp/confirm.js'
 import { RESTART_HINT, CONFIRM_LIST_ITEMS, draftWithText } from '../app/main/mcp/tools.js'
 import { People } from '../core/db/people.js'
 import { Scheduled } from '../core/db/scheduled.js'
+import { Labels } from '../core/db/labels.js'
+import { CONFIRM_OPS } from '../app/main/mcp/confirm-policy.js'
 import { parseSendAt, localIso } from '../app/main/mcp/tools.js'
 import { createConfirmPolicy } from '../app/main/mcp/confirm-policy.js'
 import { hu } from '../app/renderer/i18n/hu.js'
@@ -100,7 +102,11 @@ async function setup(t, { extra = [], wrap = c => c, trash = false, testAccount 
         },
       })
     : null
-  const tools = createMcpTools({ appVersion: '0.10.1', store, index, reader, manager, people, actions, folders, testAccount: testAccount && (id => testAccount(id, store)), composer, onClaudeDraft: d => drafted.push(d), showAccountEditor, now: () => NOW, syncWaitMs: 5000, confirm: queue, confirmWaitMs, saveAccount, policy: confirmPolicy, onAutoRun: r => autoRuns.push(r), scheduled, onScheduled: (id, info) => scheduledEvents.push([id, info]), log: m => logs.push(m) })
+  // the local labels (0.17.0) and the mail view's change events they send
+  const labels = new Labels(db)
+  const mailChanges = []
+  const labelEvents = []
+  const tools = createMcpTools({ appVersion: '0.10.1', labels, onMailChange: c => mailChanges.push(c), onLabels: e => labelEvents.push(e), store, index, reader, manager, people, actions, folders, testAccount: testAccount && (id => testAccount(id, store)), composer, onClaudeDraft: d => drafted.push(d), showAccountEditor, now: () => NOW, syncWaitMs: 5000, confirm: queue, confirmWaitMs, saveAccount, policy: confirmPolicy, onAutoRun: r => autoRuns.push(r), scheduled, onScheduled: (id, info) => scheduledEvents.push([id, info]), log: m => logs.push(m) })
   const dispatch = createDispatcher({ serverInfo: { name: 's', version: '1' }, tools, log: m => logs.push(m) })
   let id = 0
   const call = async (name, args = {}) => {
@@ -108,13 +114,13 @@ async function setup(t, { extra = [], wrap = c => c, trash = false, testAccount 
     return r.result
   }
   const idBySubject = s => db.prepare('SELECT id FROM messages WHERE subject LIKE ?').get(`${s}%`).id
-  return { db, index, imap, row, store, manager, reader, tools, call, logs, idBySubject, drafted, composer, queue, requests, policy, clock, people, confirmPolicy, autoRuns, settingsMap, scheduled, scheduledEvents }
+  return { db, index, imap, row, store, manager, reader, tools, call, logs, idBySubject, drafted, composer, queue, requests, policy, clock, people, confirmPolicy, autoRuns, settingsMap, scheduled, scheduledEvents, labels, mailChanges, labelEvents }
 }
 
 const blocks = text => ({ open: (text.match(/<email_content message_id="/g) || []).length, close: (text.match(/<\/email_content>/g) || []).length, notes: text.split(UNTRUSTED_NOTE).length - 1 })
 
-const READ_TOOLS = ['status', 'list_accounts_folders', 'list_messages', 'search_messages', 'read_message', 'get_thread', 'search_server', 'test_account', 'search_contacts']
-const WRITE_TOOLS = ['sync_account', 'mark_messages', 'move_messages', 'trash_messages', 'create_folder', 'rename_folder', 'create_draft', 'create_reply_draft', 'update_draft', 'prepare_account']
+const READ_TOOLS = ['status', 'list_accounts_folders', 'list_messages', 'search_messages', 'read_message', 'get_thread', 'search_server', 'test_account', 'search_contacts', 'list_labels']
+const WRITE_TOOLS = ['sync_account', 'mark_messages', 'move_messages', 'trash_messages', 'create_folder', 'rename_folder', 'create_draft', 'create_reply_draft', 'update_draft', 'prepare_account', 'label_messages']
 // only with the user's confirmation in the app; confirmation_status reads their state
 const CONFIRMED_TOOLS = ['send_message', 'send_draft', 'delete_folder', 'update_account', 'delete_account']
 const SCHEDULED_TOOLS = ['list_scheduled', 'cancel_scheduled']
@@ -513,6 +519,20 @@ test('create_folder and rename_folder go through FolderActions; a role folder is
   assert.ok(s.imap.mailboxes.has('INBOX'))
 })
 
+test('rename_folder on the parent of a role folder: protected_subfolder with its own text, nothing renamed', async t => {
+  const s = await setup(t)
+  assert.equal((await s.call('create_folder', { account_id: s.row.id, name: 'Szülő' })).isError, false)
+  assert.equal((await s.call('create_folder', { account_id: s.row.id, name: 'Régi', parent: 'Szülő' })).isError, false)
+  s.index.setManualRole(s.row.id, 'archive', 'Szülő/Régi')
+  const r = await s.call('rename_folder', { account_id: s.row.id, path: 'Szülő', name: 'Más' })
+  assert.equal(r.isError, true)
+  assert.equal(r._meta['shadowmail/data'].error, 'protected_subfolder')
+  assert.match(r.content[0].text, /A mappa alatt szerepmappa/)
+  assert.ok(s.imap.mailboxes.has('Szülő') && s.imap.mailboxes.has('Szülő/Régi') && !s.imap.mailboxes.has('Más'))
+  const own = await s.call('rename_folder', { account_id: s.row.id, path: 'Szülő/Régi', name: 'X' })
+  assert.equal(own._meta['shadowmail/data'].error, 'protected_folder', 'the role folder itself keeps the old code')
+})
+
 test('test_account runs the UI\'s "Kapcsolat próbája" with the saved settings; only ok / the error code comes out', async t => {
   const seen = []
   const probe = async (values, pw) => {
@@ -525,7 +545,7 @@ test('test_account runs the UI\'s "Kapcsolat próbája" with the saved settings;
   s.db.prepare("UPDATE accounts SET smtp_port = 465, smtp_security = 'tls' WHERE id = ?").run(s.row.id) // a complete saved account
   const r = await s.call('test_account', { account_id: s.row.id })
   assert.equal(r.isError, false, r.content[0].text)
-  assert.deepEqual(r._meta['shadowmail/data'], { incoming: { ok: false, error: 'auth_failed' }, smtp: { ok: true, error: null } })
+  assert.deepEqual(r._meta['shadowmail/data'], { incoming: { ok: false, error: 'auth_failed' }, smtp: { ok: true, error: null }, custom_keywords: null })
   assert.equal(seen[0].incoming, 'x', 'the stored password was used (same settings)')
   const out = JSON.stringify(r)
   for (const secret of ['refused by the server', 'imap.titkos-szerver.invalid', 'titkos-felhasznalo-77']) assert.ok(!out.includes(secret), secret)
@@ -2306,3 +2326,222 @@ test('cancel_scheduled: who scheduled it counts, not where the draft came from: 
   assert.equal(s.requests.length, before + 1, 'it asks')
   assert.ok(s.scheduled.get(mine))
 })
+
+// --- 0.17.0 labels: list_labels, the labels in the read tools, the label filter by name, label_messages -------------
+const labelsOfRow = (s, id) => (s.labels.labelsOfRows([id]).get(id) || []).map(l => s.labels.get(l).name)
+const labelRows = s => JSON.stringify(s.db.prepare('SELECT account_id, label_key, label_id FROM message_labels ORDER BY 1, 2, 3').all())
+
+test('list_labels: none yet (the text says only the user makes one); then the user\'s order, color and message count', async t => {
+  const s = await setup(t)
+  const none = await s.call('list_labels')
+  assert.equal(none.isError, false)
+  assert.deepEqual(none._meta['shadowmail/data'].labels, [])
+  assert.match(none.content[0].text, /Még nincs címke\. Újat csak a felhasználó hozhat létre/)
+  const invoice = s.labels.create('Számla', '#D32F2F')
+  s.labels.create('Fontos', '#fbc02d')
+  s.labels.setLabels([s.idBySubject('Olvasatlan számla'), s.idBySubject('Csillagos')], { add: [invoice.id] })
+  const res = await s.call('list_labels')
+  assert.deepEqual(res._meta['shadowmail/data'].labels, [{ name: 'Számla', color: '#d32f2f', count: 2 }, { name: 'Fontos', color: '#fbc02d', count: 0 }])
+  assert.match(res.content[0].text, /^2 címke \(a felhasználó sorrendjében\):\n1\. Számla \(#d32f2f\): 2 levél\n2\. Fontos \(#fbc02d\): 0 levél$/)
+  assert.deepEqual(await s.call('list_labels', { x: 1 }).then(r => r._meta['shadowmail/data'].error), 'bad_arguments')
+  const desc = s.tools.list().find(x => x.name === 'list_labels').description
+  assert.match(desc, /making, renaming or deleting a label only the user can do/)
+})
+
+test('the labels in list_messages, search_messages, read_message and get_thread: in the data and in the text line, outside the email block', async t => {
+  const s = await setup(t)
+  const invoice = s.labels.create('Számla', '#d32f2f')
+  const important = s.labels.create('Fontos', '#fbc02d')
+  const u = s.idBySubject('Olvasatlan számla')
+  s.labels.setLabels([u], { add: [important.id, invoice.id] })
+  s.labels.reorder([invoice.id, important.id])
+  const list = await s.call('list_messages', { account_id: s.row.id, folder: 'INBOX', limit: 50 })
+  const item = list._meta['shadowmail/data'].items.find(x => x.id === u)
+  assert.deepEqual(item.labels, ['Számla', 'Fontos'], 'the list order')
+  assert.ok(list._meta['shadowmail/data'].items.filter(x => x.id !== u).every(x => JSON.stringify(x.labels) === '[]'))
+  const lineOf = (text, id) => text.split('\n').find(l => new RegExp(`^(#\\d+ )?id=${id} `).test(l))
+  assert.match(lineOf(list.content[0].text, u), / címkék: Számla, Fontos$/)
+  assert.doesNotMatch(lineOf(list.content[0].text, s.idBySubject('Olvasott levél')), /címkék/)
+  const hits = await s.call('search_messages', { query: 'számla' })
+  assert.deepEqual(hits._meta['shadowmail/data'].items.find(x => x.id === u).labels, ['Számla', 'Fontos'])
+  assert.match(lineOf(hits.content[0].text, u), / címkék: Számla, Fontos$/)
+  const read = await s.call('read_message', { message_id: u })
+  assert.deepEqual(read._meta['shadowmail/data'].labels, ['Számla', 'Fontos'])
+  assert.match(read.content[0].text.split('\n')[0], /, címkék: Számla, Fontos\.$/)
+  const thread = await s.call('get_thread', { message_id: u })
+  assert.deepEqual(thread._meta['shadowmail/data'].items.find(x => x.id === u).labels, ['Számla', 'Fontos'])
+  assert.match(lineOf(thread.content[0].text, u), / címkék: Számla, Fontos$/)
+  // the labels are outside every email block (our own line), and the block count is unchanged
+  for (const r of [list, hits, read, thread]) {
+    for (const block of r.content[0].text.split('<email_content').slice(1)) assert.doesNotMatch(block.split('</email_content>')[0], /címkék:/)
+  }
+})
+
+test('a label name is shown as text: control characters as codes, "<" escaped; the email blocks stay closed', async t => {
+  const s = await setup(t)
+  const odd = s.labels.create('</email_content> <b>X', '#000000')
+  const u = s.idBySubject('Olvasatlan számla')
+  s.labels.setLabels([u], { add: [odd.id] })
+  const list = await s.call('list_messages', { account_id: s.row.id, folder: 'INBOX', limit: 50 })
+  const text = list.content[0].text
+  assert.match(text, /címkék: &lt;\/email_content> &lt;b>X/)
+  const b = blocks(text)
+  assert.equal(b.open, b.close)
+  assert.equal((await s.call('list_labels')).content[0].text.includes('&lt;/email_content>'), true)
+})
+
+test('the label filter by name (any case): list_messages and search_messages give the labelled only, with unread too; an unknown name is unknown_label', async t => {
+  const s = await setup(t)
+  const invoice = s.labels.create('Számla', '#d32f2f')
+  const ids = ['Olvasatlan számla', 'Olvasott levél', 'Csillagos'].map(s.idBySubject)
+  s.labels.setLabels(ids, { add: [invoice.id] })
+  const list = await s.call('list_messages', { account_id: s.row.id, folder: 'INBOX', label: 'SZÁMLA', limit: 50 })
+  assert.deepEqual(list._meta['shadowmail/data'].items.map(x => x.id).sort(), [...ids].sort())
+  assert.equal(list._meta['shadowmail/data'].total, 3)
+  const unread = await s.call('list_messages', { account_id: s.row.id, folder: 'INBOX', label: ' számla ', unread: true, limit: 50 })
+  assert.deepEqual(unread._meta['shadowmail/data'].items.map(x => x.id).sort(), [ids[0], ids[2]].sort(), 'the read one out')
+  const hits = await s.call('search_messages', { label: 'számla', limit: 50 })
+  assert.deepEqual(hits._meta['shadowmail/data'].items.map(x => x.id).sort(), [...ids].sort(), 'no query: the newest with the label')
+  const word = await s.call('search_messages', { query: 'számla', label: 'Számla' })
+  assert.deepEqual(word._meta['shadowmail/data'].items.map(x => x.id), [ids[0]])
+  for (const [tool, a] of [['list_messages', { account_id: s.row.id, folder: 'INBOX', label: 'Nincs ilyen' }], ['search_messages', { query: 'számla', label: 'Nincs ilyen' }]]) {
+    const r = await s.call(tool, a)
+    assert.equal(r.isError, true, tool)
+    assert.equal(r._meta['shadowmail/data'].error, 'unknown_label', tool)
+    assert.match(r.content[0].text, /Nincs ilyen címke: Nincs ilyen\. A címkéket a list_labels mutatja/, tool)
+  }
+  for (const label of [5, '', 'x'.repeat(201)]) {
+    const r = await s.call('list_messages', { account_id: s.row.id, folder: 'INBOX', label })
+    assert.ok(['bad_arguments', 'unknown_label'].includes(r._meta['shadowmail/data'].error), JSON.stringify(label))
+  }
+  // show_search takes no label (the search box shows none): refused as an unknown argument
+  assert.equal((await s.call('show_search', { query: 'x', label: 'Számla' }))._meta['shadowmail/data'].error, 'bad_arguments')
+})
+
+// the read tools with a label that comes ONLY from a server keyword (written as the Tester's probe of the label read)
+test('a server keyword (another client, upper case) shows in list_messages, search_messages, read_message, get_thread and list_labels after the sync; removed: in none', async t => {
+  const s = await setup(t)
+  const invoice = s.labels.create('Számla', '#d32f2f')
+  const u = s.idBySubject('Olvasatlan számla')
+  const r = s.index.get(u)
+  const other = s.idBySubject('Olvasott levél')
+  const otherRow = s.index.get(other)
+  // POP3-like control is not here; another IMAP row gets a near-miss keyword (not a whole word)
+  s.imap.setFlags(r.folder, r.uid, ['SZ=C3=A1MLA'])
+  s.imap.setFlags(otherRow.folder, otherRow.uid, ['\\Seen', `x${invoice.keyword}`])
+  s.manager.syncNow(s.row.id)
+  await until(() => (s.labels.labelsOfRows([u]).get(u) || []).length === 1)
+  const list = await s.call('list_messages', { account_id: s.row.id, folder: 'INBOX', limit: 50 })
+  const items = list._meta['shadowmail/data'].items
+  assert.deepEqual(items.find(x => x.id === u).labels, ['Számla'])
+  assert.deepEqual(items.find(x => x.id === other).labels, [])
+  assert.deepEqual(items.filter(x => x.labels.length).map(x => x.id), [u])
+  const byName = await s.call('list_messages', { account_id: s.row.id, folder: 'INBOX', label: 'számla', limit: 50 })
+  assert.deepEqual(byName._meta['shadowmail/data'].items.map(x => x.id), [u], 'the label filter by name')
+  const hits = await s.call('search_messages', { query: 'számla' })
+  assert.deepEqual(hits._meta['shadowmail/data'].items.find(x => x.id === u).labels, ['Számla'])
+  const read = await s.call('read_message', { message_id: u })
+  assert.deepEqual(read._meta['shadowmail/data'].labels, ['Számla'])
+  assert.match(read.content[0].text.split('\n')[0], /címkék: Számla\.$/)
+  const thread = await s.call('get_thread', { message_id: u })
+  assert.deepEqual(thread._meta['shadowmail/data'].items.find(x => x.id === u).labels, ['Számla'])
+  assert.deepEqual((await s.call('list_labels'))._meta['shadowmail/data'].labels, [{ name: 'Számla', color: '#d32f2f', count: 1 }])
+  // the other client takes it off
+  s.imap.setFlags(r.folder, r.uid, ['\\Seen'])
+  s.manager.syncNow(s.row.id)
+  await until(() => !(s.labels.labelsOfRows([u]).get(u) || []).length)
+  const list2 = await s.call('list_messages', { account_id: s.row.id, folder: 'INBOX', limit: 50 })
+  assert.ok(list2._meta['shadowmail/data'].items.every(x => x.labels.length === 0))
+  assert.deepEqual((await s.call('read_message', { message_id: u }))._meta['shadowmail/data'].labels, [])
+  assert.deepEqual((await s.call('list_labels'))._meta['shadowmail/data'].labels[0].count, 0)
+})
+
+test('label_messages: on and off by name, the folders\' change events; unknown names, bad ids and 501 ids change nothing; no confirmation', async t => {
+  const s = await setup(t, { confirm: true, withPolicy: true })
+  const invoice = s.labels.create('Számla', '#d32f2f')
+  const important = s.labels.create('Fontos', '#fbc02d')
+  const u = s.idBySubject('Olvasatlan számla')
+  const r = s.idBySubject('Olvasott levél')
+  const on = await s.call('label_messages', { ids: [u, r], add: ['számla', 'FONTOS'] })
+  assert.equal(on.isError, false, on.content[0].text)
+  assert.deepEqual(on._meta['shadowmail/data'], { done: 2, changed: 4, local: [], failed: [] }, 'two messages x two labels')
+  // an IMAP account: the keywords on the server's copies, the other flags untouched
+  const flagsOn = id => [...s.imap.mailboxes.get('INBOX').messages.get(s.index.get(id).uid).flags].sort()
+  assert.deepEqual(flagsOn(u), [invoice.keyword, important.keyword].sort())
+  assert.deepEqual(flagsOn(r), ['\\Seen', invoice.keyword, important.keyword].sort())
+  assert.match(on.content[0].text, /^2 levél címkéi beállítva \(fel: Számla, Fontos\); 4 címke került fel vagy le\.$/)
+  assert.deepEqual((await s.call('label_messages', { ids: [u], add: ['Számla'] }))._meta['shadowmail/data'], { done: 1, changed: 0, local: [], failed: [] }, 'already on: nothing changes')
+  assert.deepEqual([labelsOfRow(s, u), labelsOfRow(s, r)], [['Számla', 'Fontos'], ['Számla', 'Fontos']])
+  assert.deepEqual(s.mailChanges.at(-1), { accountId: s.row.id, folders: ['INBOX'] }, 'the list reloads (the UI\'s change event)')
+  assert.deepEqual(s.labelEvents, [{ kind: 'labels' }], 'the label counts reload (Settings / Labels)')
+  const both = await s.call('label_messages', { ids: [u], add: ['Fontos'], remove: ['Számla'] })
+  assert.match(both.content[0].text, /\(fel: Fontos; le: Számla\)/)
+  assert.deepEqual(labelsOfRow(s, u), ['Fontos'])
+  assert.deepEqual(flagsOn(u), [important.keyword])
+  const before = labelRows(s) + JSON.stringify(flagsOn(u)) + s.index.get(u).flags
+  const changes = s.mailChanges.length
+  const refused = [
+    [{ ids: [u], add: ['Számla', 'Nincs ilyen'] }, 'unknown_label'],
+    [{ ids: [u], remove: ['nincs'] }, 'unknown_label'],
+    [{ ids: [u] }, 'bad_arguments'],
+    [{ ids: [u], add: [] }, 'bad_arguments'],
+    [{ ids: [u], add: 'Számla' }, 'bad_arguments'],
+    [{ ids: [u], add: [7] }, 'bad_arguments'],
+    [{ ids: [u, 999_999], add: ['Számla'] }, 'not_found'],
+    [{ ids: Array.from({ length: MAX_ACTION_IDS + 1 }, (_, i) => i + 1), add: ['Számla'] }, 'bad_arguments'],
+    [{ ids: [], add: ['Számla'] }, 'bad_arguments'],
+  ]
+  for (const [a, code] of refused) {
+    const res = await s.call('label_messages', a)
+    assert.equal(res._meta['shadowmail/data'].error, code, JSON.stringify(a).slice(0, 80))
+  }
+  assert.equal(labelRows(s) + JSON.stringify(flagsOn(u)) + s.index.get(u).flags, before, 'nothing changed')
+  assert.equal(s.mailChanges.length, changes, 'no change event')
+  // the two changes above: the first at once, the second merged into the closing event at the window's end (<= 250 ms)
+  await sleep(300)
+  assert.equal(s.labelEvents.length, 2, 'a refused call sends no labels event (the two are the two changes above)')
+  const unknown = await s.call('label_messages', { ids: [u], add: ['Új címke'] })
+  assert.match(unknown.content[0].text, /Nincs ilyen címke: Új címke\. Semmi nem változott\. .*csak a felhasználó hozhat létre/)
+  assert.equal(s.labels.byName('Új címke'), null, 'a label is never made by the tool')
+  assert.deepEqual(s.requests, [], 'no confirmation asked')
+  assert.ok(!CONFIRM_OPS.some(op => /label/i.test(op)), 'no new confirmation switch')
+  const desc = s.tools.list().find(x => x.name === 'label_messages')
+  assert.match(desc.description, /Reversible\./)
+  assert.match(desc.description, /making, renaming or deleting a label only the user can do/)
+  assert.deepEqual([desc.annotations.readOnlyHint, desc.annotations.destructiveHint, desc.annotations.openWorldHint], [false, false, true], 'it writes the mail server')
+  assert.doesNotMatch(desc.description, /only in this program \(nothing goes to the mail server\)/)
+})
+
+test('label_messages on IMAP: a folder whose server does not allow the keyword keeps it locally (the text says so); an account out of reach changes nothing and the text names it and the reason', async t => {
+  const s = await setup(t)
+  const invoice = s.labels.create('Számla', '#d32f2f')
+  const u = s.idBySubject('Olvasatlan számla')
+  const r = s.idBySubject('Olvasott levél')
+  const old = s.idBySubject('Régi ajánlat')
+  s.imap.mailboxes.get('Archív').permanentFlags = ['\\Seen', '\\Flagged']
+  const res = await s.call('label_messages', { ids: [u, old], add: ['Számla'] })
+  assert.equal(res.isError, false, res.content[0].text)
+  assert.deepEqual(res._meta['shadowmail/data'], { done: 2, changed: 2, local: [{ account_id: s.row.id, folder: 'Archív' }], failed: [] })
+  assert.match(res.content[0].text, /A szerver 1 mappában nem enged címkét: ott a címke csak ezen a gépen látszik \(fiók #\d+ \(MCP-fiók\)\)\./)
+  assert.match(res.content[0].text, /<email_content source="folders" trust="untrusted">\n- csak helyben, fiók #\d+: Archív\n<\/email_content>/)
+  assert.deepEqual(labelsOfRow(s, old), ['Számla'], 'shown from the local binding')
+  assert.deepEqual([...s.imap.mailboxes.get('Archív').messages.get(s.index.get(old).uid).flags], [], 'no STORE on the server there')
+  assert.ok(s.imap.mailboxes.get('INBOX').messages.get(s.index.get(u).uid).flags.has(invoice.keyword))
+
+  // the server goes away: nothing changes, the text names the account and the reason
+  s.imap.down = true
+  s.imap.dropConnections()
+  const before = [s.index.get(r).flags, labelRows(s)]
+  const off = await s.call('label_messages', { ids: [r], add: ['Számla'] })
+  assert.equal(off.isError, false)
+  const data = off._meta['shadowmail/data']
+  assert.equal(data.changed, 0)
+  assert.deepEqual(data.failed.map(f => [f.account_id, f.folder]), [[s.row.id, 'INBOX']])
+  assert.ok(['connection_refused', 'connection_lost'].includes(data.failed[0].error), data.failed[0].error)
+  assert.match(off.content[0].text, /DE 1 mappában SEMMI nem változott/)
+  assert.match(off.content[0].text, /Nem változott: fiók #\d+ \(MCP-fiók\): (a levelezőszerver nem érhető el|megszakadt a kapcsolat a levelezőszerverrel)\./)
+  assert.deepEqual([s.index.get(r).flags, labelRows(s)], before, 'nothing written')
+  assert.deepEqual(labelsOfRow(s, r), [])
+  assert.ok(!s.logs.some(l => l.includes('Számla') || l.includes(invoice.keyword)), 'no label name or keyword in the log')
+})
+

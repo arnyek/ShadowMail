@@ -523,3 +523,179 @@ test('signature image: a draft saved, opened again, sent: the draft OWN image (n
   assert.ok(parts[0].content.equals(SIG_PNG), 'the draft own bytes')
   assert.ok(!s.smtp.received[0].raw.toString('latin1').includes(SIGNATURE_ATTR), 'the sent message without the marker')
 })
+
+// --- a pasted image: its own inline part, only while the text refers to it -----------------------------------
+const { pngFile, jpegFile, headerDecode } = await import('./helpers/inline-images.js')
+const { default: zlib } = await import('node:zlib')
+const pasted = (sid, id) => `inl-img://session/${sid}/${id}`
+const withDecoder = s => {
+  s.composer.decodeImage = headerDecode
+  return s
+}
+
+test('pasted images: two pasted, one deleted from the text, the other shown twice -> ONE inline part, related, its cid in the HTML, the cleaned bytes; the text part has no cid', async t => {
+  const s = withDecoder(await setup(t))
+  const sid = s.composer.open()
+  const a = s.composer.addImage(sid, jpegFile(600, 400, { exif: 1 }))
+  const b = s.composer.addImage(sid, pngFile(30, 30))
+  assert.deepEqual([a.type, a.width, a.height], ['image/jpeg', 600, 400])
+  assert.match(a.id, /^[0-9a-f]{24}$/)
+  assert.deepEqual(s.composer.inlineImageOf(sid, a.id).bytes, jpegFile(600, 400), 'the session holds the cleaned bytes')
+  assert.equal(s.composer.inlineImageOf(sid, 'f'.repeat(24)), null)
+  assert.equal(s.composer.inlineImageOf('other', a.id), null)
+  assert.deepEqual(s.composer.attachmentList(sid), [], 'a pasted image is no attachment')
+  const html = `<p>Nézd:</p><p><img src="${pasted(sid, a.id)}" alt=""></p><p>újra <img src="${pasted(sid, a.id)}"></p>`
+  assert.equal((await s.composer.sendNow(sid, form(s, { html }))).sent, true)
+  const raw = s.smtp.received[0].raw
+  assert.match(raw.toString('latin1'), /multipart\/related/i)
+  const parts = await inlineParts(raw)
+  assert.equal(parts.length, 1, 'b was deleted from the text: not sent; a twice: one part')
+  assert.match(parts[0].cid, /^img-[0-9a-f]{24}@shadowmail$/)
+  assert.ok(parts[0].content.equals(jpegFile(600, 400)), 'without the Exif-GPS block')
+  assert.equal(parts[0].contentDisposition, 'inline')
+  const got = await simpleParser(raw, { keepCidLinks: true })
+  assert.equal(got.html.split(`cid:${parts[0].cid}`).length - 1, 2)
+  assert.ok(!got.html.includes('inl-img') && !got.html.includes('width='), '600 px: no width')
+  assert.ok(!/cid:|inl-img/.test(got.text), got.text)
+  assert.ok(!raw.toString('latin1').includes('GPS 47'), 'no GPS anywhere in the message')
+  void b
+})
+
+test('pasted images: a 1600 px wide image shows at width="800" (its bytes unchanged); a 600 px one keeps its size', async t => {
+  const s = withDecoder(await setup(t))
+  const sid = s.composer.open()
+  const wide = s.composer.addImage(sid, pngFile(1600, 20, { seed: 1 }))
+  const narrow = s.composer.addImage(sid, pngFile(600, 20, { seed: 2 }))
+  await s.composer.sendNow(sid, form(s, { html: `<p><img src="${pasted(sid, wide.id)}"></p><p><img src="${pasted(sid, narrow.id)}"></p>` }))
+  const raw = s.smtp.received[0].raw
+  const parts = await inlineParts(raw)
+  assert.equal(parts.length, 2)
+  const got = await simpleParser(raw, { keepCidLinks: true })
+  const wideCid = parts.find(p => p.content.equals(pngFile(1600, 20, { seed: 1 }))).cid
+  const narrowCid = parts.find(p => p.content.equals(pngFile(600, 20, { seed: 2 }))).cid
+  assert.ok(got.html.includes(`<img src="cid:${wideCid}" alt="" width="800">`), got.html)
+  assert.ok(got.html.includes(`<img src="cid:${narrowCid}" alt="">`), got.html)
+})
+
+test('pasted images: the size chosen in the composer wins (the original may be over 800), never more than the image; a bad width is the default', async t => {
+  const s = withDecoder(await setup(t))
+  const sid = s.composer.open()
+  const imgs = [1600, 1600, 1600, 1600, 600, 1600].map((w, i) => s.composer.addImage(sid, pngFile(w, 20, { seed: 10 + i })))
+  const asked = ['320', '1600', '5000', '0', '640', 'x']
+  const html = imgs.map((im, i) => `<p><img src="${pasted(sid, im.id)}" alt="" width="${asked[i]}"></p>`).join('')
+  await s.composer.sendNow(sid, form(s, { html }))
+  const raw = s.smtp.received[0].raw
+  const parts = await inlineParts(raw)
+  const got = await simpleParser(raw, { keepCidLinks: true })
+  const tag = i => {
+    const cid = parts.find(p => p.content.equals(pngFile([1600, 1600, 1600, 1600, 600, 1600][i], 20, { seed: 10 + i }))).cid
+    return (got.html.match(new RegExp(`<img src="cid:${cid.replace(/[.$]/g, '\\$&')}"[^>]*>`)) || [])[0]
+  }
+  assert.equal(tag(0), `<img src="cid:${parts.find(p => p.content.equals(pngFile(1600, 20, { seed: 10 }))).cid}" alt="" width="320">`, 'Small')
+  assert.match(tag(1), / width="1600">$/, 'Original: over 800')
+  assert.match(tag(2), / width="1600">$/, 'never more than the image')
+  assert.match(tag(3), / width="800">$/, 'width 0 is no choice: the default')
+  assert.match(tag(4), / width="600">$/, 'a 600 px image asked 640: its own width')
+  assert.match(tag(5), / width="800">$/, 'not a number: the default')
+})
+
+test('pasted images: another session\'s image or an unknown id is left out; the signature image and a pasted one go together', async t => {
+  const s = withDecoder(await setup(t))
+  withImage(s)
+  const other = s.composer.open()
+  const foreign = s.composer.addImage(other, pngFile(10, 10, { seed: 3 }))
+  const sid = s.composer.open()
+  const own = s.composer.addImage(sid, pngFile(12, 12, { seed: 4 }))
+  const html = `<p><img src="${pasted(other, foreign.id)}"><img src="${pasted(sid, 'e'.repeat(24))}"><img src="${pasted(sid, own.id)}"></p>${signatureHtml('Elek', accountImageSrc(s.row.id))}`
+  await s.composer.sendNow(sid, form(s, { html }))
+  const parts = await inlineParts(s.smtp.received[0].raw)
+  assert.deepEqual(parts.map(p => p.cid.slice(0, 4)).sort(), ['img-', 'sig-'], 'the signature and the own pasted image only')
+  assert.ok(parts.find(p => p.cid.startsWith('img-')).content.equals(pngFile(12, 12, { seed: 4 })))
+})
+
+test('pasted images: a turned photo is turned upright by the app\'s turner (once, the cleaned bytes), and sent turned', async t => {
+  const s = withDecoder(await setup(t))
+  const calls = []
+  s.composer.uprightImage = (bytes, type, orientation) => {
+    calls.push([type, orientation, bytes.includes(Buffer.from('Exif', 'latin1'))])
+    return jpegFile(200, 320)
+  }
+  const sid = s.composer.open()
+  const img = s.composer.addImage(sid, jpegFile(320, 200, { exif: 6 }))
+  assert.deepEqual([img.type, img.width, img.height], ['image/jpeg', 200, 320])
+  assert.deepEqual(calls, [['image/jpeg', 6, false]], 'once, without the Exif block')
+  await s.composer.sendNow(sid, form(s, { html: `<p><img src="${pasted(sid, img.id)}"></p>` }))
+  const parts = await inlineParts(s.smtp.received[0].raw)
+  assert.ok(parts[0].content.equals(jpegFile(200, 320)), 'the turned bytes go out')
+  // a photo that needs no turning is not given to the turner
+  s.composer.addImage(sid, jpegFile(320, 200, { exif: 1 }))
+  assert.equal(calls.length, 1)
+})
+
+test('pasted images: the refusals of an image reach the caller with their code; the 25 MB counts the attachments and the images together', async t => {
+  const s = withDecoder(await setup(t))
+  const sid = s.composer.open()
+  assert.throws(() => s.composer.addImage(sid, jpegFile(10, 10, { exif: 8 })), TypeError, 'a turned photo needs the upright-turner (the app gives it)')
+  assert.throws(() => s.composer.addImage(sid, Buffer.from('GIF89a' + 'x'.repeat(40), 'latin1')), err => err.code === 'not_inline' && err.detail.type === 'image/gif')
+  assert.throws(() => s.composer.addImage(sid, Buffer.from('<svg/>')), { code: 'unsupported_image' })
+  // 20 MB attachment + a 6 MB image: over 25 MB together
+  const big = path.join(tempDir(t), 'nagy.bin')
+  fs.writeFileSync(big, Buffer.alloc(20 * 1024 * 1024, 1))
+  const sid2 = s.composer.open()
+  s.composer.addFiles(sid2, [big])
+  // an image whose cleaned bytes are over 6 MB: random pixels, stored without compression
+  const noisy = (() => {
+    const w = 1500
+    const h = 1400
+    const rows = crypto.randomBytes(h * (1 + w * 3))
+    for (let y = 0; y < h; y++) rows[y * (1 + w * 3)] = 0
+    const ihdr = Buffer.alloc(13)
+    ihdr.writeUInt32BE(w, 0)
+    ihdr.writeUInt32BE(h, 4)
+    ihdr[8] = 8
+    ihdr[9] = 2
+    const ch = (type, data) => {
+      const head = Buffer.alloc(8)
+      head.writeUInt32BE(data.length, 0)
+      head.write(type, 4, 'latin1')
+      const crc = Buffer.alloc(4)
+      crc.writeUInt32BE(zlib.crc32(Buffer.concat([head.subarray(4), data])), 0)
+      return Buffer.concat([head, data, crc])
+    }
+    return Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), ch('IHDR', ihdr), ch('IDAT', zlib.deflateSync(rows, { level: 0 })), ch('IEND', Buffer.alloc(0))])
+  })()
+  assert.ok(noisy.length > 6 * 1024 * 1024 && noisy.length < 10 * 1024 * 1024, `${noisy.length}`)
+  assert.throws(() => s.composer.addImage(sid2, noisy), err => err.code === 'too_large' && err.detail.maxBytes === MAX_ATTACHMENTS_BYTES)
+  assert.equal(s.composer.inlineImageOf(sid2, 'x'.repeat(24)), null)
+  // the other way round: an image first, then an attachment that only fits without it
+  const sid3 = s.composer.open()
+  s.composer.addImage(sid3, noisy)
+  assert.throws(() => s.composer.addFiles(sid3, [big]), { code: 'too_large' })
+  // without a decoder (no Electron) nothing is taken
+  s.composer.decodeImage = null
+  assert.throws(() => s.composer.addImage(sid3, pngFile(5, 5)), { code: 'not_available' })
+})
+
+test('pasted images: a draft saved, opened again (the image back in the session, no attachment), sent: the same bytes, one part', async t => {
+  const s = withDecoder(await setup(t, { type: 'pop3' }))
+  const sid = s.composer.open()
+  const img = s.composer.addImage(sid, pngFile(1000, 50, { seed: 6 }))
+  await s.composer.saveDraft(sid, form(s, { subject: 'Beillesztett kép', html: `<p>Kép:</p><p><img src="${pasted(sid, img.id)}" alt=""></p>` }))
+  const draft = s.index.listFolder({ accountId: s.row.id, folder: 'Drafts' })[0]
+  const saved = sealedStore(s.storeDir).read(s.index.get(draft.id).store_path).toString('latin1')
+  assert.match(saved, /multipart\/related/i)
+  assert.match(saved, /img-[0-9a-f]{24}@shadowmail/)
+  s.composer.reader = { source: async id => { const row = s.index.get(id); return { row, source: sealedStore(s.storeDir).read(row.store_path) } } }
+  const sid2 = s.composer.open()
+  const f = await s.composer.prepare(sid2, { mode: 'draft', messageId: draft.id })
+  const m = /inl-img:\/\/session\/([0-9a-f-]{36})\/([0-9a-f]{24})/.exec(f.draftHtml)
+  assert.ok(m && m[1] === sid2, f.draftHtml)
+  assert.ok(!f.draftHtml.includes('cid:img-'))
+  assert.ok(s.composer.inlineImageOf(sid2, m[2]).bytes.equals(pngFile(1000, 50, { seed: 6 })))
+  assert.deepEqual(s.composer.attachmentList(sid2), [], 'the image is not an attachment of the reopened draft')
+  await s.composer.sendNow(sid2, form(s, { html: f.draftHtml }))
+  const parts = await inlineParts(s.smtp.received[0].raw)
+  assert.equal(parts.length, 1)
+  assert.ok(parts[0].content.equals(pngFile(1000, 50, { seed: 6 })), 'byte for byte')
+  assert.ok((await simpleParser(s.smtp.received[0].raw, { keepCidLinks: true })).html.includes('width="800"'), '1000 px: width 800 again')
+})

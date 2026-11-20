@@ -86,6 +86,8 @@ export class Syncer {
    * @param {(change: {accountId, folders: string[]}) => void} [opts.onChange]  the list of a folder changed
    * @param {(state) => void} [opts.onState]  phase, progress or error changed
    * @param {() => number} [opts.now]
+   * @param {(client) => Promise<{ done }>} [opts.uploadLabels]  the local labels to the server (core/imap/label-upload.js),
+   *        at the end of a full run, once per instance (again only when the connection went away half-way)
    */
   constructor({
     account,
@@ -101,7 +103,10 @@ export class Syncer {
     retryDelaysMs = RETRY_DELAYS_MS,
     sealed = null,
     searchText = null,
+    uploadLabels = null,
   }) {
+    this.uploadLabels = uploadLabels
+    this.labelUploadDone = false
     this.sealed = sealed // SealedStore of data/store: a message gone from the server takes its file
     // { refine({ id, accountId, local, source }) } -> resolves once the worker queue took it (back-pressure);
     // null: the visible text is made here
@@ -283,6 +288,7 @@ export class Syncer {
       const client = (ctx.client = await connect())
       this._checkStopped()
       let folders
+      let writesAtList = null
       if (only) {
         // a targeted run (IDLE): the folders we already know, no LIST and no clean-up of the others
         folders = only
@@ -290,6 +296,8 @@ export class Syncer {
           .filter(Boolean)
           .map(f => ({ path: f.path, delimiter: f.delimiter, specialUse: f.special_use }))
       } else {
+        // read before the LIST: a folder path the app writes from here on is not in it (see the clean-up below)
+        writesAtList = this.index.folderWriteCount(accountId)
         // only the server's own SPECIAL-USE flag is stored (special_use), never imapflow's guess from the name
         const listed = (await listSyncFolders(client, this.folderOptions)).map(f => ({ ...f, specialUse: serverSpecialUse(f) }))
         // only the subscribed folders (and the kept and role ones) show and sync; the rows from before the upgrade get
@@ -312,7 +320,10 @@ export class Syncer {
           folderErrors.push(`${f.path}: ${err.message}`)
         }
       }
-      if (!only) {
+      // a folder the app created, renamed or moved since the LIST is not in it: the clean-up would drop its rows (they
+      // come back at the next run with new message ids, the local data on them lost), and the roles would be decided
+      // over the old paths. Both wait for the next full run (a rename or a move asks for one; otherwise the interval)
+      if (!only && this.index.folderWriteCount(accountId) === writesAtList) {
         const before = new Set(this.index.folders(accountId).filter(f => !f.is_local).map(f => f.path))
         this.index.dropFoldersExcept(accountId, folders.map(f => f.path))
         const dropped = [...before].filter(p => !folders.some(f => f.path === p))
@@ -322,6 +333,11 @@ export class Syncer {
       this._checkStopped()
       this._setState({ phase: 'bodies', folder: null, progress: null })
       await this.syncBodies(ctx)
+      if (!only && this.uploadLabels && !this.labelUploadDone) {
+        this._checkStopped()
+        const up = await this.uploadLabels(ctx.client)
+        if (!up || up.done !== false) this.labelUploadDone = true
+      }
       // connection drops handled on the way no longer count as errors; skipped folders do
       Object.assign(st, {
         lastFinished: new Date(this.now()).toISOString(),

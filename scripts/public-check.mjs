@@ -52,7 +52,7 @@ const SECRET_RULES = LINE_RULES.filter((r) => r.secret)
 // Categories that apply only to comments, test titles and prose (documentation): an identifier in code is not a reference.
 const NOTE_RULES = [
   { category: 'card-id', re: /\b(?=[0-9a-f]*[a-f])(?=[0-9a-f]*\d)[0-9a-f]{8}\b/g },
-  { category: 'card-code', re: /\b(?:[A-Z]{1,2}-Q\d{1,2}|[A-Z]{1,2}\d{1,2}[a-z]?)\b/g, keep: (m) => !TECH_TOKENS.has(m[0]) },
+  { category: 'card-code', re: /\b(?:[A-Z]{1,2}-Q\d{1,2}|[A-Z]{1,2}\d{1,2}[a-z]?)\b/g, keep: (m) => !TECH_TOKENS.has(m[0]) && !keyChord(m) },
   // a technical-looking code (C1, H1) is a card when a version stands before it or a point number after it
   { category: 'card-code', re: /(?:\b\d+\.\d+(?:\.\d+)?\s+([A-Z]{1,2}\d{1,2}[a-z]?)\b|\b([A-Z]{1,2}\d{1,2}[a-z]?)\s+\(?(?:\d+\.(?!\d)|poin[t]\s+\d|\d+\.?\s*pon[t]))/g,
     keep: (m) => TECH_TOKENS.has(m[1] || m[2]) },
@@ -69,6 +69,9 @@ const NOTE_RULES = [
 
 // Upper-case letter+digit tokens that are technical names, not card codes.
 const TECH_TOKENS = new Set(['MD5', 'V8', 'ES5', 'ES6', 'IE11', 'X11', 'A4', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'P256', 'U2F', 'W3C', 'G1', 'C0', 'C1'])
+
+// A function key in a key chord (Alt+F10, Ctrl+Shift+F5) is a key, not a card code; the same token alone still is one.
+const keyChord = (m) => /^F\d{1,2}$/.test(m[0]) && /(?:Alt|Ctrl|Control|Shift|Meta|Cmd)\+$/i.test(m.input.slice(Math.max(0, m.index - 8), m.index))
 
 // Hex-looking words that are names, not commits.
 const HEX_WORDS = new Set(['ed25519'])

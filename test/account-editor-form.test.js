@@ -10,6 +10,7 @@ import { setupDom, mount, inAct } from './helpers/react-dom-env.js'
 setupDom()
 const saved = []
 let nextSave = null
+let nextTest = null
 const folderRows = [
   { path: 'INBOX', delimiter: '/', special_use: null, is_local: 0, role: 'inbox', role_manual: 0, count: 0, unread: 0 },
   { path: 'Sent', delimiter: '/', special_use: null, is_local: 0, role: 'sent', role_manual: 0, count: 0, unread: 0 },
@@ -20,7 +21,7 @@ window.shadowMail = {
       saved.push(form)
       return nextSave || { ok: true, account: { id: 7, ...form } }
     },
-    test: async () => ({ ok: true, incoming: { ok: true }, smtp: { ok: true } }),
+    test: async () => nextTest || { ok: true, incoming: { ok: true }, smtp: { ok: true } },
     signatureImage: async () => ({ ok: true, image: null }),
   },
   mail: { folders: async () => ({ ok: true, accounts: [{ id: 7, folders: folderRows }] }) },
@@ -238,4 +239,35 @@ test('the folder roles: their own section after the incoming server, the help as
     assert.equal(box.querySelector('.text-field-label').textContent, t.folderRoles[box.dataset.role])
     assert.equal(box.querySelector('.select-trigger').getAttribute('aria-label'), t.folderRoles[box.dataset.role])
   }
+})
+
+test('0.17.0 the connection test: the IMAP server\'s custom-keyword line under Incoming (enged / nem enged / nem mérhető) with its note; none without keywords', async tc => {
+  const v = await editor({ ...base, type: 'imap' })
+  tc.after(v.unmount)
+  const testButton = [...v.container.querySelectorAll('button')].find(b => b.textContent === t.accountTest)
+  for (const custom of [true, false, null]) {
+    nextTest = { ok: true, incoming: { ok: true, keywords: { custom, flags: [] } }, smtp: { ok: true } }
+    await click(testButton)
+    await inAct(() => wait(30))
+    const line = v.container.querySelector('ul.probe .probe-keywords')
+    assert.ok(line, String(custom))
+    assert.equal(line.firstChild.textContent, t.probeKeywords(custom))
+    assert.equal(line.querySelector('.probe-keywords-note'), null, 'no "for information only" note: the line says where the labels are kept')
+    const items = [...v.container.querySelectorAll('ul.probe > li')]
+    assert.equal(items.indexOf(line), 1, 'right under the incoming row')
+  }
+  assert.deepEqual([true, false, null].map(t.probeKeywords), [
+    'Egyéni címkét a szerver: enged (a címkék ennél a fióknál a szerveren tárolódnak)',
+    'Egyéni címkét a szerver: nem enged (a címkék ennél a fióknál csak ezen a gépen tárolódnak)',
+    'Egyéni címkét a szerver: nem mérhető',
+  ])
+  assert.equal(v.container.querySelector('ul.probe .probe-keywords').textContent.includes('tájékoztató'), false)
+  // POP3 / a failed login: no keywords, no line
+  for (const incoming of [{ ok: true }, { ok: false, error: 'timeout', keywords: { custom: true, flags: [] } }]) {
+    nextTest = { ok: true, incoming, smtp: { ok: true } }
+    await click(testButton)
+    await inAct(() => wait(30))
+    assert.equal(v.container.querySelector('ul.probe .probe-keywords'), null, JSON.stringify(incoming))
+  }
+  nextTest = null
 })

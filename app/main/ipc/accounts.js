@@ -51,7 +51,7 @@ const isId = v => Number.isInteger(v) && v > 0
  * "Kapcsolat próbája" (accounts:test) as a function, for the IPC and MCP test_account: the stored
  * passwords are used only when the server settings are the saved ones. Returns { incoming, smtp }.
  */
-export async function testAccountConnection(input, { store, probe = probeAccount }) {
+export async function testAccountConnection(input, { store, probe = probeAccount, log = () => {} }) {
   if (!isPlainObject(input)) throw new AccountError('invalid', { form: 'bad_form' })
   const existing = isId(input.id) ? store.getRow(input.id) : null
   const stored = existing ? store.passwordsFor(existing.id) : { incoming: null, smtp: null }
@@ -69,6 +69,9 @@ export async function testAccountConnection(input, { store, probe = probeAccount
   const incomingPassword = passwords.incoming || (incomingUsable ? stored.incoming : null)
   const smtpPassword = values.smtp_same_password ? incomingPassword : passwords.smtp || (smtpUsable ? stored.smtp : null)
   const result = await probe(values, { incomingPassword, smtpPassword })
+  // 0.17.0: the IMAP server's custom-keyword answer (where the account's labels are kept); no host, no user
+  const kw = result.incoming && result.incoming.ok && result.incoming.keywords
+  if (kw) log(`imap probe: custom keywords ${kw.custom === true ? 'yes' : kw.custom === false ? 'no' : 'unknown'}, permanentflags=(${(kw.flags || []).join(' ')})`)
   return { incoming: result.incoming, smtp: result.smtp }
 }
 
@@ -112,7 +115,7 @@ export async function deleteAccount(id, { store, onDeleted = async () => {}, log
  * @param probe   injectable connection test (tests use a stub)
  * @param onSaved / onDeleted  (id) => void|Promise (the sync manager restarts / stops the account)
  */
-export function registerAccountIpc({ ipcMain, store, index, isTrustedSender, notify = () => {}, log = () => {}, probe = probeAccount, now = () => Date.now(), onSaved = () => {}, onDeleted = async () => {}, onTested = () => {}, dialog = null, getWindow = () => null, decodeImage = null }) {
+export function registerAccountIpc({ ipcMain, store, index, isTrustedSender, notify = () => {}, log = () => {}, probe = probeAccount, now = () => Date.now(), onSaved = () => {}, onDeleted = async () => {}, onTested = () => {}, dialog = null, getWindow = () => null, decodeImage = null, uprightImage = null }) {
   const handle = (channel, fn) =>
     ipcMain.handle(channel, async (event, ...args) => {
       if (!isTrustedSender(event)) return { ok: false, error: 'untrusted_sender' }
@@ -164,7 +167,7 @@ export function registerAccountIpc({ ipcMain, store, index, isTrustedSender, not
     const opts = { properties: ['openFile'], filters: [{ name: 'PNG, JPEG', extensions: ['png', 'jpg', 'jpeg'] }] }
     const res = await (win ? dialog.showOpenDialog(win, noRecent(opts)) : dialog.showOpenDialog(noRecent(opts)))
     if (!res || res.canceled || !res.filePaths || !res.filePaths.length) return { canceled: true }
-    const image = prepareSignatureImage(readImageFile(res.filePaths[0]), { decode: decodeImage })
+    const image = prepareSignatureImage(readImageFile(res.filePaths[0]), { decode: decodeImage, upright: uprightImage })
     store.setSignatureImage(id, image)
     log(`account ${id} signature image stored: ${image.type} ${image.bytes.length} B, ${image.width}x${image.height}, ${image.removed} metadata part(s) removed`)
     return { account: store.get(id), image: { type: image.type, width: image.width, height: image.height, bytes: image.bytes.length } }
@@ -185,7 +188,7 @@ export function registerAccountIpc({ ipcMain, store, index, isTrustedSender, not
   })
 
   handle('accounts:test', async input => {
-    const result = await testAccountConnection(input, { store, probe })
+    const result = await testAccountConnection(input, { store, probe, log })
     log(`connection test: incoming ${result.incoming.ok ? 'ok' : result.incoming.error}, smtp ${result.smtp.ok ? 'ok' : result.smtp.error}`)
     if (isId(input.id)) onTested(input.id, result) // a successful test by the user unlocks MCP test_account
     return result

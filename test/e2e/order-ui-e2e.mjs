@@ -78,6 +78,24 @@ async function start() {
   }
   return { app, page }
 }
+// a context menu opened on <loc> at a point of the window (x, y; negative = from the right / bottom edge): its box
+const menuAt = async (page, loc, x, y) => {
+  await loc.evaluate((el, [px, py]) => {
+    const cx = px < 0 ? innerWidth + px : px
+    const cy = py < 0 ? innerHeight + py : py
+    el.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, button: 2, clientX: cx, clientY: cy }))
+  }, [x, y])
+  const menu = page.getByRole('menu')
+  await menu.waitFor()
+  const r = await menu.evaluate(el => { const b = el.getBoundingClientRect(); return { left: b.left, top: b.top, right: b.right, bottom: b.bottom, w: innerWidth, h: innerHeight } })
+  await page.keyboard.press('Escape')
+  await menu.waitFor({ state: 'detached' })
+  return r
+}
+// at the bottom-right corner (2 px in): inside the window, its bottom-right corner at the point (opened up and left)
+const cornerOk = r => r.left >= 0 && r.top >= 0 && r.right <= r.w && r.bottom <= r.h && Math.abs(r.right - (r.w - 2)) <= 1 && Math.abs(r.bottom - (r.h - 2)) <= 1
+// at a point with room: its top-left corner at the point
+const pointOk = (r, x, y) => Math.abs(r.left - x) <= 1 && Math.abs(r.top - y) <= 1
 const section = (page, id) => page.locator(`.folder-tree section[data-account="${id}"]`)
 const folder = (page, p, id = pop) => section(page, id).locator(`.folder[data-path="${p}"]`)
 const shown = (page, id = pop) =>
@@ -203,16 +221,22 @@ try {
   await until(async () => same(await children(page), ['Ügyek/2026', 'Ügyek/2025']), 'the dragged child order')
   check('drag: a child list', true)
 
-  // 2. another parent: no line, no change, no message moved
+  // 2. another parent: no order line; it is a move INTO that folder (framed), which asks first; another account takes
+  // nothing. Cancel: no change, no message moved
   const before = await shown(page)
   const other = await hovering(page, folderSel('Ügyek/2025'), folderSel('Számlák'))
   await endHover(page)
   const otherAccount = await hovering(page, folderSel('Számlák'), folderSel('INBOX', imapB))
   await endHover(page)
-  check('during a drag over another parent / another account: not accepted, no line', !other.accepted && other.lines === 0 && !otherAccount.accepted && otherAccount.lines === 0, JSON.stringify([other, otherAccount]))
+  check('during a drag over another parent: no order line, the "into" frame; another account: not accepted', other.accepted && other.lines === 0 && other.at === 'drop-into' && !otherAccount.accepted && otherAccount.lines === 0, JSON.stringify([other, otherAccount]))
   await mouseDrag(page, folder(page, 'Ügyek/2025'), folder(page, 'Számlák'))
-  await sleep(500)
-  check('drag with the mouse under another parent: the tree unchanged (order and depths)', same(await shown(page), before))
+  const moveAsk = page.getByRole('alertdialog')
+  await moveAsk.waitFor()
+  const askText = await moveAsk.locator('.confirm-text').innerText()
+  await moveAsk.getByRole('button', { name: t.confirmCancel, exact: true }).click()
+  await moveAsk.waitFor({ state: 'detached' })
+  await sleep(300)
+  check('drag with the mouse under another parent: the move question; Cancel leaves the tree unchanged (order and depths)', askText === t.confirmFolderMove('2025', 'Számlák', 0) && same(await shown(page), before), askText)
   // a folder on a folder of its own list is an order change only: no message moved
   await mouseDrag(page, folder(page, 'Számlák'), folder(page, 'INBOX'), { after: true })
   await until(async () => same(await top(page), ['INBOX', 'Számlák', 'Ügyek', 'Drafts', 'Sent', 'Trash', 'Archív régi']), 'Számlák after INBOX')
@@ -241,6 +265,12 @@ try {
   const childDownOff = await page.getByRole('menuitem', { name: t.folderMenu.moveDown, exact: true }).isDisabled()
   await page.keyboard.press('Escape')
   check('menu: Down disabled on the last child', childDownOff)
+  // the folder and the account menu stay inside the window (the bottom-right corner: up and left)
+  const folderCorner = await menuAt(page, folder(page, 'Számlák'), -2, -2)
+  const folderLow = await menuAt(page, folder(page, 'Számlák'), 100, -2)
+  const accountCorner = await menuAt(page, section(page, pop).locator('.account-head'), -2, -2)
+  const folderPoint = await menuAt(page, folder(page, 'Számlák'), 100, 150)
+  check('the folder and the account menu: inside the window at its corner, up from a low point, at the point with room', cornerOk(folderCorner) && cornerOk(accountCorner) && folderLow.bottom <= folderLow.h && Math.abs(folderLow.left - 100) <= 1 && pointOk(folderPoint, 100, 150), JSON.stringify({ folderCorner, folderLow, accountCorner, folderPoint }))
 
   // 5. the keyboard: Alt+Down on Számlák, the focus stays on it
   await folder(page, 'Számlák').focus()

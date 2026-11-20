@@ -21,6 +21,7 @@ import { composeMessage, newMessageId, mailtoBodyHtml, replySubject, forwardSubj
 import { changeFlags } from '../../core/imap/actions.js'
 import { applyFlagChange } from './actions.js'
 import { sendRaw } from '../../core/smtp/send.js'
+import { SHOWN_WIDTH, shownWidth } from '../../core/smtp/image-width.js'
 import { classifyError } from '../../core/accounts/probe.js'
 import { assignRoles } from '../../core/imap/folders.js'
 import { safeFileName, parseMessage } from '../../core/mime/message.js'
@@ -29,13 +30,19 @@ import { fmtAddrs } from '../../core/mime/envelope.js'
 import { ActionError } from './sync-manager.js'
 import { errCode } from '../../core/log-safe.js'
 import { SIG_CID_RE, unwrapSignature } from '../../core/smtp/signature.js'
-import { SIGNATURE_TYPES } from '../../core/accounts/signature-image.js'
+import { SIGNATURE_TYPES, prepareInlineImage, SignatureImageError } from '../../core/accounts/signature-image.js'
 import { checkSendAt } from '../../core/db/scheduled.js'
+import { labelKeyOf } from '../../core/db/label-key.js'
 
 // the session image of a scheduled message: its html names this instead of a session id (a new session sends it)
 const SCHEDULED_SESSION = 'scheduled-session'
 
 export const MAX_ATTACHMENTS_BYTES = 25 * 1024 * 1024 // most servers refuse bigger messages
+// a pasted image wider than this shows at this width in the sent HTML when no size was chosen (its bytes are not touched)
+export const INLINE_IMAGE_SHOWN_WIDTH = SHOWN_WIDTH
+// our own inline part of a pasted image, in a saved draft (taken back into the session when the draft opens again)
+export const IMG_CID_RE = /^img-[0-9a-f]{24}@shadowmail$/
+const INL_IMG_RE = /<img\b[^>]*?\bsrc="inl-img:\/\/session\/([A-Za-z0-9_-]{1,64})\/([0-9a-f]{24})"[^>]*>/g
 const EMAIL = /^[^\s@<>()",;:\\[\]]+@[^\s@<>()",;:\\[\]]+\.[^\s@<>()",;:\\[\]]+$/
 
 /** "Név <a@example.invalid>, c@example.invalid" or a list of such strings -> [{ name, address }]; bad ones -> { bad: [...] }. */
@@ -97,7 +104,10 @@ export class Composer {
    * @param onChange        ({ accountId, folders }) after a local (POP3) change
    * @param send            sendRaw (injected in tests)
    */
-  constructor({ index, store, contacts, storeDir, sealed = null, dataDir = null, withConnection, reader = null, requestSync = () => {}, onChange = () => {}, send = sendRaw, now = () => Date.now(), log = () => {}, searchText = null, scheduled = null, onScheduledChange = () => {} }) {
+  constructor({ index, store, contacts, storeDir, sealed = null, dataDir = null, withConnection, reader = null, decodeImage = null, uprightImage = null, requestSync = () => {}, onChange = () => {}, send = sendRaw, now = () => Date.now(), log = () => {}, searchText = null, scheduled = null, onScheduledChange = () => {}, labels = null }) {
+    this.labels = labels // core/db/labels.js Labels: an IMAP draft saved again keeps its old copy's label keywords, or null
+    this.decodeImage = decodeImage // bytes -> { width, height } | null (Electron nativeImage), for a pasted image; null: none
+    this.uprightImage = uprightImage // (bytes, type, orientation) -> bytes turned upright (app/main/image-codec.js)
     this.scheduled = scheduled // core/db/scheduled.js Scheduled ("Küldés később"), or null
     this.onScheduledChange = onScheduledChange // () a scheduled row changed from a composer (the list reloads)
     this.searchText = searchText // the worker thread's refiner, or null (the visible text made here)
@@ -123,7 +133,7 @@ export class Composer {
     // chain: saves, sends and discards of one session run one after the other
     // sent: the message went out; the session saves and sends nothing more
     // staleDrafts: accounts still holding this session's draft after a From change
-    this.sessions.set(id, { id, messageId: null, draftAccountId: null, attachments: new Map(), saved: false, sent: false, staleDrafts: new Set(), chain: Promise.resolve(), origin: null, initial: null })
+    this.sessions.set(id, { id, messageId: null, draftAccountId: null, attachments: new Map(), inlineImages: new Map(), saved: false, sent: false, staleDrafts: new Set(), chain: Promise.resolve(), origin: null, initial: null })
     return id
   }
 
@@ -324,6 +334,21 @@ export class Composer {
         html = html.split(`cid:${cid}`).join(`sig-img://session/${s.id}`)
         break
       }
+      // our own pasted images (img-...@shadowmail parts the HTML refers to): the session's images again, checked and
+      // cleaned as when pasted (a draft on the server is not trusted more than a paste)
+      for (const a of parsed.attachments) {
+        const cid = a.cid ? String(a.cid).replace(/^<|>$/g, '') : ''
+        if (!IMG_CID_RE.test(cid) || !html.includes(`cid:${cid}`) || !this.decodeImage) continue
+        let img
+        try {
+          img = prepareInlineImage(Buffer.from(a.content), { decode: this.decodeImage, upright: this.uprightImage })
+        } catch {
+          continue // left as a cid: image, which the editor's sanitizer drops
+        }
+        const id = crypto.randomBytes(12).toString('hex')
+        s.inlineImages.set(id, { type: img.type, bytes: img.bytes, width: img.width, height: img.height })
+        html = html.split(`cid:${cid}`).join(`inl-img://session/${s.id}/${id}`)
+      }
       form = {
         accountId: account.id,
         to: fmt(parsed.to),
@@ -390,7 +415,7 @@ export class Composer {
   /** Reads files into the session. -> [{ id, filename, size }] */
   addFiles(sessionId, filePaths) {
     const s = this.#session(sessionId)
-    let total = [...s.attachments.values()].reduce((n, a) => n + a.content.length, 0)
+    let total = this.#sessionBytes(s)
     // every file is read before any joins the session: a bad one in the batch adds none
     const added = []
     const batch = []
@@ -425,6 +450,70 @@ export class Composer {
 
   attachmentList(sessionId) {
     return [...this.#session(sessionId).attachments.values()].map(a => ({ id: a.id, filename: a.filename, size: a.content.length }))
+  }
+
+  // the session's attachments and pasted images together: one 25 MB limit (MAX_ATTACHMENTS_BYTES)
+  #sessionBytes(s) {
+    let n = 0
+    for (const a of s.attachments.values()) n += a.content.length
+    for (const img of s.inlineImages.values()) n += img.bytes.length
+    return n
+  }
+
+  /**
+   * A pasted or dropped image into the session, cleaned like the signature image (prepareInlineImage: PNG / JPEG, the
+   * metadata out, the rotation rule) and shown as inl-img://session/<session>/<id>. -> { id, type, width, height, size }.
+   * Errors (ActionError, the reason's numbers in `detail`): too_large (over 10 MB as it comes, or the session's
+   * attachments and images over 25 MB), not_inline (GIF, WebP, HEIC...: the editor attaches it instead),
+   * unsupported_image, not_available (no decoder). A turned photo (an Exif Orientation) is turned upright by `uprightImage`.
+   */
+  addImage(sessionId, bytes) {
+    const s = this.#session(sessionId)
+    if (!this.decodeImage) throw new ActionError('not_available')
+    let img
+    try {
+      img = prepareInlineImage(Buffer.isBuffer(bytes) ? bytes : Buffer.from(bytes), { decode: this.decodeImage, upright: this.uprightImage })
+    } catch (err) {
+      if (err instanceof SignatureImageError) throw Object.assign(new ActionError(err.code), { detail: err.info })
+      throw err
+    }
+    if (this.#sessionBytes(s) + img.bytes.length > MAX_ATTACHMENTS_BYTES) throw Object.assign(new ActionError('too_large'), { detail: { maxBytes: MAX_ATTACHMENTS_BYTES } })
+    const id = crypto.randomBytes(12).toString('hex')
+    s.inlineImages.set(id, { type: img.type, bytes: img.bytes, width: img.width, height: img.height })
+    return { id, type: img.type, width: img.width, height: img.height, size: img.bytes.length }
+  }
+
+  /** The image behind an inl-img://session/<session>/<id> src, for the inl-img scheme: { type, bytes } or null. */
+  inlineImageOf(sessionId, id) {
+    const s = this.sessions.get(sessionId)
+    const img = s && s.inlineImages ? s.inlineImages.get(id) : null
+    return img ? { type: img.type, bytes: img.bytes } : null
+  }
+
+  /**
+   * The pasted images of an outgoing HTML: each inl-img of THIS session -> an inline part (cid:img-<random>@shadowmail,
+   * one part per image however often it shows); its width attribute is the composer's choice from the size menu, at
+   * most the image's own width, else width="800" for an image wider than INLINE_IMAGE_SHOWN_WIDTH (core/smtp/image-width.js;
+   * the bytes stay). Another session's src, or an id the session does not have, is left out; an image the text no longer
+   * refers to (deleted in the editor) is not sent. -> { html, inline }
+   */
+  #inlineParts(s, html) {
+    const inline = []
+    const cids = new Map()
+    const out = html.replace(INL_IMG_RE, (m, sess, id) => {
+      const img = sess === s.id ? s.inlineImages.get(id) : null
+      if (!img) return ''
+      if (!cids.has(id)) {
+        const cid = `img-${crypto.randomBytes(12).toString('hex')}@shadowmail`
+        inline.push({ filename: img.type === 'image/png' ? 'image.png' : 'image.jpg', content: img.bytes, contentType: img.type, cid, inline: true })
+        cids.set(id, cid)
+      }
+      const asked = /\swidth="([^"]*)"/.exec(m)
+      const shown = shownWidth(img.width, asked ? asked[1] : null)
+      const width = shown ? ` width="${shown}"` : ''
+      return `<img src="cid:${cids.get(id)}" alt=""${width}>`
+    })
+    return { html: out, inline }
   }
 
   /**
@@ -474,7 +563,9 @@ export class Composer {
     if (bad.length) throw Object.assign(new ActionError('bad_address'), { detail: bad })
     // a session keeps its Message-ID: every draft save replaces the same message
     if (!s.messageId) s.messageId = newMessageId(account.email)
-    const body = this.#signatureParts(s, account.id, form.html || '', { keepMarker: draft })
+    const signed = this.#signatureParts(s, account.id, form.html || '', { keepMarker: draft })
+    const pasted = this.#inlineParts(s, signed.html)
+    const body = { html: pasted.html, inline: [...signed.inline, ...pasted.inline] }
     const msg = await composeMessage({
       from: { name: account.display_name || '', address: account.email },
       to: to.ok,
@@ -523,8 +614,12 @@ export class Composer {
     if (notify) this.onChange({ accountId, folders: [folder] })
   }
 
-  /** IMAP: APPEND the new copy, then delete the older ones (found by Message-ID before the APPEND). */
-  async #replaceOnServer(accountId, folder, raw, messageId, flags, { replace }) {
+  /**
+   * IMAP: APPEND the new copy, then delete the older ones (found by Message-ID before the APPEND). labelKeywords: the old
+   * copy's label keywords (a draft saved again); a server that refuses them (NO, false) gets the copy without them, and
+   * the labels are then bound locally by the message's key. The Claude keyword goes the same way, last.
+   */
+  async #replaceOnServer(accountId, folder, raw, messageId, flags, { replace, labelKeywords = [] }) {
     await this.withConnection(accountId, async client => {
       let old = []
       if (replace) {
@@ -535,16 +630,26 @@ export class Composer {
           lock.release()
         }
       }
-      let res
-      try {
-        res = await client.append(folder, raw, flags, new Date(this.now()))
-      } catch (err) {
-        // the server's NO to the keyword: saved again without it below; anything else (network) fails
-        if (!(flags.includes(CLAUDE_KEYWORD) && err && err.responseStatus === 'NO')) throw err
-        res = false
+      // the flag lists tried in turn: everything; without the label keywords; without the Claude keyword too. A server
+      // without custom keywords (PERMANENTFLAGS) answers NO or false: the draft is saved, only the marks are missing
+      const kws = labelKeywords.map(l => l.keyword)
+      const tries = [[...flags, ...kws]]
+      if (kws.length) tries.push(flags)
+      if (flags.includes(CLAUDE_KEYWORD)) tries.push(flags.filter(f => f !== CLAUDE_KEYWORD))
+      let res = false
+      for (const [i, list] of tries.entries()) {
+        try {
+          res = await client.append(folder, raw, list, new Date(this.now()))
+        } catch (err) {
+          // the server's NO to a keyword: the next list; anything else (network), or the last list, fails
+          if (!(i < tries.length - 1 && err && err.responseStatus === 'NO')) throw err
+          res = false
+        }
+        if (res) {
+          if (i > 0 && kws.length && this.labels) for (const l of labelKeywords) this.labels.bindKey(accountId, labelKeyOf({ message_id: messageId }), l.id)
+          break
+        }
       }
-      // a server without custom keywords (PERMANENTFLAGS): the draft is saved, only the "Claude" mark is missing
-      if (!res && flags.includes(CLAUDE_KEYWORD)) res = await client.append(folder, raw, flags.filter(f => f !== CLAUDE_KEYWORD), new Date(this.now()))
       if (!res) throw Object.assign(new Error('APPEND refused'), { code: 'server_refused' })
       if (old.length) {
         const lock = await client.getMailboxLock(folder)
@@ -698,7 +803,11 @@ export class Composer {
     const drafts = roleFolder(this.index, account.id, 'drafts')
     if (!drafts) throw new ActionError('no_drafts_folder')
     if (account.type === 'pop3') await this.#saveLocal(account, drafts, msg, `\\Draft \\Seen${claude ? ` ${CLAUDE_KEYWORD}` : ''}`)
-    else await this.#replaceOnServer(account.id, drafts, msg.sentCopy, msg.messageId, ['\\Draft', '\\Seen', ...(claude ? [CLAUDE_KEYWORD] : [])], { replace: true })
+    else {
+      // the old copy's labels go with the draft (its keywords from the index; the new APPEND is a new message there)
+      const labelKeywords = this.labels ? this.labels.keywordsOfCopies(account.id, drafts, labelKeyOf({ message_id: msg.messageId })) : []
+      await this.#replaceOnServer(account.id, drafts, msg.sentCopy, msg.messageId, ['\\Draft', '\\Seen', ...(claude ? [CLAUDE_KEYWORD] : [])], { replace: true, labelKeywords })
+    }
     s.lastDraft = account.type === 'pop3' ? null : msg.sentCopy
     s.saved = true
     s.draftAccountId = account.id
@@ -811,13 +920,16 @@ export class Composer {
   }
 
   #writePayload(s, form, accountId) {
-    const html = String(form.html || '').split(`sig-img://session/${s.id}"`).join(`sig-img://session/${SCHEDULED_SESSION}"`)
+    const html = String(form.html || '')
+      .split(`sig-img://session/${s.id}"`).join(`sig-img://session/${SCHEDULED_SESSION}"`)
+      .split(`inl-img://session/${s.id}/`).join(`inl-img://session/${SCHEDULED_SESSION}/`)
     const payload = {
       v: 1,
       form: { accountId, to: form.to || '', cc: form.cc || '', bcc: form.bcc || '', subject: form.subject || '', html, inReplyTo: form.inReplyTo || null, references: form.references || [] },
       attachments: [...s.attachments.values()].map(a => ({ filename: a.filename, contentType: a.contentType, content: Buffer.from(a.content).toString('base64') })),
       origin: s.origin || null,
       signatureImage: s.signatureImage ? { type: s.signatureImage.type, bytes: Buffer.from(s.signatureImage.bytes).toString('base64') } : null,
+      inlineImages: [...s.inlineImages].map(([id, img]) => ({ id, type: img.type, width: img.width, height: img.height, bytes: Buffer.from(img.bytes).toString('base64') })),
       claude: Boolean(s.claude),
     }
     const rel = `${accountId}/scheduled-${crypto.randomUUID()}`
@@ -843,7 +955,13 @@ export class Composer {
     s.origin = payload.origin || null
     s.claude = Boolean(payload.claude)
     s.signatureImage = payload.signatureImage ? { type: payload.signatureImage.type, bytes: Buffer.from(payload.signatureImage.bytes, 'base64') } : null
-    return { ...payload.form, html: String(payload.form.html || '').split(`sig-img://session/${SCHEDULED_SESSION}"`).join(`sig-img://session/${sid}"`) }
+    for (const img of payload.inlineImages || []) {
+      if (typeof img.id === 'string' && /^[0-9a-f]{24}$/.test(img.id)) s.inlineImages.set(img.id, { type: img.type, width: img.width, height: img.height, bytes: Buffer.from(img.bytes, 'base64') })
+    }
+    const html = String(payload.form.html || '')
+      .split(`sig-img://session/${SCHEDULED_SESSION}"`).join(`sig-img://session/${sid}"`)
+      .split(`inl-img://session/${SCHEDULED_SESSION}/`).join(`inl-img://session/${sid}/`)
+    return { ...payload.form, html }
   }
 
   /** "Időzítés törlése": back to a draft in the account's Drafts; the row and its file go. -> the draft save's answer */

@@ -9,6 +9,7 @@ import { visibleTextInfo, threadCpuMs, TIME_LIMIT_MS, WALL_LIMIT_MS } from '../c
 import { searchResultHere } from '../core/mime/search-text-service.js'
 import { createSearchRefiner, createFtsReindex } from '../app/main/search-index.js'
 import { newsletterHtml, newsletterEml } from './helpers/newsletter.js'
+import { extractionMs, LOADED_MS } from './helpers/load-retry.js'
 
 const sleep = ms => new Promise(r => setTimeout(r, ms))
 const until = async (fn, ms = 4000) => {
@@ -28,10 +29,21 @@ const stepClocks = ({ cpu, wall }) => {
   return { cpu: () => (cpu === null ? null : (c += cpu)), wall: () => (w += wall) }
 }
 
-test('the net: a slow wall clock with little CPU time keeps the text; CPU time over the limit cuts; no CPU clock = the wall clock', () => {
-  const plain = visibleTextInfo(HTML)
+test('the net: a slow wall clock with little CPU time keeps the text; CPU time over the limit cuts; no CPU clock = the wall clock', t => {
+  // the text with clocks that never move: what the extraction gives when the net does not cut, on any machine
+  const plain = visibleTextInfo(HTML, undefined, { clocks: { cpu: () => 0, wall: () => 0 } })
   assert.equal(plain.cut, null)
   assert.ok(plain.text.includes('lathatoszo') && !plain.text.includes('rejtettszo'))
+  // the real clocks: on a quiet machine no cut either. MEASURED: under memory-bound load (the parallel suite) the
+  // thread's OWN CPU time grows about four-fold (0.4 s -> 1.6-1.9 s of user time, cache misses count as CPU), and the
+  // net cuts, as it is meant to; a pure spinning load does not do that. So a cut is a failure only when the machine
+  // measures quiet (the load-retry calibration), else it is reported
+  const real = visibleTextInfo(HTML)
+  if (real.cut !== null) {
+    const ms = extractionMs()
+    if (ms < LOADED_MS) assert.fail(`cut '${real.cut}' with the real clocks on a quiet machine (calibration ${Math.round(ms)} ms)`)
+    t.diagnostic(`the real clocks cut on a loaded machine (calibration ${Math.round(ms)} ms): the net's own behavior, not a failure`)
+  } else assert.equal(real.text, plain.text)
   const reads = { n: 0 }
   const counting = { cpu: () => (reads.n++, 0), wall: () => 0 }
   visibleTextInfo(HTML, undefined, { clocks: counting })

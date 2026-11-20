@@ -5,6 +5,7 @@
 //   cid-img://m<message id>/<cid>  an embedded (cid:) image of the open message.
 //   sig-img://account/<id>         an account's signature image, in the composer (core/smtp/signature.js);
 //   sig-img://session/<id>         the signature image of a draft opened again (its own bytes, in the session).
+//   inl-img://session/<id>/<image> a pasted image of an open composer session (only that session's own).
 //
 // Why not <iframe srcdoc>: a srcdoc document inherits the CSP of the app page (measured:
 // inline styles of the mail stayed blocked by the app's style-src 'self'), so the mail could only be
@@ -15,6 +16,7 @@
 export const VIEW_SCHEME = 'mail-view'
 export const CID_SCHEME = 'cid-img'
 export const SIG_SCHEME = 'sig-img'
+export const INL_SCHEME = 'inl-img'
 
 /** Call before app 'ready'. */
 export function registerMailSchemes(protocol) {
@@ -22,6 +24,7 @@ export function registerMailSchemes(protocol) {
     { scheme: VIEW_SCHEME, privileges: { standard: true, secure: true } },
     { scheme: CID_SCHEME, privileges: { standard: true, secure: true } },
     { scheme: SIG_SCHEME, privileges: { standard: true, secure: true } },
+    { scheme: INL_SCHEME, privileges: { standard: true, secure: true } },
   ])
 }
 
@@ -41,8 +44,23 @@ export function viewDocument(bodyHtml, imagesAllowed) {
 
 const notFound = () => new Response('', { status: 404, headers: { 'content-type': 'text/plain' } })
 
-/** Call after 'ready'. `reader` is the MessageReader; `signature(kind, ref)` -> { type, bytes } or null. */
-export function handleMailProtocols({ protocol, reader, signature = () => null, log = () => {} }) {
+/**
+ * Call after 'ready'. `reader` is the MessageReader; `signature(kind, ref)` and `pasted(session, id)` -> { type, bytes }
+ * or null (null also when locked: no session is open).
+ */
+export function handleMailProtocols({ protocol, reader, signature = () => null, pasted = () => null, log = () => {} }) {
+  protocol.handle(INL_SCHEME, request => {
+    let url
+    try {
+      url = new URL(request.url)
+    } catch {
+      return notFound()
+    }
+    const m = url.host === 'session' ? /^\/([0-9a-f-]{36})\/([0-9a-f]{24})$/.exec(url.pathname) : null
+    const img = m ? pasted(m[1], m[2]) : null
+    if (!img) return notFound()
+    return new Response(img.bytes, { headers: { 'content-type': img.type, 'x-content-type-options': 'nosniff', 'cache-control': 'no-store' } })
+  })
   protocol.handle(SIG_SCHEME, request => {
     let url
     try {

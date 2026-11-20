@@ -7,6 +7,8 @@
 import { FTS_OPERATORS, toSafeFts, isFtsSyntaxError } from './fts.js'
 import { buildFolderTree, resolveRoles, siblingsOf } from '../imap/folders.js'
 import { UNREAD_SQL } from './unread-total.js'
+import { labelKeyOf } from './label-key.js'
+import { KEYWORD_ON_ROW, KEYWORD_FLAGS_WHERE } from './labels.js'
 
 /** a refused folder order (MailIndex.reorderFolders); `code`: not_found | order_mismatch */
 export class FolderOrderError extends Error {
@@ -35,27 +37,44 @@ export const LIST_COLUMNS = 'm.id, m.uid, m.folder, m.from_name, m.from_addr, m.
 
 // the folder list's filter (since 0.10.1). The list, its count and every id (the "select all") are built
 // from this one function, so they always see the same set. Whitelisted fields, every value a parameter.
-export const LIST_FILTER_KEYS = Object.freeze(['unread', 'flagged', 'hasAttachment', 'since', 'before', 'keepIds'])
+export const LIST_FILTER_KEYS = Object.freeze(['unread', 'flagged', 'hasAttachment', 'since', 'before', 'label', 'keepIds'])
 export const MAX_KEEP_IDS = 500
 // Flags are space-separated words: a word match, so a custom flag like $NotSeen is not \Seen.
 const hasFlagSql = flag => `instr(' ' || COALESCE(m.flags, '') || ' ', ' ${flag} ') > 0`
 const IS_SEEN = hasFlagSql('\\Seen')
 const IS_FLAGGED = hasFlagSql('\\Flagged')
+// a local label (0.17.0) on the message: bound to (account, label_key), so every copy of the message carries it.
+// Two shapes of the same set (measured equal, tools/l5-filter-variants.mjs): HAS_LABEL checks each row of the folder
+// (the folder's date index; a page stops early when the label is common), BY_LABEL starts from the label's own rows
+// (its index, then messages by (account_id, label_key)): a rare label costs its own size, not the folder's.
+// 0.17.0: on an IMAP account's row the label is also there when its keyword is among the row's flags (KEYWORD_ON_ROW,
+// the rule of Labels.labelsOfRows); both shapes take the label id twice. The keyword is the ROW's (the copy of the
+// message in another folder does not get it), so BY_LABEL's keyword side gives row ids, from the partial index of the
+// rows that can carry a keyword (KEYWORD_FLAGS_WHERE, migration 17; its own text, so SQLite takes the index).
+const KEYWORD_LABEL = `EXISTS (SELECT 1 FROM labels l WHERE l.id = ? AND ${KEYWORD_ON_ROW})`
+const KEYWORD_ROWS = `SELECT k.id FROM labels l CROSS JOIN messages k
+  WHERE l.id = ? AND l.keyword IS NOT NULL AND ${KEYWORD_FLAGS_WHERE}
+    AND instr(' ' || lower(k.flags) || ' ', ' ' || l.keyword || ' ') > 0
+    AND EXISTS (SELECT 1 FROM accounts a WHERE a.id = k.account_id AND a.type = 'imap')`
+const HAS_LABEL = `(EXISTS (SELECT 1 FROM message_labels ml WHERE ml.account_id = m.account_id AND ml.label_key = m.label_key AND ml.label_id = ?) OR ${KEYWORD_LABEL})`
+const BY_LABEL = `((m.account_id, m.label_key) IN (SELECT ml.account_id, ml.label_key FROM message_labels ml WHERE ml.label_id = ?) OR m.id IN (${KEYWORD_ROWS}))`
 const isRowId = v => Number.isInteger(v) && v > 0
+const isLabelId = v => Number.isSafeInteger(v) && v > 0
 const isEpochMs = v => Number.isSafeInteger(v) && v >= 0
 
 /**
  * A list filter from the renderer, checked: a plain object with the keys above only (booleans, epoch ms
- * integers or null for the dates, at most MAX_KEEP_IDS row ids). null / undefined = no filter.
+ * integers or null for the dates, a label id or null, at most MAX_KEEP_IDS row ids). null / undefined = no filter.
  * Returns the filter, or null when it is not valid.
  */
 export function parseListFilter(value) {
   if (value === undefined || value === null) return {}
   if (typeof value !== 'object' || Array.isArray(value) || Object.getPrototypeOf(value) !== Object.prototype) return null
   for (const key of Object.keys(value)) if (!LIST_FILTER_KEYS.includes(key)) return null
-  const { unread, flagged, hasAttachment, since, before, keepIds } = value
+  const { unread, flagged, hasAttachment, since, before, label, keepIds } = value
   for (const b of [unread, flagged, hasAttachment]) if (b !== undefined && typeof b !== 'boolean') return null
   for (const d of [since, before]) if (d !== undefined && d !== null && !isEpochMs(d)) return null
+  if (label !== undefined && label !== null && !isLabelId(label)) return null
   if (keepIds !== undefined && (!Array.isArray(keepIds) || keepIds.length > MAX_KEEP_IDS || !keepIds.every(isRowId))) return null
   return { ...value }
 }
@@ -64,8 +83,9 @@ export function parseListFilter(value) {
  * The filter's WHERE part (starting with " AND", empty without a filter), its parameters, and its shape:
  * which fields are on, used as the prepared-statement key (never the values). keepIds (a message
  * the user opened or acted on stays in the view) is OR-ed with the rest, and only matters when a filter is on.
+ * byLabel: the label's BY_LABEL shape (shape letter 'L') instead of HAS_LABEL ('l'); the same set either way.
  */
-export function listFilterSql(filter) {
+export function listFilterSql(filter, { byLabel = false } = {}) {
   const where = []
   const params = []
   let shape = ''
@@ -74,6 +94,7 @@ export function listFilterSql(filter) {
   if (filter?.hasAttachment === true) (where.push('m.has_attachments = 1'), (shape += 'a'))
   if (isEpochMs(filter?.since)) (where.push('m.date >= ?'), params.push(filter.since), (shape += 's'))
   if (isEpochMs(filter?.before)) (where.push('m.date < ?'), params.push(filter.before), (shape += 'b'))
+  if (isLabelId(filter?.label)) (where.push(byLabel ? BY_LABEL : HAS_LABEL), params.push(filter.label, filter.label), (shape += byLabel ? 'L' : 'l'))
   if (!where.length) return { sql: '', params: [], shape: '' }
   let sql = where.join(' AND ')
   const keep = Array.isArray(filter.keepIds) ? [...new Set(filter.keepIds.filter(isRowId))].slice(-MAX_KEEP_IDS) : []
@@ -107,6 +128,9 @@ function parseIdentity(stored) {
 export class MailIndex {
   constructor(db) {
     this.db = db
+    // per account: how many times the app wrote a folder path (create, rename, move); a full sync reads it before its
+    // LIST and skips its clean-up when it changed meanwhile (the LIST does not show the new paths)
+    this.folderWrites = new Map()
     const p = sql => db.prepare(sql)
     this.s = {
       getFolder: p('SELECT * FROM folders WHERE account_id = ? AND path = ?'),
@@ -120,10 +144,10 @@ export class MailIndex {
       folderPaths: p('SELECT path FROM folders WHERE account_id = ? AND is_local = 0'),
       insertMsg: p(`INSERT OR IGNORE INTO messages (account_id, folder, uid, pop3_uidl, message_id, in_reply_to, refs,
           from_addr, from_name, to_addrs, cc_addrs, bcc_addrs, subject, date, idate, flags, size, has_attachments, attachments,
-          store_path, body_state)
+          store_path, body_state, label_key)
         VALUES (@account_id, @folder, @uid, @pop3_uidl, @message_id, @in_reply_to, @refs,
           @from_addr, @from_name, @to_addrs, @cc_addrs, @bcc_addrs, @subject, @date, @idate, @flags, @size, @has_attachments, @attachments,
-          @store_path, @body_state)`),
+          @store_path, @body_state, @label_key)`),
       insertFts: p('INSERT INTO messages_fts (rowid, subject, sender, recipients, body) VALUES (?, ?, ?, ?, ?)'),
       setBody: p('UPDATE messages_fts SET body = ? WHERE rowid = ?'),
       setBodyState: p('UPDATE messages SET body_state = ?, preview = COALESCE(?, preview) WHERE id = ?'),
@@ -233,7 +257,8 @@ export class MailIndex {
     this.insertMany = db.transaction(rows => {
       let n = 0
       for (const r of rows) {
-        const info = this.s.insertMsg.run({ pop3_uidl: null, store_path: null, body_state: 0, bcc_addrs: null, ...r })
+        // the label key from the columns as stored: the one place every new row gets it (sync, POP3, compose)
+        const info = this.s.insertMsg.run({ pop3_uidl: null, store_path: null, body_state: 0, bcc_addrs: null, ...r, label_key: labelKeyOf(r) })
         if (info.changes) {
           this.s.insertFts.run(info.lastInsertRowid, r.subject || '', r.sender_text || '', r.recipients_text || '', '')
           n++
@@ -298,6 +323,13 @@ export class MailIndex {
         this.s.renameMessagesFolder.run(next, accountId, path)
       }
       return paths.length
+    })
+    // a folder moved under another parent (or to the top level): the subtree and its messages under the new path,
+    // and the moved root's manual order dropped (it joins another sibling list; its old place means nothing there)
+    this.moveFolderTreeTx = db.transaction((accountId, oldPath, newPath, delimiter) => {
+      const n = this.renameFolderTreeTx(accountId, oldPath, newPath, delimiter)
+      this.s.setFolderOrder.run(null, accountId, newPath)
+      return n
     })
     this.resetFolder = db.transaction((accountId, path) => {
       this.s.deleteFolderMessages.run(accountId, path)
@@ -599,6 +631,26 @@ export class MailIndex {
     return this.s.folderList.all(accountId).map(f => ({ ...f, count: this.s.countFolder.get(accountId, f.path).n, unread: this.s.unreadFolder.get(accountId, f.path).n }))
   }
 
+  /**
+   * The label filter's side to start from (listFilterSql byLabel), by the rows each side walks (measured,
+   * tools/l5-filter-variants.mjs): from the label = the label's rows in the account; from the folder = the folder's
+   * messages, but a date-ordered page stops early, after about pageRows x folder / matches rows. The whole set (a count,
+   * every id) or a page in another order: from the label when it has no more rows than the folder. matches: the
+   * filtered count when the caller knows it (mail:list), else the label's rows stand for it. Both counts come from
+   * indexes (no message row is read).
+   */
+  #byLabel(accountId, folder, filter, { pageRows = null, matches = null } = {}) {
+    if (!isLabelId(filter?.label)) return false
+    this.s.labelRows ??= this.db.prepare('SELECT COUNT(*) AS n FROM message_labels WHERE label_id = ? AND account_id = ?')
+    // the label's rows through its keyword, from the partial index (the rows of the other accounts left out)
+    this.s.keywordLabelRows ??= this.db.prepare(`SELECT COUNT(*) AS n FROM (${KEYWORD_ROWS} AND k.account_id = ?)`)
+    const tagged = this.s.labelRows.get(filter.label, accountId).n + this.s.keywordLabelRows.get(filter.label, accountId).n
+    const total = this.s.countFolder.get(accountId, folder).n
+    if (pageRows === null) return tagged <= total
+    const hits = Math.max(Number.isSafeInteger(matches) ? matches : tagged, 1)
+    return tagged <= total * Math.min(1, pageRows / hits)
+  }
+
   /** The account's folder rows without counts (existence, roles, paths): no message is read. */
   folderList(accountId) {
     return this.s.folderList.all(accountId)
@@ -606,7 +658,7 @@ export class MailIndex {
 
   /** Number of messages in one folder (the virtual list's height); with a filter, the filtered count. */
   countFolder(accountId, folder, filter = null) {
-    const f = listFilterSql(filter)
+    const f = listFilterSql(filter, { byLabel: this.#byLabel(accountId, folder, filter) })
     if (!f.shape) return this.s.countFolder.get(accountId, folder).n
     const key = `count:${f.shape}`
     this.s[key] ??= this.db.prepare(`SELECT COUNT(*) AS n FROM messages m WHERE m.account_id = ? AND m.folder = ?${f.sql}`)
@@ -615,13 +667,15 @@ export class MailIndex {
 
   /**
    * One page of a folder's message list: the list's columns only, sorted by LIST_SORTS[sort]
-   * (ties by id, so pages never overlap). dir: 'asc' | 'desc'. filter: see listFilterSql.
+   * (ties by id, so pages never overlap). dir: 'asc' | 'desc'. filter: see listFilterSql. matches: the filtered count,
+   * when known (only a hint for the label filter's side, never the result).
    */
-  listFolder({ accountId, folder, sort = 'date', dir = 'desc', offset = 0, limit = 200, filter = null }) {
+  listFolder({ accountId, folder, sort = 'date', dir = 'desc', offset = 0, limit = 200, filter = null, matches = null }) {
     const expr = LIST_SORTS[sort]
     if (!expr) throw new Error(`unknown sort: ${sort}`)
     const d = dir === 'asc' ? 'ASC' : 'DESC'
-    const f = listFilterSql(filter)
+    // only the date order has an index to stop early on; any other order reads every match
+    const f = listFilterSql(filter, { byLabel: this.#byLabel(accountId, folder, filter, sort === 'date' ? { pageRows: offset + limit, matches } : {}) })
     const key = `list:${sort}:${d}:${f.shape}`
     if (!this.s[key]) {
       this.s[key] = this.db.prepare(
@@ -635,6 +689,16 @@ export class MailIndex {
   /** a new folder row (IMAP after CREATE, or a POP3 local folder). */
   addFolder(accountId, path, delimiter, isLocal) {
     this.s.addFolder.run(accountId, path, delimiter, isLocal ? 1 : 0)
+    this.#folderWritten(accountId)
+  }
+
+  /** How many folder paths the app wrote for the account (create, rename, move) since the index opened. */
+  folderWriteCount(accountId) {
+    return this.folderWrites.get(accountId) || 0
+  }
+
+  #folderWritten(accountId) {
+    this.folderWrites.set(accountId, this.folderWriteCount(accountId) + 1)
   }
 
   /** the folder and its subfolders (by the delimiter). */
@@ -659,7 +723,16 @@ export class MailIndex {
   }
 
   renameFolderTree(accountId, oldPath, newPath, delimiter) {
-    return this.renameFolderTreeTx(accountId, oldPath, newPath, delimiter)
+    const n = this.renameFolderTreeTx(accountId, oldPath, newPath, delimiter)
+    this.#folderWritten(accountId)
+    return n
+  }
+
+  /** renameFolderTree for a folder moved under another parent: also the moved root's sort_order to NULL, in one transaction. */
+  moveFolderTree(accountId, oldPath, newPath, delimiter) {
+    const n = this.moveFolderTreeTx(accountId, oldPath, newPath, delimiter)
+    this.#folderWritten(accountId)
+    return n
   }
 
   /** the downloaded .eml files of a folder's messages (deleted with the folder). */
@@ -677,7 +750,7 @@ export class MailIndex {
     if (!expr) throw new Error(`unknown sort: ${sort}`)
     const d = dir === 'asc' ? 'ASC' : 'DESC'
     const s = seen === null ? 'all' : seen ? 'seen' : 'unseen'
-    const f = listFilterSql(filter)
+    const f = listFilterSql(filter, { byLabel: this.#byLabel(accountId, folder, filter) })
     const key = `ids:${sort}:${d}:${s}:${f.shape}`
     if (!this.s[key]) {
       const bySeen = s === 'all' ? '' : s === 'seen' ? ` AND ${IS_SEEN}` : ` AND NOT ${IS_SEEN}`
@@ -697,7 +770,7 @@ export class MailIndex {
    * subject:word). Invalid FTS5 syntax never throws: it falls back to free text.
    * accountId = null searches every account.
    */
-  search({ accountId = null, query, from, to, folder, since, before, hasAttachment, unread, flagged, limit = 50, sort } = {}) {
+  search({ accountId = null, query, from, to, folder, since, before, hasAttachment, unread, flagged, label = null, limit = 50, sort } = {}) {
     const run = ftsQuery => {
       const where = []
       const params = []
@@ -724,6 +797,10 @@ export class MailIndex {
       if (hasAttachment) where.push('m.has_attachments = 1')
       if (unread) where.push("instr(m.flags, '\\Seen') = 0")
       if (flagged) where.push("instr(m.flags, '\\Flagged') > 0")
+      if (isLabelId(label)) {
+        where.push(HAS_LABEL)
+        params.push(label, label)
+      }
       const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : ''
       const byRelevance = ftsQuery && sort !== 'date'
       const sql = ftsQuery

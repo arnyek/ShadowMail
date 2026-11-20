@@ -13,6 +13,7 @@ import { classifyError } from '../../core/accounts/probe.js'
 import { Pop3Client } from '../../core/pop3/client.js'
 import { Pop3Fetcher } from '../../core/pop3/fetcher.js'
 import { errCode } from '../../core/log-safe.js'
+import { uploadLocalLabels } from '../../core/imap/label-upload.js'
 
 export const STATUS_THROTTLE_MS = 250
 export const IDLE_MAX_MS = 5 * 60_000 // re-issue IDLE before servers drop a quiet connection
@@ -41,7 +42,8 @@ export class SyncManager {
    * @param notify   (payload) => void: { kind: 'sync', accounts } and { kind: 'mail', changes }
    * @param connect  (accountRow, { idle }) => Promise<connected client>; default: imapflow with the stored password
    */
-  constructor({ store, index, notify = () => {}, log = () => {}, connect = null, connectPop3 = null, sealed = null, now = () => Date.now(), throttleMs = STATUS_THROTTLE_MS, syncerOptions = {}, idleOptions = {}, searchText = null }) {
+  constructor({ store, index, notify = () => {}, log = () => {}, connect = null, connectPop3 = null, sealed = null, now = () => Date.now(), throttleMs = STATUS_THROTTLE_MS, syncerOptions = {}, idleOptions = {}, searchText = null, labels = null }) {
+    this.labels = labels // Labels: an IMAP account's local labels go to its server after the first full run (label-upload.js)
     this.searchText = searchText // the worker thread's refiner, or null (the visible text made in the syncer)
     this.store = store
     this.index = index
@@ -255,6 +257,7 @@ export class SyncManager {
       onChange: change => this.#queueChange(change),
       onState: state => this.#onSyncState(entry, state),
       searchText: this.searchText,
+      uploadLabels: this.labels ? client => uploadLocalLabels({ labels: this.labels, client, accountId: id, log: this.log }) : null,
       ...this.syncerOptions,
     })
     entry.idle = new IdleWatcher({

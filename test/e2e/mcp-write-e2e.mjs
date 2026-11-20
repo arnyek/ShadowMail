@@ -145,6 +145,42 @@ try {
   const row1 = await uiRow('INBOX', first)
   check('mark_messages read + star: the UI list shows it', !marked.isError && !starred.isError && /\\Seen/.test(row1.flags) && /\\Flagged/.test(row1.flags), row1.flags)
 
+  // 0.17.0 labels: list_labels, label_messages on / off (the main window's list follows at once), the label filter by name
+  check('tools/list: list_labels and label_messages', names.includes('list_labels') && names.includes('label_messages'))
+  await page.evaluate(() => window.shadowMail.labels.create('Teszt', '#00897b'))
+  const labelList = await c.tool('list_labels')
+  check('list_labels: the user\'s label', !labelList.isError && JSON.stringify(labelList._meta['shadowmail/data'].labels) === JSON.stringify([{ name: 'Teszt', color: '#00897b', count: 0 }]), labelList.content[0].text)
+  const chipOf = id => page.locator(`.msg-row[data-id="${id}"] .label-chip`)
+  // the earlier steps' change events are merged and sent 250 ms late: let them pass, so only label_messages' own event
+  // can bring the chip
+  await sleep(1500)
+  const labelled = await c.tool('label_messages', { ids: [first], add: ['teszt'] })
+  // at once (the folder's change event), not at a later sync: 2 s
+  await chipOf(first).waitFor({ timeout: 2_000 })
+  check('label_messages add: the main window\'s row shows the chip, no Modal', !labelled.isError && (await chipOf(first).getAttribute('title')) === 'Teszt' && (await page.locator('.claude-confirm-modal').count()) === 0, labelled.content[0].text)
+  const byLabel = await c.tool('list_messages', { account_id: accountId, folder: 'INBOX', label: 'TESZT' })
+  check('list_messages label: the labelled message only, its labels in the text', !byLabel.isError && JSON.stringify(byLabel._meta['shadowmail/data'].items.map(x => x.id)) === JSON.stringify([first]) && /címkék: Teszt/.test(byLabel.content[0].text), byLabel.content[0].text.slice(0, 300))
+  const unknownLabel = await c.tool('label_messages', { ids: [first], add: ['Nincs ilyen'] })
+  check('label_messages with an unknown name: unknown_label, nothing made', unknownLabel.isError === true && unknownLabel._meta['shadowmail/data'].error === 'unknown_label' && (await page.evaluate(() => window.shadowMail.labels.list())).labels.length === 1)
+  // Settings / Labels open, its delete question open: Claude takes the label off, the count follows in both
+  await page.getByRole('button', { name: t.viewSettings, exact: true }).click()
+  await page.getByRole('button', { name: t.settingsNav.labels, exact: true }).click()
+  const tagRow = page.locator('.labels-row', { has: page.locator('.labels-name[value="Teszt"]') })
+  await tagRow.waitFor()
+  check('Settings / Labels: the row counts the labelled message', (await tagRow.locator('.labels-count').innerText()) === t.labelsPage.count(1))
+  await tagRow.locator('.labels-delete').click()
+  const question = page.locator('.labels-delete-modal .confirm-text')
+  await question.waitFor()
+  check('the delete question: 1 message', (await question.innerText()) === t.labelsPage.deleteText('Teszt', 1))
+  const unlabelled = await c.tool('label_messages', { ids: [first], remove: ['Teszt'] })
+  await page.waitForFunction(want => document.querySelector('.labels-delete-modal .confirm-text')?.textContent === want, t.labelsPage.deleteText('Teszt', 0), { timeout: 10_000 })
+  check('label_messages remove with the page open: the open question and the row say 0 at once (the labels event)', !unlabelled.isError && (await tagRow.locator('.labels-count').innerText()) === t.labelsPage.count(0))
+  await page.locator('.labels-delete-cancel').click()
+  await page.getByRole('button', { name: t.viewSettings, exact: true }).click()
+  await page.locator('.labels-settings').waitFor({ state: 'detached' })
+  await page.locator(`.msg-row[data-id="${first}"]`).waitFor()
+  check('back in the list: the chip is gone from the row', (await chipOf(first).count()) === 0 && (await page.evaluate(() => window.shadowMail.labels.list())).labels.length === 1)
+
   // folders
   const made = await c.tool('create_folder', { account_id: accountId, name: 'Claude-mappa' })
   check('create_folder: the folder tree has it', !made.isError && (await uiFolders()).some(f => f.path === 'Claude-mappa'), made.content[0].text)

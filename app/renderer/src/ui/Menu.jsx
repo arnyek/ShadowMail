@@ -6,21 +6,52 @@ import { Icon } from '../Icon.jsx'
 import { Button, IconButton } from './Button.jsx'
 
 const cx = (...parts) => parts.filter(Boolean).join(' ')
+// the gap a menu keeps from the window's edges, px
+const EDGE = 4
 
 function enabledItems(list) {
   return list ? [...list.querySelectorAll('[role^="menuitem"]:not(:disabled)')] : []
 }
 
 /**
- * items: [{ key, label, icon?, disabled?, title?, checked?, danger?, onSelect }] or { separator: true }.
+ * items: [{ key, label, icon?, swatch?, disabled?, title?, checked?, danger?, onSelect }] or { separator: true }; swatch: a color
+ * dot before the label (a label's color).
  * `checked` (true/false) turns the items into radio items (the Select). onClose(reason) is called
  * with 'select', 'escape', 'tab' or 'outside'. `at` = { x, y } positions it fixed (context menu);
  * without it the menu sits under its (relatively positioned) parent.
+ * It stays inside the window: a context menu that would run past the bottom or the right edge opens upward or
+ * leftward from the point (at worst it sits at the edge); an anchored one opens above its button when it does not
+ * fit below but does above, and keeps to the window's side edges.
  */
 export function Menu({ items, onClose, label, at, className, style, id }) {
   const list = useRef(null)
   const closeRef = useRef(onClose)
   closeRef.current = onClose
+  const [place, setPlace] = useState(null) // a context menu's corrected { left, top }
+  const [flip, setFlip] = useState(null) // an anchored menu's placement classes
+
+  // measured before the first paint (a layout effect's state update renders before it)
+  const atX = at ? at.x : null
+  const atY = at ? at.y : null
+  useLayoutEffect(() => {
+    const el = list.current
+    if (!el || atX === null) return
+    const r = el.getBoundingClientRect()
+    const left = atX + r.width > window.innerWidth - EDGE ? Math.max(EDGE, atX - r.width) : atX
+    const top = atY + r.height > window.innerHeight - EDGE ? Math.max(EDGE, atY - r.height) : atY
+    setPlace(left === atX && top === atY ? null : { left, top })
+  }, [atX, atY])
+  useLayoutEffect(() => {
+    const el = list.current
+    if (!el || at || !el.parentElement) return
+    const r = el.getBoundingClientRect()
+    const a = el.parentElement.getBoundingClientRect()
+    const up = r.bottom > window.innerHeight - EDGE && a.top - (r.top - a.bottom) - r.height >= EDGE
+    const side = r.right > window.innerWidth - EDGE ? 'menu-to-end' : r.left < EDGE ? 'menu-to-start' : null
+    if (up || side) setFlip(cx(up && 'menu-up', side))
+    // measured once, where it first opened: a later measurement would see the moved menu
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   useLayoutEffect(() => {
     const all = enabledItems(list.current)
@@ -72,8 +103,8 @@ export function Menu({ items, onClose, label, at, className, style, id }) {
       id={id}
       role="menu"
       aria-label={label}
-      className={cx('menu', at && 'menu-fixed', className)}
-      style={at ? { ...style, left: at.x, top: at.y } : style}
+      className={cx('menu', at && 'menu-fixed', flip, className)}
+      style={at ? { ...style, left: place ? place.left : at.x, top: place ? place.top : at.y } : style}
       onKeyDown={onKeyDown}
     >
       {items.map((it, n) =>
@@ -96,6 +127,7 @@ export function Menu({ items, onClose, label, at, className, style, id }) {
               }}
             >
               {radio ? <Icon name="check" className={it.checked ? '' : 'icon-invisible'} /> : it.icon ? <Icon name={it.icon} /> : null}
+              {it.swatch ? <span className="label-swatch" style={{ backgroundColor: it.swatch, borderColor: it.swatch }} aria-hidden="true" /> : null}
               <span className="menu-item-label">{it.label}</span>
             </button>
           </li>

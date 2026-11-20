@@ -171,9 +171,16 @@ function ProbeResult({ result }) {
       {label}: {r.ok ? t.probeOk : t.probeError(r.error)}
     </li>
   )
+  // 0.17.0: the IMAP server's custom-keyword answer: where this account's labels are kept (POP3 has none)
+  const kw = result.incoming && result.incoming.ok && result.incoming.keywords
   return (
     <ul className="probe" aria-live="polite">
       {row(t.probeIncoming, result.incoming)}
+      {kw ? (
+        <li className="probe-keywords" data-custom={String(kw.custom)}>
+          {t.probeKeywords(kw.custom)}
+        </li>
+      ) : null}
       {row(t.probeSmtp, result.smtp)}
     </ul>
   )

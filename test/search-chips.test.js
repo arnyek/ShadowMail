@@ -130,7 +130,7 @@ test('with a search the chips are as before: "Minden fiók", the account filter,
 test('fromConditions: the conditions become the panel\'s fields one to one; a foreign type is the empty value', () => {
   const c = { text: 'számla', accountId: 2, folder: 'Archív', from: 'anna', to: 'bence', since: '2026-01-01', until: '2026-11-30', hasAttachment: true, unread: true, flagged: true, sort: 'date' }
   const f = fromConditions(c)
-  assert.deepEqual(f, { accountId: 2, folder: 'Archív', from: 'anna', to: 'bence', since: '2026-01-01', until: '2026-11-30', hasAttachment: true, unread: true, flagged: true, sort: 'date' })
+  assert.deepEqual(f, { accountId: 2, folder: 'Archív', from: 'anna', to: 'bence', since: '2026-01-01', until: '2026-11-30', hasAttachment: true, unread: true, flagged: true, label: null, sort: 'date' })
   assert.deepEqual(Object.keys(f).sort(), Object.keys(EMPTY_FILTERS).sort(), 'exactly the panel\'s fields')
   assert.deepEqual(fromConditions({}), EMPTY_FILTERS)
   assert.deepEqual(fromConditions({ accountId: '2', folder: 5, from: null, since: '2026-1-1', until: 20261130, hasAttachment: 'true', unread: 1, sort: 'subject' }), EMPTY_FILTERS)
@@ -157,4 +157,49 @@ test('a folder without an account, or one the account does not list, is the fold
   const v = await mount(h(SearchChips, { accounts: ACCOUNTS, filters: EMPTY_FILTERS, onChange: () => {}, searching: true }))
   t.after(v.unmount)
   assert.equal(chipByText(v.container, 'Mappa'), undefined)
+})
+
+test('the Label chip: only with labels; a menu of the labels with their color; the pick filters the folder view and the search; off with "any label", Szűrők törlése and Esc-kept', async t => {
+  const { t: dict } = await import('../app/renderer/i18n/index.js')
+  const LABELS = [{ id: 7, name: 'Számla', color: '#d32f2f' }, { id: 9, name: 'Ügyfél', color: '#fbc02d' }]
+  let filters = EMPTY_FILTERS
+  const props = (searching, labels) => ({
+    accounts: ACCOUNTS, filters, onChange: f => (filters = f), searching, labels,
+    view: { accountId: 1, folder: 'INBOX' }, onNavigate: () => {}, listSort: { sort: 'date', dir: 'desc' }, sortItems: [],
+  })
+  const none = await mount(h(SearchChips, props(false, [])))
+  assert.equal(none.container.querySelector('.label-filter-chip'), null, 'no label: no chip')
+  await none.unmount()
+
+  const v = await mount(h(SearchChips, props(false, LABELS)))
+  t.after(v.unmount)
+  const chip = () => v.container.querySelector('.label-filter-chip button.chip')
+  assert.equal(chip().textContent, dict.searchFilter.label)
+  assert.equal(chip().getAttribute('aria-pressed'), 'false', 'not active without a pick')
+  await click(chip())
+  const items = [...v.container.querySelectorAll('.label-filter-chip [role="menuitemradio"]')]
+  assert.deepEqual(items.map(i => i.textContent), [dict.searchAnyLabel, 'Számla', 'Ügyfél'])
+  assert.equal(items[0].querySelector('.label-swatch'), null, '"any label" has no color dot')
+  assert.equal(items[1].querySelector('.label-swatch').style.backgroundColor, 'rgb(211, 47, 47)')
+  await click(items[2])
+  assert.equal(filters.label, 9)
+  assert.deepEqual(toListFilter(filters), { label: 9 }, 'the folder view: the list filter')
+  assert.equal(listFilterOn(filters), true, 'the chip row stays open, the list says "szűrve"')
+  assert.equal(toRequest('szó', filters).label, 9, 'the search request')
+  await v.rerender(h(SearchChips, props(false, LABELS)))
+  assert.ok(chip().textContent.includes('Ügyfél'), 'the chosen label in the chip')
+  assert.equal(chip().getAttribute('aria-pressed'), 'true')
+  assert.equal(chip().title, `${dict.searchFilter.label}: Ügyfél`)
+  // a chosen label whose list is not loaded (yet): the chip stays, so it can be switched off
+  await v.rerender(h(SearchChips, props(true, [])))
+  assert.ok(chip(), 'with a pick the chip shows even without labels')
+  await v.rerender(h(SearchChips, props(false, LABELS)))
+  await click(chip())
+  await click(v.container.querySelector('.label-filter-chip [role="menuitemradio"]'))
+  assert.equal(filters.label, null, '"any label" switches it off')
+  assert.deepEqual(toListFilter(filters), {})
+  const on = { ...EMPTY_FILTERS, label: 7, unread: true }
+  assert.equal(leftSearch(on).label, 7, 'Esc leaves the search, the folder filter stays')
+  assert.equal(clearedFilters(on).label, null, 'Szűrők törlése')
+  assert.equal(fromConditions({ label: 7 }).label, null, "Claude's show_search sets no label (yet)")
 })

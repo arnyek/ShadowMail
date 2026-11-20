@@ -6,6 +6,8 @@
 // author: FTS5 with `unicode61 remove_diacritics 2` and 2/3-character prefix indexes.
 
 import { cleanName } from './people.js'
+import { labelKeyOf } from './label-key.js'
+import { labelKeyword } from './label-keyword.js'
 
 export const MIGRATIONS = [
   {
@@ -340,6 +342,70 @@ export const MIGRATIONS = [
       // Drafts copies), for the recipient column of those lists when To and Cc are empty. NULL = not known (a row
       // stored before 0.16.0; the sync fills the ones that need it), '' = none. Additive: the older code ignores it.
       db.exec('ALTER TABLE messages ADD COLUMN bcc_addrs TEXT')
+    },
+  },
+  {
+    version: 15,
+    name: 'labels: local labels bound to the message, not to the row',
+    up(db) {
+      // 0.17.0: the local labels (POP3, local folders; on IMAP the server keyword, migration 16). A label binds to (account, label_key)
+      // (core/db/label-key.js), so it survives what drops a row's id: a move without a UID map and a UIDVALIDITY
+      // change. The binding stays when its row goes (that is what brings it back); every count and display joins
+      // messages, so an orphan shows nowhere. Additive: the older code ignores the column and the two tables.
+      db.exec(`
+        ALTER TABLE messages ADD COLUMN label_key TEXT;
+        CREATE TABLE labels (
+          id INTEGER PRIMARY KEY,
+          name TEXT NOT NULL UNIQUE COLLATE NOCASE,
+          color TEXT NOT NULL,
+          sort_order INTEGER NOT NULL DEFAULT 0,
+          created_at INTEGER NOT NULL
+        );
+        CREATE TABLE message_labels (
+          account_id INTEGER NOT NULL REFERENCES accounts (id) ON DELETE CASCADE,
+          label_key TEXT NOT NULL,
+          label_id INTEGER NOT NULL REFERENCES labels (id) ON DELETE CASCADE,
+          created_at INTEGER NOT NULL,
+          PRIMARY KEY (account_id, label_key, label_id)
+        );
+        CREATE INDEX idx_message_labels_label ON message_labels (label_id, account_id, label_key);
+      `)
+      // every existing row gets its key here, in JS (the same function as the insert), in this migration's transaction
+      const fill = db.prepare('UPDATE messages SET label_key = ? WHERE id = ?')
+      // .all(), not .iterate(): better-sqlite3 runs no other statement on the connection while an iterator is open
+      for (const row of db.prepare('SELECT id, message_id, from_addr, date, size FROM messages').all()) {
+        fill.run(labelKeyOf(row), row.id)
+      }
+      // after the fill: one index build instead of an update per row
+      db.exec('CREATE INDEX idx_messages_label_key ON messages (account_id, label_key)')
+    },
+  },
+  {
+    version: 16,
+    name: 'labels: the IMAP keyword of each label',
+    up(db) {
+      // 0.17.0: on an IMAP account a label is stored on the server, as a keyword (core/db/label-keyword.js). Made once
+      // per label, here for the existing ones in the list's order, then on create; a rename keeps it. Additive.
+      db.exec('ALTER TABLE labels ADD COLUMN keyword TEXT')
+      const set = db.prepare('UPDATE labels SET keyword = ? WHERE id = ?')
+      const taken = new Set()
+      for (const label of db.prepare('SELECT id, name FROM labels ORDER BY sort_order, id').all()) {
+        const keyword = labelKeyword(label.name, taken)
+        taken.add(keyword)
+        set.run(keyword, label.id)
+      }
+      db.exec('CREATE UNIQUE INDEX idx_labels_keyword ON labels (keyword)')
+    },
+  },
+  {
+    version: 17,
+    name: 'labels: a partial index of the rows that can carry a label keyword',
+    up(db) {
+      // 0.17.0: the label count reads the IMAP rows with a flag of no system form (not \\x, not $x) once
+      // (core/db/labels.js keywordRows). flags is in no other index, so it read the whole table (190 ms on 100 000 rows,
+      // measured); this partial, covering index holds only those rows. Its WHERE is the query's own text
+      // (KEYWORD_FLAGS_WHERE): SQLite takes a partial index for the same expression only. Additive.
+      db.exec(`CREATE INDEX idx_messages_keyword_flags ON messages (account_id, label_key, flags) WHERE (' ' || flags) GLOB '* [^\\$]*'`)
     },
   },
 ]

@@ -9,6 +9,7 @@ import path from 'node:path'
 import crypto from 'node:crypto'
 import { ActionError } from './sync-manager.js'
 import { errCode } from '../../core/log-safe.js'
+import { safeFileName } from '../../core/mime/message.js'
 
 export const ZONE_IDENTIFIER = '[ZoneTransfer]\r\nZoneId=3\r\n'
 
@@ -72,6 +73,65 @@ export async function openMarked({ filename, content, tmpDir, fallbackDir, openP
     throw new ActionError('open_failed')
   }
   return file
+}
+
+// a failed write as a code the reader can say
+const writeError = err => (err && (err.code === 'EACCES' || err.code === 'EPERM' || err.code === 'EROFS') ? 'not_writable' : err && err.code === 'ENOSPC' ? 'disk_full' : 'write_failed')
+
+/**
+ * "Összes mentése": every file into `folder` (the user chose it), one by one, each under its cleaned name
+ * (safeFileName, `fallback` for an empty one) and NEVER over an existing file: created exclusively ('wx'), a taken
+ * name becomes "name (2).ext", "name (3).ext" ... (also for two attachments of one message with the same name). A
+ * name that would not land right in the folder is left out (bad_name). Each saved file is marked (Mark-of-the-Web; a
+ * failed mark is only logged, as for "Mentés másként"). One file's failure does not stop the rest, nothing is rolled
+ * back; a file whose write failed half way is removed. `clean` (the name cleaner) and `fsp` are for the tests.
+ * -> [{ name, path, ok: true } | { name, ok: false, error }] in the order of `files`; error: bad_name, name_taken,
+ *    not_writable, disk_full, write_failed
+ */
+export async function saveAllMarked({ folder, files, fallback = 'melleklet', mark = markOfTheWeb, log = () => {}, fsp = fs.promises, maxTries = 1000, clean = safeFileName }) {
+  const root = path.resolve(folder)
+  const out = []
+  for (const f of files) {
+    const name = clean(f.filename, fallback)
+    const ext = path.extname(name)
+    const base = name.slice(0, name.length - ext.length)
+    let saved = null
+    let error = null
+    for (let n = 1; n <= maxTries && !saved && !error; n++) {
+      const target = path.resolve(root, n === 1 ? name : `${base} (${n})${ext}`)
+      if (path.dirname(target) !== root) {
+        error = 'bad_name'
+        break
+      }
+      let handle
+      try {
+        handle = await fsp.open(target, 'wx')
+      } catch (err) {
+        if (err && err.code === 'EEXIST') continue
+        error = writeError(err)
+        break
+      }
+      try {
+        await handle.writeFile(f.content)
+        saved = target
+      } catch (err) {
+        error = writeError(err)
+      } finally {
+        await handle.close().catch(() => {})
+      }
+      if (error) await fsp.rm(target, { force: true }).catch(() => {})
+    }
+    if (!saved && !error) error = 'name_taken'
+    if (saved) {
+      try {
+        mark(saved)
+      } catch (err) {
+        log(`mark of the web failed on a saved file (${errCode(err)})`)
+      }
+      out.push({ name: path.basename(saved), path: saved, ok: true })
+    } else out.push({ name, ok: false, error })
+  }
+  return out
 }
 
 /** "Mentés másként": write, then mark; a failed mark is only logged (the user chose the place). */

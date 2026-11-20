@@ -9,6 +9,8 @@ import { buildFolderTree } from '../core/imap/folders.js'
 import { siblingLists, stepped, dropped } from '../app/renderer/src/folder-order.js'
 
 setupDom()
+// every row 40 px high (jsdom rects are 0 high): a sibling's drop zones are its top / middle / bottom (0-10 / 10-30 / 30-40)
+window.HTMLElement.prototype.getBoundingClientRect = () => ({ top: 0, bottom: 40, height: 40, left: 0, right: 200, width: 200, x: 0, y: 0 })
 const { createElement: h } = await import('react')
 const { FolderTree } = await import('../app/renderer/src/Mail.jsx')
 
@@ -125,11 +127,11 @@ test('folder drag: among its own siblings a line and a reorder; another parent, 
   assert.equal(over.defaultPrevented, false)
   over = await inAct(() => drag(folderEl(v, 2, 'INBOX'), 'dragover', dt))
   assert.equal(over.defaultPrevented, false)
-  // a sibling: the line before it (upper half), then after it (lower half; jsdom rects are 0 high)
+  // a sibling: the line before it (its top quarter), then after it (its bottom quarter)
   over = await inAct(() => drag(folderEl(v, 1, 'Sent'), 'dragover', dt, 0))
   assert.equal(over.defaultPrevented, true)
   assert.ok(folderEl(v, 1, 'Sent').parentElement.classList.contains('drop-before'))
-  await inAct(() => drag(folderEl(v, 1, 'Sent'), 'dragover', dt, 5))
+  await inAct(() => drag(folderEl(v, 1, 'Sent'), 'dragover', dt, 35))
   assert.ok(folderEl(v, 1, 'Sent').parentElement.classList.contains('drop-after'))
   assert.equal(v.container.querySelectorAll('.drop-before, .drop-after').length, 1, 'one line')
   // the drag moves on over a place that takes no folder: the line goes at once (not only at the drag end)

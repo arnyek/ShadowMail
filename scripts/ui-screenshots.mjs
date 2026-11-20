@@ -7,7 +7,7 @@
 //   node scripts/ui-screenshots.mjs <prefix> [--out docs/ui] [--keep] [--strict] [--set readme] [--lang hu|en] [--theme <id>] [--pane none|right|bottom]
 //
 // Writes <out>/<prefix>-{unlock,list,collapsed,selected,hover,chips,reader,headers,source,reader-plain,compose,settings}.png (collapsed,
-// selected/hover/chips, filter-chips, filtered, filtered-empty, headers, source: when the build has them), and settings-{security,about,appearance}, settings-claude, account-editor, account-editor-bottom, contacts-none, contacts, contacts-editor, contacts-delete, contacts-export-menu,
+// selected/hover/chips, filter-chips, filtered, filtered-empty, headers, source: when the build has them), and settings-{security,about,appearance,labels}, settings-claude, account-editor, account-editor-bottom, contacts-none, contacts, contacts-editor, contacts-delete, contacts-export-menu,
 // and, in a second, empty data folder, create and recovery-code (a code of a throw-away test vault). Prints, per screen, the native
 // controls left (`button:not([class]), select`) and the icon buttons without an aria-label, the
 // renderer console errors/warnings and the main process' stderr, and the net-guard log lines.
@@ -51,6 +51,7 @@ const outDir = path.resolve(repo, values.out)
 fs.mkdirSync(outDir, { recursive: true })
 const electronBin = path.join(repo, 'node_modules', 'electron', 'dist', process.platform === 'win32' ? 'electron.exe' : 'electron')
 const SIZE = { width: 1280, height: 800 }
+const README_READER_SIZE = { width: 1280, height: 900 }
 
 const work = fs.mkdtempSync(path.join(os.tmpdir(), 'shadowmail-shots-'))
 const dataDir = path.join(work, 'data')
@@ -249,7 +250,15 @@ try {
     await page.locator(`.msg-row[data-id="${msg.id}"]`).click()
     await page.locator(`.reader[data-message-id="${msg.id}"]`).waitFor()
     await page.waitForTimeout(500)
+    // the README's reader picture shows the whole message down to its reply row: since the label row it no longer
+    // fits in 800 px, so only this one picture of the readme set is taken in a taller window
+    const tall = values.set === 'readme'
+    if (tall) {
+      await page.setViewportSize(README_READER_SIZE)
+      await page.waitForTimeout(300)
+    }
     await shot(page, 'reader')
+    if (tall) await page.setViewportSize(SIZE)
   })
   // the source view, both tabs (More -> Fejlécek, then the Eredeti tab); before H2 there is no such item
   await step('headers', async () => {
@@ -294,7 +303,7 @@ try {
     await shot(page, 'settings')
   })
   // the settings tabs and the account editor
-  for (const [tab, name] of [[t.settingsNav.security, 'settings-security'], [t.settingsNav.about, 'settings-about'], [t.settingsNav.appearance, 'settings-appearance'], [t.settingsNav.claude, 'settings-claude']]) {
+  for (const [tab, name] of [[t.settingsNav.security, 'settings-security'], [t.settingsNav.about, 'settings-about'], [t.settingsNav.appearance, 'settings-appearance'], [t.settingsNav.labels, 'settings-labels'], [t.settingsNav.claude, 'settings-claude']]) {
     await step(name, async () => {
       const tabButton = page.getByRole('button', { name: tab, exact: true })
       if (!(await tabButton.count())) return // an older build has no settings tabs
@@ -302,6 +311,19 @@ try {
       await page.waitForTimeout(300)
       // a published image shows the snippets of a Windows install (made by the app's own connectSnippets), not the
       // paths of the machine that took it
+      if (name === 'settings-labels') {
+        // two labels (the build of 0.17.0 has the bridge), so the page shows rows, not only the empty state
+        const made = await page.evaluate(async () => {
+          const api = window.shadowMail.labels
+          if (!api) return false
+          if (!(await api.list()).labels.length) {
+            await api.create('Számla', '#d32f2f')
+            await api.create('Ügyfél', '#fbc02d')
+          }
+          return true
+        })
+        if (made) await page.locator('.labels-row').nth(1).waitFor()
+      }
       if (only && name === 'settings-claude') {
         const ex = connectSnippets({ exe: 'D:\\Apps\\ShadowMail\\ShadowMail.exe', args: ['--mcp'], platform: 'win32' })
         await page.evaluate(({ desktop, code }) => {

@@ -20,7 +20,10 @@ The interface is Hungarian by default; Settings / Appearance / Nyelv / Language 
 ## Features
 
 - IMAP and POP3 accounts, several accounts in one program.
-- Reading mail: safe HTML display, external images only on request, attachments.
+- Reading mail: safe HTML display, external images only on request, attachments. With two or more attachments,
+  **Save all** saves them all into a folder you choose (never over an existing file: "name (2).ext"; the images
+  embedded in the message are left out), then **Show in folder** shows them. If a program or a web-page-like file
+  (HTML, SVG, XML) is among the saved ones, a line warns about it.
 - Search in every account (also without accents), filters in the folder view too.
 - Writing and sending mail (SMTP), reply, forward, folder management.
 - **Contacts**: contacts, vCard and CSV import and export.
@@ -29,7 +32,9 @@ The interface is Hungarian by default; Settings / Appearance / Nyelv / Language 
 - **Hungarian or English** interface, five **themes** (two dark ones and two compact "classic" ones), the reading
   pane on the right, at the bottom or none, switched with one button in the header.
 - An **image under the text signature**, per account.
-- Accounts and folders in **your own order** (drag, menu or keyboard).
+- Accounts and folders in **your own order** (drag, menu or keyboard); a folder **moved** under another one.
+- **Shift** on a message's checkbox selects the range from the last checked one.
+- **Labels** on messages: several per message, in their own colors, filtering by label; on an IMAP account on the server.
 - On Windows, the number of unread messages in a red badge on the taskbar icon (every account's Inbox together, "99+" above 99, none while locked); it can be switched off under Settings / Appearance.
 - All data encrypted, with a master password (see First start).
 
@@ -50,6 +55,19 @@ The interface is Hungarian by default; Settings / Appearance / Nyelv / Language 
   nothing but a line says why.
 - The keys work after a click into the message text too. In a text field, a menu, a dialog and on a pane divider they
   keep their usual meaning.
+
+### Keys in the composer
+
+- **Tab** goes from the Subject straight to the message text (the formatting buttons are skipped), **Shift+Tab**
+  from the text back to the Subject.
+- **Alt+F10** in the text moves to the formatting toolbar: the arrows, **Home** and **End** move between the buttons,
+  **Enter** formats, **Esc** goes back to the text (the selection is kept). **Ctrl+B**, **Ctrl+I** and **Ctrl+U** work
+  in the text too.
+- An image goes into the message from the clipboard (**Ctrl+V**) or dragged onto the text as a file (PNG, JPEG; other
+  image formats are attached). Its size is set with a right click on the image, or **Shift+F10** with the caret beside
+  it: Small (320 px), Medium (640 px), Large (800 px), Original size, or the image removed. Only the shown width
+  changes, not the image itself, and it is never enlarged; **Ctrl+Z** takes it back. Without a size, an image wider
+  than 800 px is 800 px wide in the message.
 
 ### Filters
 
@@ -136,13 +154,107 @@ Changing the From account replaces only the signature block, the text you typed 
 
 ### Order of the accounts and folders
 
-- Drag a folder among its siblings (the folders with the same parent), or drag an account's header among the
-  accounts. A drag never puts a folder into another folder, and dropping a folder on a folder moves no message.
+- Drag a folder among its siblings (the folders with the same parent): dropped on the top or bottom edge of a
+  sibling, only the order changes. Dragging an account's header among the accounts orders the accounts. Dropping a
+  folder on the middle of another folder moves it there (see Moving a folder).
 - The same with the right-click menu (**Move up**, **Move down**) or with **Alt+Up** / **Alt+Down** on a folder or
   an account header that has the keyboard focus.
 - **Sort folders A-Z** in an account's right-click menu brings back the original order of its folders.
 - The order is kept only in ShadowMail: the server and other mail programs do not change. A renamed folder keeps its
   place, a new folder comes at the end of its list.
+
+### Moving a folder
+
+- Drag a folder onto another folder of the same account (the middle of its row): it moves under that folder, with
+  its subfolders and messages. Dropped on the account's header, it goes to the top level. The program always asks
+  first.
+- The same without a mouse: **Move…** in the folder's right-click menu (or **Shift+F10** on the folder) lists the
+  places it can go; the arrows, **Home** and **End** choose, **Enter** moves, **Esc** cancels.
+- A folder that is the Inbox, Drafts, Sent, Trash, Junk or Archive, or has one of them below it, does not move; nor
+  does a folder go into its own subfolder, under the Trash or the Junk, or into another account. The list says why.
+- On an IMAP account the server moves the folder in one step: the messages are not downloaded again, and the folders
+  you were subscribed to stay subscribed under their new name. On a POP3 account it moves on this computer.
+
+### Selecting messages
+
+- **Shift** with a click on a message's checkbox gives the same state to every message between it and the last
+  checkbox you clicked (checks or unchecks the range); the rest of the selection stays.
+- **Shift+click** on a row selects the range from the last clicked row, **Ctrl+Shift+click** adds it to the
+  selection.
+- The range follows the list's order and filter, also the rows not loaded yet; after a new sort or filter it starts
+  again from the next checkbox.
+
+### Labels
+
+You can put your own labels (name and color) on messages: in the list, from the right-click menu, from the toolbar of
+the selection or from the reader. The **Label** filter chip filters by one; under Settings / Labels you make, rename,
+color, order and delete labels.
+
+- **On an IMAP account a label is on the server,** as a keyword on the message (the name encoded, for example
+  `sz=c3=a1mla`). Another program (ShadowMail on another computer, another mail client) can see and set it; what it puts
+  on or takes off arrives here with the next sync: in the Inbox at once, in other folders at the sync's interval.
+- **A label belongs to this copy of the message:** when the same message is in two folders, the copy in the other
+  folder does not get it.
+- **Name, color and order are on this computer.** In a new data folder (or on another computer) you see the labels on
+  the server once you make the label again with the same name. Other programs' own keywords never become labels, and
+  the label actions leave them alone.
+- **When the server does not allow custom keywords in a folder,** the label is kept on this computer only in that
+  folder; the program says so in a line. Edit account / **Test the connection** tells whether the server allows them.
+- **Without a connection** (no network, the account stopped) the label does not change, and an error line names the
+  account; the messages of the other accounts get it meanwhile.
+- **Deleting** a label takes it off the server too, from the messages the program has synced (not from a folder not
+  synced yet or not shown). When an account is out of reach, the label stays, it is already off on the other accounts,
+  and the deletion can be tried again.
+- **Drafts:** a draft saved again keeps its labels; the message sent (its copy in Sent) does not get them.
+- **Labels kept only locally before** (a development data folder from before 0.17.0) go to the server after the first
+  sync, on every copy of the message.
+- **On a POP3 account** a label is kept on this computer and shows on every local copy of the message. When the message
+  has no Message-ID and no Date header, a copy downloaded again does not show its label.
+- Claude (MCP) can put existing labels on and take them off; only you can make, rename and delete them.
+
+### New in 0.17.0, known limits
+
+- **Labels:** a message can have several labels, each in its own color (12 offered or your own). Put them on with the
+  right-click menu's **Labels…**, the selection toolbar's label icon and in the reader; with several messages selected
+  the picker shows which label is on all of them and which only on some, and a typed name makes a new label. The list
+  shows at most three labels before the subject (colored dots in a narrow list), "+N" for the rest; the reader shows
+  all, each with an "x" to take it off. Under **Settings / Labels**: new label, rename, color, order, delete. Details
+  above, under **Labels**.
+- **On an IMAP account a label is stored on the server** (as a keyword on the message), so another computer or mail
+  client can see it; on POP3 on this computer. **Test the connection** tells whether the server allows custom labels,
+  and where the account's labels are kept.
+- **Label filter:** the folder view's and the search's **Label** chip narrows to one label's messages; **All** in its
+  menu turns it off.
+- **Claude and labels:** Claude sees the messages' labels, lists and searches by label, and puts existing labels on and
+  takes them off without confirmation; only you can make, rename or delete a label.
+- **Writing:** Tab in the Subject goes straight to the text (the formatting bar is Alt+F10); typing into an emptied text
+  does not carry the old formatting, and making bold text italic shows.
+- **Images in a message:** paste an image (**Ctrl+V**) or drop a PNG or JPEG onto the text; it goes out inside the
+  message. A right click on it sets its size (320, 640, 800 px, original) or removes it. A photo taken turned is
+  turned upright, the signature image too; its location and other metadata are removed.
+- **Moving a folder** under another one: drag it onto the folder, or **Move…** in its menu (see Moving a folder).
+- **Shift on a checkbox** selects a range of messages (see Selecting messages).
+- **Save all:** two or more attachments saved into one folder at once; a program or a web-page-like file (HTML, SVG,
+  XML) among them gets a warning.
+- The composer's own **Close** button asks before closing an unsaved message, like the window's X.
+- On Windows the search field's buttons and the text in one-line fields sit on the middle line; a menu opened near the
+  window's edge stays inside the window.
+
+Known limits of this release:
+
+- A photo turned upright loses its color profile (the colors are shown in the standard space). A turned photo larger
+  than 50 megapixels is not taken; a photo that does not need turning has no such limit.
+- A label's name, color and order are on this computer: in a new data folder or on another computer you see a label
+  on the server once you make it again with the same name.
+- On an IMAP account a label belongs to that copy of the message: the copy in another folder does not get it. A change
+  in another folder (made by another program) comes with the sync's interval, only the Inbox at once.
+- Without a connection the label does not change (an error line names the account). A draft saved into another
+  account (a From change) does not take its labels from the old account.
+- On a POP3 message without a Message-ID the label is bound to the sender, the date and the size; when the message has
+  no date either and the program downloads it once more, the new copy does not get its old labels.
+- In a 100 000-message folder the first page of a common label's filtered list takes about 0.25-0.5 seconds, and with a
+  whole folder selected the label picker opens in about 0.65 seconds.
+- With labels, the folder view's chip row may break into two lines in a 1280-pixel-wide window.
 
 ### New in 0.16.0, known limits
 
@@ -529,7 +641,9 @@ The setting's format is from the official documentation: Claude Desktop:
   moving, moving to the Trash, creating and renaming a folder, writing a draft (into Drafts, marked "Claude"; the
   program shows a notice), changing a draft (it sends nothing; it can be made to ask under Confirmations), listing
   the scheduled messages and cancelling a message Claude scheduled (back to Drafts, with a notice), refresh, testing an account's connection,
-  showing a message or a search in the program's window. These can be undone.
+  showing a message or a search in the program's window, listing the labels, seeing the messages' labels and
+  filtering by a label, putting an existing label on and taking it off (the window shows it at once). These can be
+  undone.
 - **Only with your confirmation:** sending or scheduling a message, deleting for good, deleting a folder or an
   account, changing an account's settings, restarting the login of a stopped account, cancelling your own scheduled
   message. Under **Confirmations** these
@@ -540,7 +654,7 @@ The setting's format is from the official documentation: Claude Desktop:
   and a half seconds. The request expires after 10 minutes. From the confirmation window, **Lock** or
   **Reject all, turn Claude access off** rejects everything in one step.
 - **Never:** passwords, the master password and the recovery code, the content of attachments, attaching a local
-  file, and the Claude access switch.
+  file, the Claude access switch, and making, renaming or deleting a label (only you can, under Settings / Labels).
 
 The **Recent Claude calls** list on the same page shows the last 20 calls (time, tool,
 result, count). The list is in memory only and is empty after a lock or a restart. No search word, address, subject

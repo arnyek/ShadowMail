@@ -321,3 +321,29 @@ test('a lock while a send is under way: stop() waits for it, the row is recorded
   assert.deepEqual(unhandled, [], 'no unhandled rejection')
   assert.ok(logged.some(l => new RegExp(`^scheduled ${r.id} not recorded`).test(l)), logged.join(' | '))
 })
+
+test('a pasted image goes out with a scheduled message: carried in the sealed payload, one inline part, byte for byte', async t => {
+  const { pngFile, headerDecode } = await import('./helpers/inline-images.js')
+  const { simpleParser } = await import('mailparser')
+  const s = setup(t)
+  s.composer.decodeImage = headerDecode
+  const sid = s.composer.open()
+  const png = pngFile(900, 30, { seed: 9 })
+  const img = s.composer.addImage(sid, png)
+  const html = `<p>Kép:</p><p><img src="inl-img://session/${sid}/${img.id}" alt=""></p>`
+  const { id } = await s.composer.schedule(sid, s.form({ html }), NOW + 10 * MIN)
+  s.composer.close(sid)
+  const rel = s.scheduled.get(id).payload_path
+  assert.ok(!fs.readFileSync(path.join(s.storeDir, rel)).includes(png.subarray(16, 48)), 'sealed: not the image bytes in plain')
+  s.clock.now = NOW + 11 * MIN
+  s.scheduler.start()
+  await s.scheduler.tick()
+  await s.scheduler.tick()
+  assert.equal(s.sent.length, 1)
+  const got = await simpleParser(s.sent[0].raw, { keepCidLinks: true })
+  const parts = got.attachments.filter(a => a.cid)
+  assert.equal(parts.length, 1)
+  assert.ok(parts[0].content.equals(png), 'the pasted bytes')
+  assert.ok(got.html.includes(`src="cid:${parts[0].cid}"`) && got.html.includes('width="800"'), got.html)
+  assert.ok(!got.html.includes('inl-img'))
+})

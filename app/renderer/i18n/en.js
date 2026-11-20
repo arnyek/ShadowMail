@@ -241,7 +241,6 @@ export const en = {
     error: r => {
       if (r.error === 'too_large' && r.width && (r.width > r.maxWidth || r.height > r.maxHeight)) return `The image is ${r.width} x ${r.height} px; it can be at most ${r.maxWidth} x ${r.maxHeight} px.`
       if (r.error === 'too_large') return `The image is ${Math.ceil(r.bytes / 1024)} KB; it can be at most ${Math.round((r.maxBytes || 153600) / 1024)} KB.`
-      if (r.error === 'rotated_image') return 'The image carries a rotation flag; save it rotated and upload it again.'
       if (r.error === 'unsupported_image') return 'This is not a PNG or JPG image, or it is damaged (an animated PNG is not accepted either).'
       if (r.error === 'read_failed') return 'The file could not be read.'
       return 'The image could not be saved.'
@@ -249,6 +248,9 @@ export const en = {
   },
   probeIncoming: 'Incoming',
   probeSmtp: 'Outgoing (SMTP)',
+  // 0.17.0: the connection test's custom-keyword line (true / false / null)
+  probeKeywords: v =>
+    `Custom keywords on the server: ${v === true ? "allowed (this account's labels are stored on the server)" : v === false ? "not allowed (this account's labels are stored on this computer only)" : 'not measurable'}`,
   probeOk: 'OK',
   probeErrors: {
     auth_failed: 'Wrong user name or password.',
@@ -383,7 +385,7 @@ export const en = {
   splitterContacts: 'Contact list width',
   // the draggable dividers' names (the arrows move them, Home or a double click gives back the default)
   splitters: { sidebar: 'Folder pane width', list: 'Message list width', listh: 'Message list height', settings: 'Settings menu width' },
-  settingsNav: { accounts: 'Accounts', appearance: 'Appearance', security: 'Security', claude: 'Claude access', about: 'About' },
+  settingsNav: { accounts: 'Accounts', appearance: 'Appearance', security: 'Security', claude: 'Claude access', labels: 'Labels', about: 'About' },
   // MCP: the "Claude access" page (ClaudeAccess.jsx)
   claudeAccess: {
     title: 'Claude access',
@@ -558,6 +560,23 @@ export const en = {
   readerLoadImages: 'Load images',
   readerAttachments: n => `Attachments (${num(n)})`,
   readerSave: 'Save…',
+  // "Save all": every attachment into one folder (the reader's attachment heading, 2+ attachments)
+  readerSaveAll: n => `Save all (${num(n)})`,
+  readerSavedAll: n => `${count(n, 'file')} saved.`,
+  readerShowInFolder: 'Show in folder',
+  readerSaveSkipped: (name, code) =>
+    `Left out: ${name} (${
+      { bad_name: 'its name cannot be saved', name_taken: 'too many files of this name in the folder already', not_writable: 'the folder cannot be written to', disk_full: 'the disk is full' }[code] ||
+      'it could not be written'
+    }).`,
+  readerSavedExecutable: n =>
+    n === 1
+      ? 'One of the saved files is a program: only run it if you trust the sender.'
+      : `${num(n)} of the saved files are programs: only run them if you trust the sender.`,
+  readerSavedBrowserActive: n =>
+    n === 1
+      ? 'One of the saved files is web-page-like (HTML, SVG, XML): in a browser it could run a program, so only open it if you trust the sender.'
+      : `${num(n)} of the saved files are web-page-like (HTML, SVG, XML): in a browser they could run a program, so only open them if you trust the sender.`,
   readerOpen: 'Open',
   readerExecutable: 'Executable file: it can only be saved, not opened from here.',
   readerBrowserActive: 'Web-page-like file (HTML, SVG, XML): in a browser it could run a program, so it can only be saved.',
@@ -803,6 +822,7 @@ export const en = {
   composeBody: 'The message text',
   composeSuggestions: 'Address suggestions',
   composeFormatting: 'Formatting',
+  composeFormattingHint: 'Formatting (from the text to the toolbar: Alt+F10)',
   composeTools: { bold: 'Bold', italic: 'Italic', underline: 'Underline', ul: 'Bulleted list', ol: 'Numbered list', link: 'Link', quote: 'Quote', clear: 'Clear formatting' },
   composeToolLabels: { link: 'Link', quote: 'Quote', clear: 'Clear' },
   composeLinkUrl: 'Address (https://… or mailto:…)',
@@ -840,6 +860,30 @@ export const en = {
   composeDiscardText: 'The message and its saved draft are both deleted.',
   composeAttachmentsLabel: n => `Attachments (${num(n)})`,
   composeKeptAsDraft: 'The message was kept in Drafts.',
+  // a pasted / dropped image (the main process's codes; too_large with detail.bytes: one image over 10 MB)
+  composeImageError: (code, detail) =>
+    code === 'too_large'
+      ? detail && detail.bytes
+        ? 'The image is over 10 MB and cannot go into the text.'
+        : detail && detail.maxPixels
+          ? `The photo stored turned is too large to turn upright: ${num(Math.round((detail.width * detail.height) / 1e6))} megapixels, at most ${num(Math.round(detail.maxPixels / 1e6))}.`
+          : 'With this image the attachments and images would go over 25 MB (most servers refuse bigger messages).'
+      : code === 'unsupported_image'
+        ? 'The image cannot go into the text: it is not a readable PNG or JPEG.'
+        : code === 'not_attachable'
+          ? 'This image format cannot go into the text, and without a file it cannot be attached either. Save it to a file and attach that.'
+          : en.composeError(code, detail, 'attach'),
+  composeImageAttached: n => (n === 1 ? 'The image was attached as a file: this format cannot go into the text.' : `${count(n, 'image')} were attached as files: this format cannot go into the text.`),
+  // the size menu of a pasted image in the text (right click or Shift+F10 on it): only the shown width changes
+  composeImageMenu: {
+    label: 'Image size',
+    small: 'Small (320 px)',
+    medium: 'Medium (640 px)',
+    large: 'Large (800 px)',
+    original: 'Original size',
+    remove: 'Remove the image',
+    noEnlarge: 'The image is smaller than this; it is not enlarged.',
+  },
   // a message that may be broken or harmful ("e-mail bomb")
   composeSuspectTitle: 'ShadowMail',
   // the shape check (2.): one unbroken run of text longer than `limit` characters in the starting body
@@ -916,7 +960,7 @@ export const en = {
     return `${prefix}: ${text}`
   },
   // Folder management
-  folderMenu: { newSub: 'New subfolder…', rename: 'Rename…', moveUp: 'Move up', moveDown: 'Move down', delete: 'Delete…', unsubscribe: 'Unsubscribe' },
+  folderMenu: { newSub: 'New subfolder…', rename: 'Rename…', move: 'Move…', moveUp: 'Move up', moveDown: 'Move down', delete: 'Delete…', unsubscribe: 'Unsubscribe' },
   // the account head's menu (the manual order)
   accountMenu: { moveUp: 'Move up', moveDown: 'Move down', sortFolders: 'Sort folders A-Z', subscriptions: 'Folder subscriptions…' },
   subscriptions: {
@@ -928,6 +972,57 @@ export const en = {
     close: 'Done',
   },
   // the reader's End key where archiving is not possible
+  // 0.17.0: Settings / Labels (the list of the labels: name, color, order, delete)
+  labelsPage: {
+    subtitle: 'On an IMAP account a label is stored on the server (as a keyword), on POP3 on this computer. Name, color and order live on this computer; the list is shared by all accounts.',
+    add: 'New label',
+    name: 'Name',
+    color: 'Color',
+    create: 'Create',
+    cancel: 'Cancel',
+    count: n => (n === 1 ? '1 message' : `${num(n)} messages`),
+    renameOf: name => `Name of ${name}`,
+    colorOf: name => `Color of ${name}`,
+    up: name => `Move ${name} up`,
+    down: name => `Move ${name} down`,
+    remove: name => `Delete ${name}`,
+    deleteTitle: 'Delete the label',
+    deleteText: (name, n) => `Deleting the label ${name}: it comes off ${n === 1 ? '1 message' : `${num(n)} messages`}, on an IMAP account from the server too.`,
+    deleteYes: 'Delete',
+    deleting: 'Deleting…',
+    deleteFailed: accounts => `The label stays: it could not be taken off the server for this account: ${accounts}. It is already off everywhere else; Delete tries again.`,
+    empty: 'No labels yet. Put one on messages from the list, the right-click menu or the reader, or make one here.',
+  },
+  // 0.17.0: labels on messages (an IMAP account's on its server as keywords, POP3's in this program)
+  labels: {
+    button: 'Label',
+    menuItem: 'Labels…',
+    pickerTitle: 'Labels',
+    filter: 'Find a label',
+    create: name => `New label: ${name}`,
+    manage: 'Manage labels…',
+    remove: name => `Remove the label ${name}`,
+    group: names => `Labels: ${names}`,
+    none: 'No labels yet. Type a name and press Enter to make one.',
+    noMatch: 'No such label.',
+    errors: {
+      name_taken: 'A label with this name already exists.',
+      bad_name: 'A label name is 1 to 64 visible characters.',
+      bad_color: 'This color cannot be used.',
+      not_found: 'The label is gone meanwhile.',
+      locked: 'The program is locked.',
+      too_many: 'There can be at most 1000 labels.',
+    },
+    error: code => ({
+      name_taken: 'A label with this name already exists.',
+      bad_name: 'A label name is 1 to 64 visible characters.',
+      not_found: 'The label is gone meanwhile.',
+      locked: 'The program is locked.',
+      too_many: 'There can be at most 1000 labels.',
+    })[code] || `The label did not change (error: ${code || 'unknown'}).`,
+    serverError: (account, code) => `The label did not change for this account: ${account}. Reason: ${en.actionErrors[code] || en.searchError(code)}`,
+    localOnly: 'The server does not allow labels in this folder: the label is shown on this computer only.',
+  },
   readerKeys: { no_archive: 'This account has no Archive folder: there is nowhere to archive to.', in_archive: 'A message in the Archive cannot be archived again.' },
   // after the label of a field that may stay empty (ui/Fields.jsx TextField optional)
   optionalField: '(optional)',
@@ -954,12 +1049,36 @@ export const en = {
     folder_exists: 'There is already a folder with this name.',
     role_folder: 'This is one of the account’s main folders: it cannot be unsubscribed.',
     protected_folder: 'This is one of the account’s standard folders: it cannot be renamed or deleted.',
+    protected_subfolder: 'One of the account’s standard folders (e.g. Archive or Sent) is inside this folder, so it cannot be renamed or moved. First choose another folder for that role in the account settings (Folders).',
     has_children: 'The folder has subfolders: delete those first.',
     no_subfolders: 'This server does not support subfolders.',
+    bad_target: 'It cannot be moved there: not into itself, one of its own subfolders, or where it is now.',
+    trash_target: 'A folder cannot be moved into the Trash or the Junk folder (or under them).',
     confirm_needed: 'Deleting needs a confirmation.',
     order_mismatch: 'The folders or accounts changed in the meantime, the order was not saved. Try again.',
   },
   folderError: code => en.folderErrors[code] || en.searchError(code),
+  // a folder dragged into another one (or onto the account head: the account's name)
+  moveFolderTitle: 'Move folder',
+  folderMoveYes: 'Move',
+  // the folder menu's "Move…" dialog (a listbox of the account's folders); the reasons: folder-order.js moveTargetReason
+  moveDialog: {
+    title: name => `Move “${name}”`,
+    topLevel: account => `Top level (${account})`,
+    help: 'Choose where it goes (Up/Down arrows, Enter). The dimmed places cannot take it; the reason is next to them.',
+    listLabel: 'Target',
+    ok: 'Next',
+    reasons: {
+      flat: 'this server does not allow subfolders',
+      role: 'one of the account’s standard folders is inside it',
+      top: 'it is at the top level already',
+      missing: 'not a real folder, only shown in the tree',
+      self: 'itself or one of its subfolders',
+      parent: 'it is here already',
+      trash: 'not into the Trash or the Junk folder',
+    },
+  },
+  confirmFolderMove: (name, target, subfolders) => `Move “${name}” into “${target}”${subfolders ? `, with ${count(subfolders, 'subfolder')}` : ''}.`,
   // Global search
   searchLabel: 'Search',
   searchPlaceholder: 'Search all messages (accents optional)…',
@@ -975,8 +1094,9 @@ export const en = {
   },
   // the sender chip's value (its label "From" is already in front of it)
   searchPeople: (from, to) => [from, to && `${en.searchFilter.to.toLowerCase()}: ${to}`].filter(Boolean).join(', '),
-  searchFilter: { account: 'Account', folder: 'Folder', from: 'From', to: 'To', since: 'From date', until: 'To date', hasAttachment: 'Has attachment', unread: 'Unread', flagged: 'Starred', sort: 'Sort' },
+  searchFilter: { account: 'Account', folder: 'Folder', from: 'From', to: 'To', since: 'From date', until: 'To date', hasAttachment: 'Has attachment', unread: 'Unread', flagged: 'Starred', label: 'Label', sort: 'Sort' },
   searchAllAccounts: 'All accounts',
+  searchAnyLabel: 'All',
   searchAllFolders: 'All folders',
   searchSort: { relevance: 'Relevance', date: 'Date' },
   searchResultsLabel: 'Results',

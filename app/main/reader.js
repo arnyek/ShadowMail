@@ -20,6 +20,12 @@ export const CID_IMAGE_TYPES = Object.freeze(['image/png', 'image/jpeg', 'image/
 const hasFlag = (flags, flag) => (flags || '').split(' ').includes(flag)
 const addFlag = (flags, flag) => (hasFlag(flags, flag) ? flags || '' : [...(flags || '').split(' ').filter(Boolean), flag].join(' '))
 
+/** The attachments a message offers as files: all but the embedded images its body shows (cid: in the HTML). */
+export function offeredAttachments(parsed) {
+  const referenced = cid => parsed.html && parsed.html.includes(`cid:${cid}`)
+  return parsed.attachments.filter(a => !(a.inline && referenced(a.cid)))
+}
+
 export class MessageReader {
   /**
    * @param index           MailIndex
@@ -147,7 +153,6 @@ export class MessageReader {
     }
 
     const imageHosts = externalImageHosts(parsed.html)
-    const referenced = cid => parsed.html && parsed.html.includes(`cid:${cid}`)
     const view = {
       id,
       accountId: row.account_id,
@@ -162,10 +167,7 @@ export class MessageReader {
       html: parsed.html,
       text: parsed.html ? null : parsed.text,
       hasExternalImages: imageHosts.size > 0,
-      // embedded images the body shows are not offered as files
-      attachments: parsed.attachments
-        .filter(a => !(a.inline && referenced(a.cid)))
-        .map(({ index, filename, contentType, size, executable, browserActive, openable }) => ({ index, filename, contentType, size, executable, browserActive, openable })),
+      attachments: offeredAttachments(parsed).map(({ index, filename, contentType, size, executable, browserActive, openable }) => ({ index, filename, contentType, size, executable, browserActive, openable })),
       seenError,
     }
     if (seq === this.openSeq) {
@@ -213,6 +215,13 @@ export class MessageReader {
     const part = cur.parsed.attachments.find(a => a.cid && a.cid === cid)
     if (!part || !CID_IMAGE_TYPES.includes(part.contentType)) return null
     return { contentType: part.contentType, content: part.content }
+  }
+
+  /** The attachments of the open message the reader offers (offeredAttachments), with their content: "Összes mentése". */
+  offeredAttachments(id) {
+    const cur = this.#currentFor(id)
+    if (!cur) throw new ActionError('not_open')
+    return offeredAttachments(cur.parsed)
   }
 
   /** An attachment of the open message, with its content. */

@@ -84,6 +84,47 @@ export async function changeFlags(client, folder, uids, { add = [], remove = [] 
   }, expect)
 }
 
+// A-Z only, as SQLite's lower() and core/db/labels.js asciiLower: a keyword is ASCII
+const lowerAscii = s => String(s).replace(/[A-Z]+/g, c => c.toLowerCase())
+
+/**
+ * Label keywords on / off: UID STORE +FLAGS / -FLAGS, never a FLAGS replace (a flag another client set meanwhile stays).
+ * The folder's PERMANENTFLAGS (read in the lock) decide each keyword to put on: allowed with \* in the list, or with the
+ * keyword itself in it (ASCII case-insensitive; then the server's own spelling goes), or when the server sent no
+ * PERMANENTFLAGS at all (RFC 3501: every flag is permanent then). A keyword not allowed is not sent (imapflow would drop it
+ * with a warning only) and comes back in `refused`, for the caller's local fallback. Taking off is always allowed.
+ * add: keywords (lower case); remove: keywords in every spelling to take off.
+ * -> { added: [keyword as asked], refused: [keyword] }. A NO is server_refused.
+ */
+export async function storeKeywords(client, folder, uids, { add = [], remove = [] }, expect = {}) {
+  if (!uids.length || !(add.length + remove.length)) return { added: [], refused: [] }
+  return inFolder(client, folder, async () => {
+    const perm = client.mailbox && client.mailbox.permanentFlags
+    const listed = new Map()
+    let any = !(perm instanceof Set)
+    if (perm instanceof Set) {
+      for (const f of perm) {
+        if (f === '\\*') any = true
+        else listed.set(lowerAscii(f), f)
+      }
+    }
+    const send = []
+    const added = []
+    const refused = []
+    for (const k of add) {
+      if (listed.has(k)) send.push(listed.get(k))
+      else if (!any) {
+        refused.push(k)
+        continue
+      } else send.push(k)
+      added.push(k)
+    }
+    if (send.length && (await client.messageFlagsAdd(range(uids), send, { uid: true })) === false) throw new ServerRefused('STORE +FLAGS')
+    if (remove.length && (await client.messageFlagsRemove(range(uids), remove, { uid: true })) === false) throw new ServerRefused('STORE -FLAGS')
+    return { added, refused }
+  }, expect)
+}
+
 /**
  * Moves to another folder of the same account (MOVE, or COPY + EXPUNGE where MOVE is missing; imapflow
  * picks). Returns the UID map { oldUid -> newUid } when the server tells it (UIDPLUS), else null.
@@ -122,11 +163,22 @@ export async function createFolder(client, path) {
   return res.path
 }
 
-/** Renames a folder (the server moves its subfolders with it). Returns the new server path. */
-export async function renameFolder(client, from, to) {
+/**
+ * A folder renamed or moved under another parent: RENAME (the server takes the subtree along). `subscribed`: the paths of the
+ * moved subtree that were subscribed before; each is subscribed under its new name and its old name unsubscribed, so
+ * the result is the same whether or not the server carries a child's subscription along (the old name would stay a
+ * subscription without a folder). Those two are best effort: a refusal there does not undo the move. Returns the
+ * new path (the server's form, with its namespace prefix).
+ */
+export async function moveFolder(client, from, to, subscribed = []) {
   const res = await client.mailboxRename(from, to)
   if (!res || !res.newPath) throw new ServerRefused('RENAME')
-  await client.mailboxSubscribe(res.newPath).catch(() => {})
+  const oldRoot = res.path || from
+  for (const old of subscribed) {
+    const next = res.newPath + old.slice(oldRoot.length)
+    await client.mailboxSubscribe(next).catch(() => {})
+    await client.mailboxUnsubscribe(old).catch(() => {})
+  }
   return res.newPath
 }
 

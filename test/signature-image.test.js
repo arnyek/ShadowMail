@@ -85,6 +85,16 @@ const headerDecode = bytes => {
   return { width: bytes.readUInt16BE(at + 7), height: bytes.readUInt16BE(at + 5) }
 }
 const prepare = buf => prepareSignatureImage(buf, { decode: headerDecode })
+// the app's upright-turner (nativeImage: app/main/image-codec.js) stands in: a clean image of the turned size; its calls
+// are kept (what it was given, and in which orientation)
+const turns = []
+const fakeUpright = (bytes, type, orientation) => {
+  turns.push({ bytes, type, orientation })
+  const { width, height } = headerDecode(bytes)
+  const [w, h] = orientation >= 5 ? [height, width] : [width, height]
+  return type === 'image/png' ? pngFile(w, h) : jpegFile(w, h, [JFIF])
+}
+const turning = (buf, upright = fakeUpright) => prepareSignatureImage(buf, { decode: headerDecode, upright })
 const codeOf = fn => {
   try {
     fn()
@@ -193,21 +203,22 @@ test('JPEG: APP1 (Exif, XMP), APP13 and COM go; JFIF, ICC (APP2), Adobe (APP14) 
   assert.ok(out.bytes.subarray(out.bytes.length - SCAN.length).equals(SCAN), 'the scan from SOS on is unchanged')
 })
 
-test('PNG: an eXIf Orientation other than 1 is refused (rotated_image) as in a JPEG, with or without "Exif\\0\\0"; 1 passes', () => {
+test('PNG: an eXIf Orientation other than 1 is turned upright (a PNG again), with or without "Exif\\0\\0"; 1 is not touched', () => {
   for (const order of ['II', 'MM']) {
     for (const prefix of [Buffer.alloc(0), Buffer.from('Exif\0\0', 'latin1')]) {
-      for (const o of [3, 6, 8]) {
-        const err = (() => {
-          try {
-            prepare(pngFile(40, 20, { before: [chunk('eXIf', Buffer.concat([prefix, tiffBlock(o, order)]))] }))
-          } catch (e) {
-            return e
-          }
-        })()
-        assert.equal(err?.code, 'rotated_image', `orientation ${o} ${order}`)
-        assert.equal(err.info.orientation, o)
+      for (const o of [2, 3, 4, 5, 6, 7, 8]) {
+        turns.length = 0
+        const out = turning(pngFile(40, 20, { before: [chunk('eXIf', Buffer.concat([prefix, tiffBlock(o, order)]))] }))
+        assert.deepEqual([out.type, out.width, out.height, out.turned], ['image/png', ...(o >= 5 ? [20, 40] : [40, 20]), o], `orientation ${o} ${order}`)
+        assert.deepEqual(turns.map(c => [c.type, c.orientation]), [['image/png', o]], 'turned once, as a PNG')
+        assert.ok(turns[0].bytes.equals(pngFile(40, 20)), 'the turner gets the CLEANED image (no eXIf left to apply twice)')
+        assert.ok(out.bytes.equals(pngFile(o >= 5 ? 20 : 40, o >= 5 ? 40 : 20)), 'what is kept is the turned image')
       }
-      assert.equal(prepare(pngFile(40, 20, { before: [chunk('eXIf', Buffer.concat([prefix, tiffBlock(1, order)]))] })).removed, 1)
+      turns.length = 0
+      const one = turning(pngFile(40, 20, { before: [chunk('eXIf', Buffer.concat([prefix, tiffBlock(1, order)]))] }))
+      assert.equal(one.removed, 1)
+      assert.equal(one.turned, undefined)
+      assert.equal(turns.length, 0, 'orientation 1: not turned')
     }
   }
   assert.equal(codeOf(() => prepare(pngFile(40, 20, { before: [chunk('eXIf', Buffer.from('MM\0*Exif-gps'))] }))), 'unsupported_image', 'an eXIf that does not walk')
@@ -225,7 +236,7 @@ test('JPEG: what follows the first EOI (an appended image with its own Exif and 
   assert.ok(prepare(Buffer.concat([first, jpegFile(64, 64, [exif(6)])])).bytes.equals(first))
 })
 
-test('JPEG: between the scans (a progressive file) APP1, APP13 and COM go too, DHT stays; a turned Exif there is refused', () => {
+test('JPEG: between the scans (a progressive file) APP1, APP13 and COM go too, DHT stays; a turned Exif there turns it', () => {
   const scan2 = Buffer.concat([seg(0xda, Buffer.from([1, 1, 0, 0, 63, 0])), Buffer.from([0x77, 0xff, 0x00, 0x88])])
   const DHT = seg(0xc4, Buffer.alloc(20, 2))
   const head = Buffer.concat([Buffer.from([0xff, 0xd8]), JFIF, DQT, sof(200, 100)])
@@ -236,7 +247,7 @@ test('JPEG: between the scans (a progressive file) APP1, APP13 and COM go too, D
   assert.equal(out.removed, 3)
   for (const gone of ['Exif', 'GPS 47.49N', 'a comment with a name', 'Photoshop 3.0']) assert.ok(!out.bytes.includes(gone), gone)
   assert.ok(out.bytes.equals(Buffer.concat([head, scan1, DHT, scan2, Buffer.from([0xff, 0xd9])])), 'the scans and the DHT byte for byte')
-  assert.equal(codeOf(() => prepare(Buffer.concat([head, scan1, exif(6), scan2, Buffer.from([0xff, 0xd9])]))), 'rotated_image')
+  assert.equal(turning(Buffer.concat([head, scan1, exif(6), scan2, Buffer.from([0xff, 0xd9])])).turned, 6)
   // a second frame (a size after a scan) is not walked
   assert.equal(codeOf(() => prepare(Buffer.concat([head, scan1, sof(10, 10), scan2, Buffer.from([0xff, 0xd9])]))), 'unsupported_image')
 })
@@ -260,19 +271,56 @@ test('JPEG without metadata: the stored bytes are the original bytes', () => {
   assert.ok(prepare(f).bytes.equals(f))
 })
 
-test('JPEG: an Exif Orientation other than 1 is refused (rotated_image), in both byte orders; 1 passes', () => {
+test('JPEG: an Exif Orientation other than 1 is turned upright (a JPEG again), in both byte orders; 1 is not touched', () => {
   for (const order of ['II', 'MM']) {
-    for (const o of [3, 6, 8]) {
-      try {
-        prepare(jpegFile(64, 64, [JFIF, exif(o, order)]))
-        assert.fail(`orientation ${o} passed`)
-      } catch (err) {
-        assert.equal(err.code, 'rotated_image')
-        assert.equal(err.info.orientation, o)
-      }
+    for (const o of [2, 3, 4, 5, 6, 7, 8]) {
+      turns.length = 0
+      const out = turning(jpegFile(64, 32, [JFIF, ICC, exif(o, order)]))
+      assert.deepEqual([out.type, out.width, out.height, out.turned], ['image/jpeg', ...(o >= 5 ? [32, 64] : [64, 32]), o], `orientation ${o} ${order}`)
+      assert.deepEqual(turns.map(c => [c.type, c.orientation]), [['image/jpeg', o]])
+      assert.ok(turns[0].bytes.equals(jpegFile(64, 32, [JFIF, ICC])), 'the turner gets the cleaned image (no Exif)')
+      assert.ok(!out.bytes.includes(Buffer.from('ICC_PROFILE', 'latin1')), 'the turned image has no ICC profile (the encoder writes none)')
     }
-    assert.equal(prepare(jpegFile(64, 64, [JFIF, exif(1, order)])).width, 64)
+    turns.length = 0
+    const one = turning(jpegFile(64, 64, [JFIF, ICC, exif(1, order)]))
+    assert.ok(one.bytes.equals(jpegFile(64, 64, [JFIF, ICC])) && turns.length === 0, 'orientation 1: byte for byte, its ICC profile kept')
   }
+})
+
+test('turning: the first orientation wins; a value outside 1..8 is 1; the signature limits are on the TURNED size', () => {
+  turns.length = 0
+  assert.equal(turning(jpegFile(64, 32, [JFIF, exif(6), exif(3)])).turned, 6)
+  for (const o of [0, 9, 300]) {
+    turns.length = 0
+    const out = turning(jpegFile(64, 32, [JFIF, exif(o)]))
+    assert.equal(out.turned, undefined, `${o}`)
+    assert.equal(turns.length, 0)
+  }
+  // 400 x 800 kept, Orientation 6: upright 800 x 400 -> within 800 x 400; 800 x 400 kept, Orientation 6: 400 x 800 -> too high
+  const ok = turning(pngFile(400, 800, { before: [chunk('eXIf', tiffBlock(6, 'II'))] }))
+  assert.deepEqual([ok.width, ok.height], [800, 400])
+  turns.length = 0
+  let err = null
+  try {
+    turning(pngFile(800, 400, { before: [chunk('eXIf', tiffBlock(6, 'II'))] }))
+  } catch (e) {
+    err = e
+  }
+  assert.equal(err?.code, 'too_large')
+  assert.deepEqual([err.info.width, err.info.height, err.info.maxWidth, err.info.maxHeight], [400, 800, 800, 400], 'the upright size in the error')
+  assert.equal(turns.length, 0, 'refused from the header: never decoded and turned')
+})
+
+test('turning refused: a turner that throws, that gives another size or type, or an image still turned: unsupported_image; no turner: TypeError', () => {
+  const turned = jpegFile(64, 32, [JFIF, exif(6)])
+  assert.equal(codeOf(() => turning(turned, () => {
+    throw new Error('not decodable')
+  })), 'unsupported_image')
+  assert.equal(codeOf(() => turning(turned, () => jpegFile(64, 32, [JFIF]))), 'unsupported_image', 'not turned')
+  assert.equal(codeOf(() => turning(turned, () => pngFile(32, 64))), 'unsupported_image', 'another type')
+  assert.equal(codeOf(() => turning(turned, () => jpegFile(32, 64, [JFIF, exif(6)]))), 'unsupported_image', 'still carries an orientation')
+  assert.equal(codeOf(() => turning(turned, () => Buffer.from('nothing'))), 'unsupported_image')
+  assert.throws(() => prepare(turned), TypeError)
 })
 
 test('JPEG: no EOI, no SOF, a segment longer than the file, an Exif block that does not walk: unsupported_image', () => {

@@ -65,6 +65,10 @@ contextBridge.exposeInMainWorld('shadowMail', {
     // sanitized body -> { url } of the sandboxed frame's document (mail-view:)
     render: (id, html) => ipcRenderer.invoke('mail:render', id, html),
     saveAttachment: (id, index) => ipcRenderer.invoke('mail:saveAttachment', id, index),
+    // every offered attachment into a folder the main process asks for -> { saved, files: [{ name, ok, error? }], executable }
+    saveAllAttachments: id => ipcRenderer.invoke('mail:saveAllAttachments', id),
+    // the last "save all" folder in the file manager (the main process remembers it; no path from the page)
+    showSavedAttachments: () => ipcRenderer.invoke('mail:showSavedAttachments'),
     // the raw message for the "Fejlécek / Eredeti" view, and its .eml save
     source: id => ipcRenderer.invoke('mail:source', id),
     saveSource: id => ipcRenderer.invoke('mail:saveSource', id),
@@ -73,6 +77,23 @@ contextBridge.exposeInMainWorld('shadowMail', {
     action: request => ipcRenderer.invoke('mail:action', request),
     // { accountId, folder, sort, dir, seen?, filter? } -> { ids } (Ctrl+A; with filter: the filtered list's ids)
     ids: query => ipcRenderer.invoke('mail:ids', query),
+    // local labels on messages (0.17.0): { ids (<= 500, any account and folder), add?: [label id], remove?: [label id] } -> { changed }
+    label: request => ipcRenderer.invoke('mail:label', request),
+    // the label picker's state: { ids (<= 100 000) } -> { total, counts: [[label id, rows]] }
+    labelState: ids => ipcRenderer.invoke('mail:labelState', { ids }),
+    // the stored labels of rows (<= 500): { ids } -> { labels: { <row id>: [label id] } }
+    labelsOf: ids => ipcRenderer.invoke('mail:labelsOf', { ids }),
+  },
+  // the label list (0.17.0, only local): list -> { labels: [{ id, name, color, sort_order, count }] }; create({ name, color })
+  // / rename({ id, name }) / setColor({ id, color }) -> { label }; reorder(ids) -> { labels }; remove(id) -> { count }.
+  // A change of the list comes as onStatus { kind: 'labels' }.
+  labels: {
+    list: () => ipcRenderer.invoke('labels:list'),
+    create: (name, color) => ipcRenderer.invoke('labels:create', { name, color }),
+    rename: (id, name) => ipcRenderer.invoke('labels:rename', { id, name }),
+    setColor: (id, color) => ipcRenderer.invoke('labels:setColor', { id, color }),
+    reorder: ids => ipcRenderer.invoke('labels:reorder', { ids }),
+    remove: id => ipcRenderer.invoke('labels:delete', { id }),
   },
   // the address book. list({ q, offset, limit <= 200 }) -> { items: [{ id, name, address, source }], total };
   // get(id) -> { person }; save(person) -> { id } (address_taken + personId); delete(ids) -> { removed };
@@ -125,6 +146,8 @@ contextBridge.exposeInMainWorld('shadowMail', {
     // cannot hand the main process a raw path of its own (e.g. data\\mail.sqlite).
     addFiles: (sessionId, files) =>
       ipcRenderer.invoke('compose:addFiles', sessionId, files === null || files === undefined ? null : Array.from(files, f => webUtils.getPathForFile(f)).filter(Boolean)),
+    // a pasted / dropped image's bytes (ArrayBuffer or Uint8Array) -> { id, type, width, height, size }
+    addImage: (sessionId, bytes) => ipcRenderer.invoke('compose:addImage', sessionId, bytes instanceof ArrayBuffer ? new Uint8Array(bytes) : bytes),
     removeAttachment: (sessionId, id) => ipcRenderer.invoke('compose:removeAttachment', sessionId, id),
     saveDraft: (sessionId, form) => ipcRenderer.invoke('compose:saveDraft', sessionId, form),
     send: (sessionId, form) => ipcRenderer.invoke('compose:send', sessionId, form),
@@ -155,6 +178,7 @@ contextBridge.exposeInMainWorld('shadowMail', {
   folders: {
     create: request => ipcRenderer.invoke('folder:create', request),
     rename: request => ipcRenderer.invoke('folder:rename', request),
+    move: request => ipcRenderer.invoke('folder:move', request),
     remove: request => ipcRenderer.invoke('folder:delete', request),
     // the delete warning's count: { accountId, path } -> { count, exact } (exact false: the local count, at least)
     deleteCount: request => ipcRenderer.invoke('folder:deleteCount', request),

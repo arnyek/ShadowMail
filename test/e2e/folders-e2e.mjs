@@ -57,6 +57,10 @@ seedLanguage(dataDir)
   index.upsertFolder({ account_id: imap.id, path: 'Projektek', delimiter: '/', uidvalidity: '1', synced_at: now })
   const row = (accountId, folder, uid) => ({ account_id: accountId, folder, uid, message_id: `<${folder}${uid}@x>`, in_reply_to: null, refs: null, from_addr: 'a@example.invalid', from_name: 'A', to_addrs: '', cc_addrs: '', bcc_addrs: '', subject: `${folder} ${uid}`, date: now - uid * 60_000, idate: now - uid * 60_000, flags: '\\Seen', size: 10, has_attachments: 0, attachments: null, body_state: 3, sender_text: '', recipients_text: '' })
   index.insertMany([row(imap.id, 'Projektek', 1), row(imap.id, 'Projektek', 2)])
+  // a hand-picked role below a folder: its rename is refused before any server call (the account is unreachable)
+  index.upsertFolder({ account_id: imap.id, path: 'Ügyfelek', delimiter: '/', uidvalidity: '1', synced_at: now })
+  index.upsertFolder({ account_id: imap.id, path: 'Ügyfelek/Régi', delimiter: '/', uidvalidity: '1', synced_at: now })
+  index.setManualRole(imap.id, 'archive', 'Ügyfelek/Régi')
   const wired = store.save({ ...newAccountDefaults('imap'), ...base, name: 'IMAP szerverrel', email: 'w@example.invalid', in_port: wire.port, in_user: 'w', in_password: 'nem-valodi' }).account
   index.upsertFolder({ account_id: wired.id, path: 'INBOX', delimiter: '.', uidvalidity: '7', synced_at: now })
   index.upsertFolder({ account_id: wired.id, path: 'Archív', delimiter: '.', uidvalidity: '7', synced_at: now })
@@ -150,6 +154,15 @@ try {
   const err = await dialog.getByRole('alert').innerText()
   check('IMAP without a connection: error, the folder keeps its name', err.includes(t.folderError('connection_refused')) && (await folder(imap, 'Projektek').count()) === 1, err)
   if (values.shot) await page.screenshot({ path: values.shot })
+  await dialog.getByRole('button', { name: t.confirmCancel, exact: true }).click()
+
+  // a role folder below the renamed one: its own text in the name dialog (not the "standard folder" one)
+  await folder(imap, 'Ügyfelek').click({ button: 'right' })
+  await page.getByRole('menuitem', { name: t.folderMenu.rename }).click()
+  await nameIt('Partnerek', t.folderRename)
+  await dialog.getByRole('alert').waitFor({ timeout: 15000 })
+  const roleErr = await dialog.getByRole('alert').innerText()
+  check('a role folder below: its own text in the dialog, nothing renamed', roleErr.includes(t.folderErrors.protected_subfolder) && !roleErr.includes(t.folderErrors.protected_folder) && (await folder(imap, 'Ügyfelek').count()) === 1 && (await folder(imap, 'Ügyfelek/Régi').count()) === 1, roleErr)
   await dialog.getByRole('button', { name: t.confirmCancel, exact: true }).click()
 
   // the delete warning's count (IMAP): the server's STATUS; without an answer the local count as "at least"
