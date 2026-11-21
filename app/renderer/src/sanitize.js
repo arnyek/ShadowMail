@@ -6,6 +6,7 @@
 // Pure: the DOMPurify instance is passed in, so the same code runs in the renderer and, with jsdom,
 // in node:test.
 import { askedWidth } from '../../../core/smtp/image-width.js'
+import { isTextColor, isHighlightStyle } from '../../../core/smtp/text-colors.js'
 
 // Tags that run code, load or submit something, or change how the document is read.
 const FORBID_TAGS = [
@@ -122,8 +123,73 @@ export function isPastedImageOf(src, sessionId) {
   return Boolean(m && sessionId && m[1] === sessionId)
 }
 
-export function sanitizeCompose(purify, html, { sessionId = null } = {}) {
+// A table is not the composer's own: its tags go and only the text is kept, and a web page's copied table (Chromium
+// writes no space or line between the cells: "</th><td>") ran together into one line ("Name:1b Telecom..."). With
+// `tableRows` each row of the table becomes a line of its own (a div), its cells side by side with one space between,
+// a header cell bold as it showed; a caption is the first line. Nested tables become lines inside the row's line when
+// the sanitizer reaches them. Done on the table's own subtree BEFORE the sanitizer unwraps it (uponSanitizeElement
+// runs before the content is kept), so everything moved is sanitized as usual afterwards.
+export function tableToLines(table) {
+  const doc = table.ownerDocument
+  const lines = doc.createElement('div')
+  const line = parts => {
+    const div = doc.createElement('div')
+    parts.forEach((part, i) => {
+      if (i) div.append(doc.createTextNode(' '))
+      div.append(part)
+    })
+    lines.append(div)
+  }
+  const children = el => {
+    const frag = doc.createDocumentFragment()
+    frag.append(...el.childNodes)
+    return frag
+  }
+  // what stands in the table but in no cell and no caption (whitespace, comments and columns aside) is kept where it
+  // stands: as a part of its row, or as a line of its own. Dropping it lost text: measured in the app, a table nested
+  // 200 deep lost its innermost text in a reply's quote; this Chromium puts that text right into a table (only the
+  // table-level branch, taken out, loses it again)
+  const stray = n => (n.nodeType === 3 ? !/^[ \t\n\f\r]*$/.test(n.data) : n.nodeType === 1 && n.nodeName !== 'COL' && n.nodeName !== 'COLGROUP')
+  const rowLine = row => {
+    const parts = []
+    for (const c of [...row.childNodes]) {
+      if (c.nodeName === 'TD') parts.push(children(c))
+      else if (c.nodeName === 'TH') {
+        const b = doc.createElement('b')
+        b.append(children(c))
+        parts.push(b)
+      } else if (stray(c)) parts.push(c)
+    }
+    line(parts)
+  }
+  // in tree order (a caption is the first child of a valid table; a tfoot stands where it was written)
+  for (const c of [...table.childNodes]) {
+    if (c.nodeName === 'CAPTION') line([children(c)])
+    else if (c.nodeName === 'TR') rowLine(c)
+    else if (c.nodeName === 'THEAD' || c.nodeName === 'TBODY' || c.nodeName === 'TFOOT') {
+      for (const r of [...c.childNodes]) {
+        if (r.nodeName === 'TR') rowLine(r)
+        else if (stray(r)) line([r])
+      }
+    } else if (stray(c)) line([c])
+  }
+  table.replaceChildren(lines)
+}
+
+// With `colors` (the user's own text: what is sent or saved, and a saved draft opened again) the toolbar's colours stay too,
+// and only they (core/smtp/text-colors.js): a font's color when it is a palette text colour, written exactly as the editor
+// writes it, and a style on a span, a font or a b / strong / i / em / u / s / a / code when it is exactly one palette
+// highlight (the editor writes a highlight onto a bold inside a coloured font, and onto a whole link or code element). Every other colour, style and font
+// attribute goes, and a font left with neither is unwrapped (its content stays). Without it (a quote, a paste, a mailto
+// body, a signature) no colour stays, and the result is the same as before colours were added.
+const COLOR_TAGS = [...COMPOSE_TAGS, 'font']
+const STYLED_TAGS = new Set(['span', 'font', 'b', 'strong', 'i', 'em', 'u', 's', 'a', 'code'])
+
+export function sanitizeCompose(purify, html, { sessionId = null, tableRows = false, colors = false } = {}) {
   const ownImage = src => SIG_IMG_SRC.test(src) || isPastedImageOf(src, sessionId)
+  const tables = (node, data) => {
+    if (data.tagName === 'table' && node.rows) tableToLines(node)
+  }
   const own = node => {
     const tag = node.nodeName ? node.nodeName.toLowerCase() : ''
     if (tag === 'img') {
@@ -141,10 +207,15 @@ export function sanitizeCompose(purify, html, { sessionId = null } = {}) {
       const href = node.getAttribute('href') || ''
       if (href && !/^(?:https?:|mailto:)/i.test(href)) node.removeAttribute('href')
     }
+    if (colors && node.hasAttribute) {
+      if (node.hasAttribute('color') && !(tag === 'font' && isTextColor(node.getAttribute('color')))) node.removeAttribute('color')
+      if (node.hasAttribute('style') && !(STYLED_TAGS.has(tag) && isHighlightStyle(node.getAttribute('style')))) node.removeAttribute('style')
+    }
   }
   purify.addHook('afterSanitizeAttributes', own)
+  if (tableRows) purify.addHook('uponSanitizeElement', tables)
   try {
-    return purify.sanitize(html || '', {
+    const config = {
       ALLOWED_TAGS: COMPOSE_TAGS,
       ALLOWED_ATTR: ['href', 'src', 'alt', 'width', 'data-sm-signature'],
       // DOMPurify checks every attribute that is not "URI safe" against ALLOWED_URI_REGEXP, which wants a scheme: a
@@ -154,8 +225,25 @@ export function sanitizeCompose(purify, html, { sessionId = null } = {}) {
       ALLOWED_URI_REGEXP: /^(?:https?:|mailto:|sig-img:|inl-img:)/i,
       ALLOW_DATA_ATTR: false,
       KEEP_CONTENT: true,
+    }
+    if (!colors) return purify.sanitize(html || '', config)
+    // style is "URI safe" in DOMPurify already; color is not (a palette hex value would fail the scheme check), so it is added
+    // the same way as width. The tree comes back (RETURN_DOM: the very body DOMPurify serializes otherwise), so a font
+    // that kept no colour can be unwrapped before it is serialized
+    const body = purify.sanitize(html || '', {
+      ...config,
+      ALLOWED_TAGS: COLOR_TAGS,
+      ALLOWED_ATTR: [...config.ALLOWED_ATTR, 'color', 'style'],
+      ADD_URI_SAFE_ATTR: ['width', 'color'],
+      RETURN_DOM: true,
     })
+    if (!body) return ''
+    for (const font of [...body.querySelectorAll('font')]) {
+      if (!font.hasAttribute('color') && !font.hasAttribute('style')) font.replaceWith(...font.childNodes)
+    }
+    return body.innerHTML
   } finally {
     purify.removeHook('afterSanitizeAttributes', own)
+    if (tableRows) purify.removeHook('uponSanitizeElement', tables)
   }
 }

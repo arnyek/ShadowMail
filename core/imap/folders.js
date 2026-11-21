@@ -47,6 +47,20 @@ export function isRoleCandidate(folder) {
 }
 
 /**
+ * Whether a folder row's role keeps the row where it is (no rename, no move of it or of a folder above it), the rule of
+ * the main process (FolderActions) and of the folder tree alike. `row`: a folder row (path, delimiter, special_use, role,
+ * role_manual); `roles`: assignRoles of the account's rows. A row with no role: false. An automatic role (not picked by
+ * hand, or the hand-picked one is not the role the row has now): true. A role picked by hand moves with its row, but not
+ * on a folder that is an automatic candidate itself (the Inbox, the server's SPECIAL-USE flag, a usual name): a phone or
+ * a webmail keeps using that folder, so it stays fixed even when the role on it was picked by hand.
+ */
+export function roleFixed(row, roles) {
+  if (!row || !roles.has(row.path)) return false
+  if (row.role_manual !== 1 || row.role !== roles.get(row.path)) return true
+  return isRoleCandidate({ path: row.path, delimiter: row.delimiter || null, specialUse: row.special_use || null })
+}
+
+/**
  * Whether a LIST answer tells the subscriptions at all: imapflow gives true to EVERY folder when it does not know them
  * (no LSUB data, or LSUB refused with NO), and true to INBOX always; so the state is known only when a folder other than
  * INBOX is not true. (An account whose folders are all subscribed looks the same as an unknown state: nothing to decide.)

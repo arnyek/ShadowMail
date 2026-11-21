@@ -106,6 +106,33 @@ test('a mark that fails is logged without a name, the file stays', async t => {
   assert.deepEqual(log, ['mark of the web failed on a saved file (EINVAL)'])
 })
 
+test('the offered list: a reference in another case, %-encoded or in < > hides its image; a longer cid is no reference', () => {
+  const parsed = {
+    html: '<p><img src="CID:Logo@X"><img src="cid:k%C3%A9p@x"><img src="cid:<bg@x>"><img src="cid:icon@xy"></p>',
+    attachments: [
+      { index: 0, filename: 'logo.png', inline: true, cid: 'logo@x' },
+      { index: 1, filename: 'kep.png', inline: true, cid: '<KÉP@x>' },
+      { index: 2, filename: 'bg.png', inline: true, cid: 'bg@x' },
+      { index: 3, filename: 'icon.png', inline: true, cid: 'icon@x' },
+    ],
+  }
+  // icon@x is referred to only as icon@xy: before this the substring match hid it (and the image showed nowhere)
+  assert.deepEqual(offeredAttachments(parsed).map(a => a.filename), ['icon.png'])
+})
+
+test('the offered list: of two parts whose Content-IDs differ only in case, only the ones a reference shows are left out', () => {
+  const parts = [
+    { index: 0, filename: 'kis.png', inline: true, cid: 'pair@x' },
+    { index: 1, filename: 'nagy.png', inline: true, cid: 'PAIR@x' },
+  ]
+  // each referred to as written: both shown, none offered
+  assert.deepEqual(offeredAttachments({ html: '<img src="cid:pair@x"><img src="cid:PAIR@x">', attachments: parts }).map(a => a.filename), [])
+  // only the lower one referred to: the upper one is shown nowhere, so it is offered (it did not go missing)
+  assert.deepEqual(offeredAttachments({ html: '<img src="cid:pair@x">', attachments: parts }).map(a => a.filename), ['nagy.png'])
+  // a reference written neither way shows the first: the other is offered
+  assert.deepEqual(offeredAttachments({ html: '<img src="cid:Pair@X">', attachments: parts }).map(a => a.filename), ['nagy.png'])
+})
+
 test('the offered list: the embedded images the body shows are not in it, an unreferenced inline part is', () => {
   const parsed = {
     html: '<p><img src="cid:logo@x"></p>',

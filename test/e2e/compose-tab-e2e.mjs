@@ -115,7 +115,7 @@ try {
     const stops = await win.evaluate(() => [...document.querySelectorAll('.editor-toolbar button')].filter(b => b.tabIndex >= 0).length)
     const tools = await win.locator('.editor-toolbar button').count()
     check(`${label}: Tab from the Subject goes to the text, Shift+Tab back to the Subject`, afterTab === 'editor' && afterShiftTab === '#compose-subject', `${afterTab}, ${afterShiftTab}`)
-    check(`${label}: the formatting bar is shown and none of its ${tools} buttons is a Tab stop`, tools === 8 && stops === 0, `${stops} stop(s)`)
+    check(`${label}: the formatting bar is shown and none of its ${tools} buttons is a Tab stop`, tools === 10 && stops === 0, `${stops} stop(s)`)
   }
 
   await row(SUBJECT).waitFor({ timeout: 20_000 })

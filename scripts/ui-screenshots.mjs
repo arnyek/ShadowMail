@@ -257,8 +257,12 @@ try {
       await page.setViewportSize(README_READER_SIZE)
       await page.waitForTimeout(300)
     }
-    await shot(page, 'reader')
-    if (tall) await page.setViewportSize(SIZE)
+    // step() catches a failed shot and goes on: the window size comes back either way, so the next screens stay 1280 x 800
+    try {
+      await shot(page, 'reader')
+    } finally {
+      if (tall) await page.setViewportSize(SIZE)
+    }
   })
   // the source view, both tabs (More -> Fejlécek, then the Eredeti tab); before H2 there is no such item
   await step('headers', async () => {

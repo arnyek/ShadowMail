@@ -15,7 +15,8 @@
 // 2. a PNG with an HTML of only an outside image: only the PNG goes in; a PNG with an HTML that has text: the HTML path
 //    (the text, bold kept, no image at all); window 1's image src pasted as HTML: dropped; a GIF without a file: the error
 //    line, nothing in; a GIF file: an attachment chip and the informing line, no image; an 11 MB PNG: the error line,
-//    nothing in. Window 2 is discarded.
+//    nothing in; a JPEG whose header says 16000 x 12000 (192 MP, not turned): the pixel-limit error line, nothing in.
+//    Window 2 is discarded.
 // 3. Window 1 sent: three inline parts (the removed one not), the PNG bytes unchanged, each cid in the HTML, the JPEG
 //    with width="1000" (the original, over 800), no inl-img in the HTML or the text part.
 // 4. Window 3: a PNG dropped on the text goes in at the drop point; a PDF dropped on the text and a PNG dropped on the
@@ -26,6 +27,9 @@
 //    the same bytes.
 // 7. A turned photo (a real JPEG with Exif Orientation 6): shown upright (its natural size swapped), and
 //    the sent part, decoded by the real nativeImage, is upright (the colored corners where an upright image has them).
+// 8. A table copied from a web page (Chromium's clipboard HTML: no space or line between the cells, a style on the
+//    table): one row a line in the editor, the header cell bold, no table tag; sent, the text part has the rows as lines
+//    and nothing runs together. The policy lines of this HTML paste are told apart like step 2's (the formatted-paste card).
 // The renderer console has no error or warning (no CSP line), the main log no error line and no file name, the net-guard
 // log is empty.
 // Playwright: PW=<path of the playwright package> (default: the repo's playwright-core devDependency).
@@ -38,7 +42,7 @@ import { parseArgs } from 'node:util'
 import { SMTPServer } from 'smtp-server'
 import { simpleParser } from 'mailparser'
 import { FakePop3Server } from '../helpers/fake-pop3.js'
-import { pngFile, exifSegment } from '../helpers/inline-images.js'
+import { pngFile, jpegFile, exifSegment } from '../helpers/inline-images.js'
 import { createVaultedDatabase } from '../../core/vault/vaulted-db.js'
 import { AccountStore } from '../../core/accounts/model.js'
 import { newAccountDefaults } from '../../core/accounts/defaults.js'
@@ -65,7 +69,7 @@ watchdog.unref()
 // the images, and the file names the main log must not show
 const PNG = [pngFile(200, 100, { seed: 1 }), pngFile(120, 60, { seed: 2 }), pngFile(130, 70, { seed: 3 }), pngFile(140, 80, { seed: 4 }), pngFile(150, 90, { seed: 5 }), pngFile(160, 50, { seed: 6 }), pngFile(170, 40, { seed: 7 })]
 const GIF = Buffer.concat([Buffer.from('GIF89a', 'latin1'), Buffer.from([1, 0, 1, 0, 0x80, 0, 0, 0, 0, 0, 0xff, 0xff, 0xff, 0x2c, 0, 0, 0, 0, 1, 0, 1, 0, 0, 2, 2, 0x44, 1, 0, 0x3b])])
-const NAMES = ['kepernyo-titok-1.png', 'ket-kep-a.png', 'ket-kep-b.png', 'szeles-foto.jpg', 'kulso-kep-mellett.png', 'szoveg-mellett.png', 'fajl-nelkul.gif', 'animacio-titok.gif', 'nagy-kep.png', 'ejtett-kep.png', 'dokumentum-titok.pdf', 'melleklet-kep.png', 'valasz-kep.png', 'tovabbitas-kep.png', 'piszkozat-kep.png']
+const NAMES = ['kepernyo-titok-1.png', 'ket-kep-a.png', 'ket-kep-b.png', 'szeles-foto.jpg', 'kulso-kep-mellett.png', 'szoveg-mellett.png', 'fajl-nelkul.gif', 'animacio-titok.gif', 'nagy-kep.png', 'ejtett-kep.png', 'dokumentum-titok.pdf', 'melleklet-kep.png', 'valasz-kep.png', 'tovabbitas-kep.png', 'piszkozat-kep.png', 'orias-kep-titok.jpg']
 const file = (i, name) => ({ b64: PNG[i].toString('base64'), name, type: 'image/png' })
 
 const received = []
@@ -119,6 +123,10 @@ const results = []
 const consoleLines = []
 let consoleSeen = 0
 let knownHtmlPath = 0
+let knownTablePath = 0
+// a web page's label / value table as Chromium puts it on the clipboard (measured in Electron 45.3.0), synthetic values
+const TABLE_HTML = '<meta charset="utf-8"><table class="bevitel" style="color: rgb(0, 0, 0); font-family: &quot;Times New Roman&quot;; font-size: medium;"><tbody><tr><th>Kedvezményezett neve:</th><td>Példa Kft</td></tr><tr><th>Számlavezető bank neve:</th><td>Minta Bank</td></tr><tr><th>Összeg:</th><td class="bold">1000 HUF</td></tr></tbody></table><br class="Apple-interchange-newline">'
+const TABLE_LINES = ['Kedvezményezett neve: Példa Kft', 'Számlavezető bank neve: Minta Bank', 'Összeg: 1000 HUF']
 const check = (name, ok, detail = '') => {
   results.push(Boolean(ok))
   console.log(`${ok ? 'OK  ' : 'FAIL'} ${name}${detail ? `: ${detail}` : ''}`)
@@ -412,6 +420,14 @@ try {
   await w2.locator('.compose-error').waitFor({ timeout: 15_000 })
   s = await stateOf(w2)
   check('an 11 MB PNG: the error line (10 MB), nothing in, no new chip', s.error === t.composeImageError('too_large', { bytes: 1 }) && s.imgs.length === 1 && s.chips.length === 1, JSON.stringify({ error: s.error, chips: s.chips, imgs: s.imgs.length }))
+  // over the pixel limit by its header, not turned: refused before the main process decodes it
+  const giantError = t.composeImageError('too_large', { width: 16000, height: 12000, maxPixels: 50_000_000, turned: false })
+  await paste(w2, [{ b64: jpegFile(16000, 12000).toString('base64'), name: NAMES[15], type: 'image/jpeg' }])
+  for (const until = performance.now() + 15_000; performance.now() < until; await w2.waitForTimeout(100)) {
+    s = await stateOf(w2)
+    if (s.error && s.error !== t.composeImageError('too_large', { bytes: 1 })) break // the line is cleared while the paste runs
+  }
+  check('a 192 MP JPEG (not turned): the pixel-limit error line, nothing in, no new chip', s.error === giantError && s.imgs.length === 1 && s.chips.length === 1, JSON.stringify({ error: s.error, want: giantError, chips: s.chips, imgs: s.imgs.length }))
   // the window frame's X (the main process closes it), which asks about the unsaved message; the header's own close
   // button does not ask (a separate, older finding), so it is not used with unsaved changes here
   const closedW2 = w2.waitForEvent('close', { timeout: 15_000 })
@@ -544,6 +560,25 @@ try {
       }, parts[0].content.toString('base64'))
     : null
   check('sent upright: 60 x 120, green top right, red top left, blue at the bottom (turned 90 clockwise), no Exif in the part', sentPixels && sentPixels.width === 60 && sentPixels.height === 120 && sentPixels.topRight === 'green' && sentPixels.topLeft === 'red' && sentPixels.bottom === 'blue' && !parts[0].content.includes(Buffer.from('Exif', 'latin1')), JSON.stringify(sentPixels))
+
+  // 8. a table copied from a web page
+  w = await newMessage()
+  await caretToStart(w)
+  const tableFrom = consoleLines.length
+  await paste(w, [], TABLE_HTML)
+  await w.waitForFunction(() => document.querySelector('.editor').textContent.includes('1000 HUF'))
+  await w.waitForTimeout(300)
+  knownTablePath = consoleLines.splice(tableFrom).filter(l => /Applying inline style violates/.test(l) || (consoleLines.push(l), false)).length
+  consoleSeen = consoleLines.length
+  const shown = await w.evaluate(() => {
+    const ed = document.querySelector('.editor')
+    return { lines: ed.innerText.split('\n').map(l => l.trim()).filter(Boolean), table: ed.querySelectorAll('table, tr, td, th').length, bold: [...ed.querySelectorAll('b, strong')].map(b => b.textContent), html: ed.innerHTML.slice(0, 400) }
+  })
+  check('a pasted web-page table: one row a line in the editor, the cells apart, the header cells bold, no table tag', TABLE_LINES.every(l => shown.lines.includes(l)) && shown.table === 0 && ['Kedvezményezett neve:', 'Összeg:'].every(b => shown.bold.includes(b)), JSON.stringify(shown))
+  await send(w, 'cimzett@example.invalid', 'Táblázat')
+  mail = await sentMail(page, 7)
+  const sentLines = mail ? (mail.text || '').split('\n').map(l => l.trim()) : []
+  check('the pasted table sent: the text part has each row as a line, nothing runs together; the HTML has no table and no glued cells', mail && TABLE_LINES.every(l => sentLines.includes(l)) && !/neve:Példa|KftSzámla|BankÖsszeg/.test(mail.text + mail.html) && !/<table/i.test(mail.html), mail ? JSON.stringify({ text: mail.text, html: mail.html.slice(0, 400) }) : 'nothing arrived')
 } catch (err) {
   check('the run finished', false, err && err.stack ? err.stack.split('\n').slice(0, 4).join(' | ') : String(err))
 } finally {
@@ -558,6 +593,7 @@ const guard = path.join(dataDir, 'electron', 'logs', 'net-guard.log')
 const guardText = fs.existsSync(guard) ? fs.readFileSync(guard, 'utf8').trim() : ''
 check('net-guard log: no outgoing request', guardText === '', guardText.split('\n').slice(0, 3).join(' | '))
 console.log(`     the HTML path's own policy lines (older, the formatted-paste card): ${knownHtmlPath}`)
+console.log(`     the table paste's own policy lines (the same formatted-paste card): ${knownTablePath}`)
 check('no renderer console error or warning (no CSP line) at any image step', consoleLines.length === 0, consoleLines.slice(0, 3).join(' | '))
 fs.rmSync(work, { recursive: true, force: true })
 console.log(`\n${results.filter(Boolean).length} / ${results.length} OK`)

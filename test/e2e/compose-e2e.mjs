@@ -141,7 +141,7 @@ try {
     unnamed: document.querySelectorAll('button.icon-btn:not([aria-label])').length,
     tools: [...document.querySelectorAll('.editor-toolbar button')].map(b => b.getAttribute('aria-label')),
   }))
-  check('no native control, every icon button named; the formatting bar has the old names', ui5.native === 0 && ui5.unnamed === 0 && JSON.stringify(ui5.tools) === JSON.stringify(['bold', 'italic', 'underline', 'ul', 'ol', 'link', 'quote', 'clear'].map(k => t.composeTools[k])), JSON.stringify(ui5))
+  check('no native control, every icon button named; the formatting bar has the old names', ui5.native === 0 && ui5.unnamed === 0 && JSON.stringify(ui5.tools) === JSON.stringify(['bold', 'italic', 'underline', 'textColor', 'highlight', 'ul', 'ol', 'link', 'quote', 'clear'].map(k => t.composeTools[k])), JSON.stringify(ui5))
   await win.locator('#compose-to').fill('fer')
   const option = win.locator('.suggestions [role="option"]').first()
   await option.waitFor()

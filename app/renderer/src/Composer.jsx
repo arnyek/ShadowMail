@@ -14,6 +14,8 @@ import { createDraftState } from './draft-state.js'
 import { accountSignatureHtml, accountImageSrc, signatureInner, SIGNATURE_ATTR } from '../../../core/smtp/signature.js'
 import { Banner, Button, IconButton, Menu, Modal, Select, TextField } from './ui/index.js'
 import { IMAGE_SIZES, sizeOf } from '../../../core/smtp/image-width.js'
+import { TEXT_COLORS, HIGHLIGHT_COLORS } from '../../../core/smtp/text-colors.js'
+import { CLIP_TYPE, selectionHtml, plainColorAt } from './compose-colors.js'
 import { ScheduleDialog } from './ScheduleDialog.jsx'
 
 // the text a clipboard HTML would show (a parsed, inert document: no script runs, no image loads)
@@ -106,6 +108,9 @@ const TOOLS = [
   ['bold', 'bold'],
   ['italic', 'italic'],
   ['underline', 'underline'],
+  // the two colour buttons open a menu (ColorTool), they run no command themselves
+  ['foreColor', 'textColor', 'textColor'],
+  ['hiliteColor', 'highlight', 'highlight'],
   ['insertUnorderedList', 'list', 'ul'],
   ['insertOrderedList', 'listOrdered', 'ol'],
   ['link', 'link'],
@@ -141,7 +146,10 @@ const BLOCK_COMMANDS = new Set(['formatBlock', 'insertUnorderedList', 'insertOrd
  *   command fires no beforeinput, and its input event can not be told apart reliably).
  */
 export function createEmptyTextGuard() {
-  let emptied = null // { toggles: { bold, italic, underline } (odd = the user turned it on), block: a quote/list chosen }
+  // { toggles: { bold, italic, underline } (odd = the user turned it on), block: a quote/list chosen, color / highlight: a
+  // text colour / highlight chosen }
+  let emptied = null
+  const fresh = () => ({ toggles: { bold: 0, italic: 0, underline: 0 }, block: false, color: false, highlight: false })
   let cleaning = false // the clean-up's own commands fire input events too: not the user's choice
   // the delete took a selection (not a single character): only that starts the text again; one Backspace keeps the
   // formatting (Ctrl+B, x, Backspace, y = bold y)
@@ -173,6 +181,23 @@ export function createEmptyTextGuard() {
         if (document.queryCommandValue('formatBlock') !== 'p') document.execCommand('formatBlock', false, 'p')
       }
       for (const f of ['bold', 'italic', 'underline']) if (document.queryCommandState(f) !== Boolean(state.toggles[f] % 2)) document.execCommand(f)
+      // the deleted text's colour and highlight are kept for the next character too: back to none, unless chosen since
+      const sel = window.getSelection()
+      if (sel && sel.rangeCount) {
+        if (!state.color) {
+          const plain = plainColorAt(sel.getRangeAt(0), el)
+          if (document.queryCommandValue('foreColor') !== plain) {
+            document.execCommand('styleWithCSS', false, false)
+            document.execCommand('foreColor', false, plain)
+          }
+        }
+        // the highlight's value comes from backColor (hiliteColor gives none)
+        const hl = document.queryCommandValue('backColor') || document.queryCommandValue('hiliteColor')
+        if (!state.highlight && !/^(transparent|rgba\(0, 0, 0, 0\))?$/.test(hl)) {
+          document.execCommand('styleWithCSS', false, false)
+          document.execCommand('hiliteColor', false, 'transparent')
+        }
+      }
     } finally {
       cleaning = false
     }
@@ -182,7 +207,7 @@ export function createEmptyTextGuard() {
     const type = e.inputType || ''
     if (cleaning) return
     if (e.type === 'input') {
-      if (type.startsWith('delete')) emptied = selectedDelete && isEmpty(el) ? { toggles: { bold: 0, italic: 0, underline: 0 }, block: false } : null
+      if (type.startsWith('delete')) emptied = selectedDelete && isEmpty(el) ? fresh() : null
       return
     }
     if (type.startsWith('delete')) {
@@ -203,7 +228,7 @@ export function createEmptyTextGuard() {
       } finally {
         cleaning = false
       }
-      emptied = isEmpty(el) ? { toggles: { bold: 0, italic: 0, underline: 0 }, block: false } : null
+      emptied = isEmpty(el) ? fresh() : null
     }
     if (emptied && isEmpty(el)) clean(el, emptied)
     emptied = null
@@ -212,6 +237,8 @@ export function createEmptyTextGuard() {
     if (!emptied) return
     if (INLINE_COMMANDS.has(cmd)) emptied.toggles[cmd]++
     else if (BLOCK_COMMANDS.has(cmd)) emptied.block = true
+    else if (cmd === 'foreColor') emptied.color = true
+    else if (cmd === 'hiliteColor') emptied.highlight = true
   }
   return { watch, choose }
 }
@@ -221,9 +248,68 @@ export function createEmptyTextGuard() {
  * from the Subject straight to the text; from the text Alt+F10 enters the bar (the last used button), the arrows,
  * Home and End move in it, Esc or Tab goes back to the text with its selection.
  */
-function Toolbar({ run, barRef, current, onLeave }) {
+// the colour menus: "Automatikus" / "Nincs kiemelés" first, then the palette with a swatch and a name
+function colorItems(cmd, paint) {
+  if (cmd === 'foreColor') {
+    return [
+      { key: 'auto', label: t.composeColors.auto, swatch: 'var(--c-mail-text)', swatchOutline: true, onSelect: () => paint(cmd, null) },
+      ...TEXT_COLORS.map(c => ({ key: c.id, label: t.composeColors.text[c.id], swatch: c.hex, swatchOutline: true, onSelect: () => paint(cmd, c.hex) })),
+    ]
+  }
+  return [
+    { key: 'none', label: t.composeColors.noHighlight, swatch: 'transparent', swatchOutline: true, onSelect: () => paint(cmd, null) },
+    ...HIGHLIGHT_COLORS.map(c => ({ key: c.id, label: t.composeColors.highlight[c.id], swatch: c.hex, swatchOutline: true, onSelect: () => paint(cmd, c.hex) })),
+  ]
+}
+
+/**
+ * A colour button of the formatting bar and its menu (under the button). Click, Enter, Space or Down opens it; in the
+ * menu the arrows move, Enter chooses (on the text's selection), Esc closes; both go back to the text with its selection.
+ */
+function ColorTool({ cmd, icon, label, index, current, open, setOpen, paint, onOpen, onLeave }) {
+  const show = () => {
+    onOpen()
+    setOpen(cmd)
+  }
+  return (
+    <span className="menu-anchor">
+      <IconButton
+        icon={icon}
+        size="s"
+        label={label}
+        tabIndex={-1}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        onFocus={() => (current.current = index)}
+        onMouseDown={e => e.preventDefault()}
+        onClick={() => (open ? setOpen(null) : show())}
+        onKeyDown={e => {
+          if (e.key === 'ArrowDown' && !open) {
+            e.preventDefault()
+            show()
+          }
+        }}
+      />
+      {open && (
+        <Menu
+          items={colorItems(cmd, paint)}
+          label={label}
+          className={`menu-align-start color-menu color-menu-${cmd}`}
+          onClose={reason => {
+            setOpen(null)
+            if (reason === 'escape' || reason === 'tab') onLeave()
+          }}
+        />
+      )}
+    </span>
+  )
+}
+
+function Toolbar({ run, paint, barRef, current, onLeave, onOpenMenu }) {
+  const [menu, setMenu] = useState(null) // the open colour menu: 'foreColor' | 'hiliteColor'
   const onKeyDown = e => {
-    const buttons = [...barRef.current.querySelectorAll('button')]
+    // the bar's own buttons (an open menu's items are not among them)
+    const buttons = [...barRef.current.querySelectorAll(':scope > button, :scope > .menu-anchor > button')]
     const at = buttons.indexOf(document.activeElement)
     if (at < 0) return
     let next = null
@@ -243,7 +329,22 @@ function Toolbar({ run, barRef, current, onLeave }) {
   }
   return (
     <div ref={barRef} className="editor-toolbar" role="toolbar" aria-label={t.composeFormatting} aria-keyshortcuts="Alt+F10" onKeyDown={onKeyDown}>
-      {TOOLS.map(([cmd, icon, key = cmd, arg], i) => (
+      {TOOLS.map(([cmd, icon, key = cmd, arg], i) =>
+        cmd === 'foreColor' || cmd === 'hiliteColor' ? (
+          <ColorTool
+            key={cmd}
+            cmd={cmd}
+            icon={icon}
+            label={t.composeTools[key]}
+            index={i}
+            current={current}
+            open={menu === cmd}
+            setOpen={setMenu}
+            paint={paint}
+            onOpen={onOpenMenu}
+            onLeave={onLeave}
+          />
+        ) : (
         <IconButton
           key={cmd + (arg || '')}
           icon={icon}
@@ -254,7 +355,8 @@ function Toolbar({ run, barRef, current, onLeave }) {
           onMouseDown={e => e.preventDefault()}
           onClick={() => run(cmd, arg)}
         />
-      ))}
+        ),
+      )}
     </div>
   )
 }
@@ -367,9 +469,12 @@ export function Composer({ sessionId }) {
       setTimeout(ready, 250)
     }
     // the starting body into the editor, unless its shape says no -> true, or the reason ('run': a run over N,
-    // 'switches': a block over B direction switches; nothing written)
-    const writeBody = html => {
-      const { fragment, reason } = shapeOf(document, sanitizeCompose(DOMPurify, html, { sessionId }))
+    // 'switches': a block over B direction switches; nothing written). A table in it (a reply's or a forward's quote)
+    // keeps its rows as lines, as a pasted one does; Claude's quote (visibleComposeHtml) makes the same lines. `colors`:
+    // the toolbar's colours stay, only for the user's own saved body (a draft or a scheduled message opened again); a
+    // quote, a mailto body and a signature come without colours, as a paste does
+    const writeBody = (html, colors = false) => {
+      const { fragment, reason } = shapeOf(document, sanitizeCompose(DOMPurify, html, { sessionId, tableRows: true, colors }))
       if (reason) return reason
       if (editor.current) editor.current.replaceChildren(fragment)
       return true
@@ -396,9 +501,10 @@ export function Composer({ sessionId }) {
           setShowCopies(true)
         }
         // a saved draft opened again: its own body, the signature is already in it
-        const html = form.draftHtml !== undefined ? form.draftHtml : (form.body || '') + accountSignatureHtml(account) + (form.quote || '')
+        const saved = form.draftHtml !== undefined
+        const html = saved ? form.draftHtml : (form.body || '') + accountSignatureHtml(account) + (form.quote || '')
         document.title = form.subject ? `${form.subject} - ShadowMail` : t.composeTitle
-        return writeBody(html)
+        return writeBody(html, saved)
       }
       document.title = t.composeTitle
       return writeBody(accountSignatureHtml(account))
@@ -431,7 +537,7 @@ export function Composer({ sessionId }) {
     cc,
     bcc,
     subject,
-    html: sanitizeCompose(DOMPurify, editor.current ? editor.current.innerHTML : '', { sessionId }),
+    html: sanitizeCompose(DOMPurify, editor.current ? editor.current.innerHTML : '', { sessionId, colors: true }),
     inReplyTo: threading.current.inReplyTo || undefined,
     references: threading.current.references.length ? threading.current.references : undefined,
   })
@@ -579,6 +685,11 @@ export function Composer({ sessionId }) {
       sel.addRange(textRange.current)
     }
   }
+  // a colour menu opened with the mouse: the text's selection is kept for the choice (the menu takes the focus)
+  const keepTextRange = () => {
+    const r = editorRange()
+    if (r) textRange.current = r
+  }
   const enterToolbar = () => {
     const buttons = toolbar.current ? toolbar.current.querySelectorAll('button') : []
     if (!buttons.length) return
@@ -602,6 +713,43 @@ export function Composer({ sessionId }) {
     document.execCommand(cmd, false, arg)
     bodyTouched.current = true
     touch()
+  }
+
+  // a colour from a colour menu: the editor's own command on the text's selection (styleWithCSS off: a <font color>, a
+  // highlight span); null = take it off: "Automatikus" is the colour the text has without one, "Nincs kiemelés" transparent
+  const paint = (cmd, value) => {
+    if (!editor.current || sentRef.current) return
+    if (toolbar.current && toolbar.current.contains(document.activeElement)) backToText()
+    else editor.current.focus()
+    const sel = window.getSelection()
+    let v = value
+    if (v === null) v = cmd === 'hiliteColor' ? 'transparent' : sel && sel.rangeCount ? plainColorAt(sel.getRangeAt(0), editor.current) : ''
+    emptyGuard.current.choose(cmd)
+    document.execCommand('styleWithCSS', false, false)
+    document.execCommand(cmd, false, v)
+    bodyTouched.current = true
+    touch()
+  }
+
+  // copy / cut in the text: the composer's own HTML of the selection (sanitized, the palette colours kept) with this
+  // window's mark; a cut then deletes the selection with the editor's own command (one undo step)
+  const clipMark = useRef(null)
+  clipMark.current ??= crypto.randomUUID()
+  const ownCopy = (e, cut) => {
+    if (sentRef.current || !editor.current) return
+    const sel = window.getSelection()
+    if (!sel || !sel.rangeCount || sel.isCollapsed) return
+    const range = sel.getRangeAt(0)
+    if (!editor.current.contains(range.commonAncestorContainer)) return
+    e.preventDefault()
+    e.clipboardData.setData('text/html', sanitizeCompose(DOMPurify, selectionHtml(range, editor.current), { sessionId, colors: true }))
+    e.clipboardData.setData('text/plain', sel.toString())
+    e.clipboardData.setData(CLIP_TYPE, clipMark.current)
+    if (cut) {
+      document.execCommand('delete')
+      bodyTouched.current = true
+      touch()
+    }
   }
 
   // pasted / dropped images into the text at `range` (the caret's range when the paste or drop came; the awaits move
@@ -788,7 +936,7 @@ export function Composer({ sessionId }) {
           <input id="compose-subject" type="text" value={subject} disabled={sent} onChange={e => (setSubject(e.target.value), touch())} />
         </div>
       </div>
-      {showFormat && <Toolbar run={run} barRef={toolbar} current={toolIndex} onLeave={backToText} />}
+      {showFormat && <Toolbar run={run} paint={paint} barRef={toolbar} current={toolIndex} onLeave={backToText} onOpenMenu={keepTextRange} />}
       <div
         ref={editor}
         className="editor"
@@ -830,6 +978,8 @@ export function Composer({ sessionId }) {
           e.preventDefault()
           openImageMenu(img, e.target === img ? { x: e.clientX, y: e.clientY } : null)
         }}
+        onCopy={e => ownCopy(e, false)}
+        onCut={e => ownCopy(e, true)}
         onPaste={e => {
           // only what the composer itself can make survives a paste
           e.preventDefault()
@@ -842,7 +992,10 @@ export function Composer({ sessionId }) {
             void insertImages(images, sel.rangeCount ? sel.getRangeAt(0).cloneRange() : null)
             return
           }
-          if (html) document.execCommand('insertHTML', false, sanitizeCompose(DOMPurify, html, { sessionId }))
+          // a pasted table keeps its rows as lines (a web page's label / value table ran into one line); a copy or cut of this
+          // very window (its mark) keeps the palette colours, anything else comes without colour
+          const own = e.clipboardData.getData(CLIP_TYPE) === clipMark.current
+          if (html) document.execCommand('insertHTML', false, sanitizeCompose(DOMPurify, html, { sessionId, tableRows: true, colors: own }))
           else document.execCommand('insertText', false, e.clipboardData.getData('text/plain'))
           bodyTouched.current = true
           touch()

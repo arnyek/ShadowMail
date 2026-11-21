@@ -2,19 +2,24 @@
 <!-- SPDX-License-Identifier: GPL-3.0-or-later -->
 <!--
   The composer window's own page: the same app as index.html (src/main.jsx picks the composer by #compose=<session>),
-  with ONE difference in its policy, the style-src hash. MEASURED (Electron 45.3.0): the editor's own commands that put
+  with ONE difference in its policy, the style-src hashes. MEASURED (Electron 45.3.0): the editor's own commands that put
   an image into the text (insertHTML, insertImage) write one constant inline style each time on an element of their own
-  (none is left in the text), and style-src 'self' reported it on the console at every pasted image. Only this exact
-  style text is allowed ('unsafe-hashes' with its hash); no other inline style is. The main window (index.html) and a
-  received message's frame (mail-view:, its own policy) keep style-src 'self' only. test/compose-csp.test.js holds the
-  two pages to this, test/e2e/paste-image-e2e.mjs measures that no policy line shows (a Chromium that changes the style
-  text makes it red).
+  (none is left in the text), and style-src 'self' reported it on the console at every pasted image: the first hash is
+  that style text. The highlight (hiliteColor) always writes "background-color: rgb(r, g, b);" on the text, which shows
+  only when that exact text is allowed: the other hashes are the palette's highlights (core/smtp/text-colors.js
+  HIGHLIGHT_COLORS), one each. Only these exact style texts are allowed ('unsafe-hashes' with their hashes); no other
+  inline style is in a <style> element. The style ATTRIBUTE is free in this page only (style-src-attr 'unsafe-inline',
+  the owner's decision): MEASURED (Electron 45.3.0), the editor's own colour and format commands push a style attribute
+  down onto nested elements, and blocked, it broke the next command (a colour that stayed, a bold that could not be
+  turned off). What leaves the composer is still only what sanitizeCompose keeps (the palette colours). The main window
+  (index.html) and a received message's frame (mail-view:, its own policy) keep style-src 'self' only. test/compose-csp.test.js holds the two pages to this (the hashes computed from the palette),
+  test/e2e/paste-image-e2e.mjs measures that no policy line shows (a Chromium that changes the style text makes it red).
 -->
 <html lang="hu">
 <head>
   <meta charset="utf-8">
   <meta http-equiv="Content-Security-Policy"
-    content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-hashes' 'sha256-fFC89QmtxDk/dIQSVl8wDRNRgE5CdR0b9SsBNcFgSGg='; img-src 'self' data: sig-img: inl-img:; font-src 'self'; connect-src 'none'; base-uri 'none'; form-action 'none'; frame-src mail-view:; object-src 'none'">
+    content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-hashes' 'sha256-fFC89QmtxDk/dIQSVl8wDRNRgE5CdR0b9SsBNcFgSGg=' 'sha256-/WGEivQkbhBfr0Thcewxu4e9kmjs5YmKARN9nec8asw=' 'sha256-tVoXw3AHSbmcrX2n0Syel3wLe9trbTMBzNv9KaoFsbY=' 'sha256-pI1hAb2dEu849lHtzCJ1GGJQbIRJPa+i6xIA76SM3Pk=' 'sha256-2xEePZewW8Jg7vpmZTi95mMVcJ3lOlRxNVqePdP0zQA=' 'sha256-4GYkhyh56dHwd0jKVoY6SnJAHGqhUMmBIAskytHg1cY=' 'sha256-KcLnLmoEjANcIx+lgBf0UG/S3RGHf/4zSINk+eOCkS8='; style-src-attr 'unsafe-inline'; img-src 'self' data: sig-img: inl-img:; font-src 'self'; connect-src 'none'; base-uri 'none'; form-action 'none'; frame-src mail-view:; object-src 'none'">
   <title>ShadowMail</title>
 </head>
 <body>

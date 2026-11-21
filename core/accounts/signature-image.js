@@ -45,11 +45,17 @@ const unsupported = () => new SignatureImageError('unsupported_image')
 // still is (measured in testing: 1.4 s, 1.24 GB); a 192 MP one took 4.5 s and 4.5 GB. Read from the header,
 // BEFORE anything is decoded.
 export const UPRIGHT_MAX_PIXELS = 50_000_000
+// the largest pasted image at all, turned or not: its decoding alone (the size check) took 0.29 s and 844 MB at 192 MP
+// in testing, a risk on a computer with little memory. The same limit as for turning, read from the header.
+export const INLINE_IMAGE_MAX_PIXELS = UPRIGHT_MAX_PIXELS
+
+// too_large for an image over `max` pixels by its header; `turned`: the refusal is about turning it upright
+const tooManyPixels = (image, max, turned) => new SignatureImageError('too_large', { width: image.width, height: image.height, maxPixels: max, turned })
 
 function orientationRule(out, upright) {
   const { orientation, ...image } = out
   if (orientation === 1) return image
-  if (image.width * image.height > UPRIGHT_MAX_PIXELS) throw new SignatureImageError('too_large', { width: image.width, height: image.height, maxPixels: UPRIGHT_MAX_PIXELS })
+  if (image.width * image.height > UPRIGHT_MAX_PIXELS) throw tooManyPixels(image, UPRIGHT_MAX_PIXELS, true)
   if (typeof upright !== 'function') throw new TypeError('upright is required')
   let bytes
   try {
@@ -257,14 +263,18 @@ export const INLINE_IMAGE_MAX_BYTES = 10 * 1024 * 1024
  * A pasted or dropped image for a message's text: { type, bytes, width, height, removed } (+ `turned`), cleaned and
  * turned upright like the signature image (the same white lists, the same orientation rule) but without its size
  * limits. Errors (SignatureImageError): too_large { bytes, maxBytes } (over INLINE_IMAGE_MAX_BYTES as it comes),
- * not_inline { type } (an image the app sends as an attachment: GIF, WebP, HEIC/AVIF, BMP, TIFF), unsupported_image.
+ * too_large { width, height, maxPixels, turned } (over INLINE_IMAGE_MAX_PIXELS by the header, BEFORE anything is
+ * decoded; `turned`: it carries an orientation other than 1), not_inline { type } (an image the app sends as an
+ * attachment: GIF, WebP, HEIC/AVIF, BMP, TIFF), unsupported_image.
  */
 export function prepareInlineImage(buf, { decode, upright } = {}) {
   if (!Buffer.isBuffer(buf)) throw unsupported()
   if (buf.length > INLINE_IMAGE_MAX_BYTES) throw new SignatureImageError('too_large', { bytes: buf.length, maxBytes: INLINE_IMAGE_MAX_BYTES })
   const other = imageTypeOf(buf) ? null : otherImageTypeOf(buf)
   if (other) throw new SignatureImageError('not_inline', { type: other })
-  return decoded(orientationRule(cleanImage(buf), upright), decode)
+  const kept = cleanImage(buf)
+  if (kept.width * kept.height > INLINE_IMAGE_MAX_PIXELS) throw tooManyPixels(kept, INLINE_IMAGE_MAX_PIXELS, kept.orientation !== 1)
+  return decoded(orientationRule(kept, upright), decode)
 }
 
 /** The type and the bytes without the metadata (the white lists above); any damage is unsupported_image. */

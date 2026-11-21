@@ -12,7 +12,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { createFolder, moveFolder, deleteFolder, setSubscription } from '../../core/imap/actions.js'
-import { assignRoles, isRoleCandidate } from '../../core/imap/folders.js'
+import { assignRoles, isRoleCandidate, roleFixed } from '../../core/imap/folders.js'
 import { listSyncFolders, serverSpecialUse } from '../../core/imap/client.js'
 import { ActionError } from './sync-manager.js'
 import { FolderOrderError } from '../../core/db/mail-index.js'
@@ -66,13 +66,20 @@ export class FolderActions {
     return f
   }
 
-  // the folder and every folder under it (the delimiter matched too: "A" is not the parent of "AB"); a role anywhere
-  // in it (a hand-picked one too) refuses a rename and a move, so a role is never carried away under another path:
-  // protected_folder on the folder itself, protected_subfolder below it (its own text tells where to change the role)
+  // the folder and every folder under it (the delimiter matched too: "A" is not the parent of "AB"). An AUTOMATIC role
+  // anywhere in it (the Inbox, the server's SPECIAL-USE flag, a usual name) refuses a rename and a move, so such a role
+  // is never carried away under another path: protected_folder on the folder itself, protected_subfolder below it (its
+  // own text tells where to change the role). A role picked by hand (role_manual = 1) moves with its folder row: the
+  // index rewrites the row's path in place, and the sync keeps a hand-picked role on its row (the owner's decision).
+  // But not on a folder that is an automatic candidate itself (the Inbox, the server's SPECIAL-USE flag, a usual name):
+  // a phone or a webmail keeps using that folder, so it stays refused even when the role on it was picked by hand
+  // (the owner's decision after a test round: picking the automatic folder by hand does not free it).
   #subtree(ctx, root, delimiter) {
     const subtree = ctx.folders.filter(x => x.path === root || (delimiter && x.path.startsWith(root + delimiter)))
-    if (ctx.roles.has(root)) throw new ActionError('protected_folder')
-    if (subtree.some(x => ctx.roles.has(x.path))) throw new ActionError('protected_subfolder')
+    // the same rule as the folder tree's (core/imap/folders.js roleFixed), so the two cannot drift apart
+    const fixed = x => roleFixed(x, ctx.roles)
+    if (fixed(subtree.find(x => x.path === root))) throw new ActionError('protected_folder')
+    if (subtree.some(fixed)) throw new ActionError('protected_subfolder')
     return subtree
   }
 

@@ -8,7 +8,7 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { t, locale } from '../i18n/index.js'
-import { buildFolderTree, flattenTree, assignRoles, inArchive } from '../../../core/imap/folders.js'
+import { buildFolderTree, flattenTree, assignRoles, inArchive, roleFixed } from '../../../core/imap/folders.js'
 import { Reader } from './Reader.jsx'
 import { SearchBox, SearchChips, SearchResults, EMPTY_FILTERS, clearedFilters, fromConditions, leftSearch, listFilterOn, searchActive, toListFilter, toRequest } from './Search.jsx'
 import { Icon } from './Icon.jsx'
@@ -323,7 +323,7 @@ export function FolderTree({ accounts, selected, onSelect, onDropMessages, onFol
                           onClick={() => onSelect({ accountId: a.id, folder: node.path })}
                           onContextMenu={e => {
                             e.preventDefault()
-                            onFolderMenu({ x: e.clientX, y: e.clientY, accountId: a.id, path: node.path, label, role: node.role, count: node.count, parentKey: list.parentKey, siblings: list.paths, imap: a.type === 'imap', moveBlocked: ['flat', 'role'].find(r => r === moveTargetReason(a.folders, roles, node.path, null)) || null })
+                            onFolderMenu({ x: e.clientX, y: e.clientY, accountId: a.id, path: node.path, label, role: node.role, count: node.count, parentKey: list.parentKey, siblings: list.paths, imap: a.type === 'imap', moveBlocked: ['flat', 'role'].find(r => r === moveTargetReason(a.folders, roles, node.path, null)) || null, name: node.name, renameBlocked: roleFixed(a.folders.find(f => f.path === node.path), roles) })
                           }}
                           onKeyDown={e => {
                             if (!e.altKey || e.ctrlKey || e.metaKey || e.shiftKey || (e.key !== 'ArrowUp' && e.key !== 'ArrowDown')) return
@@ -901,12 +901,17 @@ function ContextMenu({ menu, onAction, onLabel = null, onClose }) {
   return <Menu items={items} at={{ x: menu.x, y: menu.y }} className="context-menu" label={t.actionsLabel} onClose={onClose} />
 }
 
-/** The folder's context menu (the shared Menu). Role folders: no rename, no delete. Up / Down: off at the list's edge. */
+/**
+ * The folder's context menu (the shared Menu). Role folders: no delete; no rename when the role stays with the folder
+ * (renameBlocked: roleFixed; a role picked by hand on a folder that is no automatic candidate is renamed with it). Up /
+ * Down: off at the list's edge.
+ */
 export function FolderMenu({ menu, onPick, onClose }) {
   const locked = Boolean(menu.role)
+  const renameLocked = menu.renameBlocked === undefined ? locked : Boolean(menu.renameBlocked)
   const items = [
     { key: 'create', label: t.folderMenu.newSub, icon: 'plus', onSelect: () => onPick('create', menu) },
-    { key: 'rename', label: t.folderMenu.rename, icon: 'compose', disabled: locked, title: locked ? t.folderProtected : undefined, onSelect: () => onPick('rename', menu) },
+    { key: 'rename', label: t.folderMenu.rename, icon: 'compose', disabled: renameLocked, title: renameLocked ? t.folderProtected : undefined, onSelect: () => onPick('rename', menu) },
     { key: 'move', label: t.folderMenu.move, icon: 'move', disabled: Boolean(menu.moveBlocked), title: menu.moveBlocked ? t.moveDialog.reasons[menu.moveBlocked] : undefined, onSelect: () => onPick('move', menu) },
     { key: 'moveUp', label: t.folderMenu.moveUp, icon: 'moveUp', disabled: !stepped(menu.siblings, menu.path, -1), onSelect: () => onPick('moveUp', menu) },
     { key: 'moveDown', label: t.folderMenu.moveDown, icon: 'moveDown', disabled: !stepped(menu.siblings, menu.path, 1), onSelect: () => onPick('moveDown', menu) },
@@ -1392,7 +1397,7 @@ export function Mail({ collapsed = false, readerPane = 'none', searchSlot = null
     }
     if (op === 'move') return setMoveDialog({ accountId: m.accountId, path: m.path, label: m.label })
     if (op === 'create') setNameDialog({ op, target: m, title: t.newSubfolderTitle(m.label), okLabel: t.folderCreate })
-    else if (op === 'rename') setNameDialog({ op, target: m, title: t.renameFolderTitle(m.label), okLabel: t.folderRename, initial: m.label })
+    else if (op === 'rename') setNameDialog({ op, target: m, title: t.renameFolderTitle(m.label), okLabel: t.folderRename, initial: m.name ?? m.label })
     else {
       // the count the warning names comes from the main process: IMAP asks the server (STATUS), which may take a
       // while, so the dialog opens at once with the local count as "at least" and takes the server's when it comes;
@@ -1442,11 +1447,20 @@ export function Mail({ collapsed = false, readerPane = 'none', searchSlot = null
     }
     // the order BEFORE the action (afterwards the row is gone): what opens when the open message leaves
     const openNow = keyState.current.openId
+    // the message open in the list's place (the full reader) leaves, or is marked unread: back to the list at once,
+    // before the server answers (its scroll position kept; on an error the row comes back there), as a webmail does.
+    // Beside the list (right / bottom) the next message opens, as before
+    const toList = keyState.current.fullReader && openNow !== null && ids.includes(openNow) && (!change || action === 'unread')
     let after
-    try {
-      after = !change && openNow !== null && ids.includes(openNow) ? afterRemoval((await orderedIds()) || [], openNow, ids) : undefined
-    } catch {
-      after = undefined // no order: the open message just closes, as before (the ids must not stay busy)
+    if (toList) {
+      after = null
+      backToList()
+    } else {
+      try {
+        after = !change && openNow !== null && ids.includes(openNow) ? afterRemoval((await orderedIds()) || [], openNow, ids) : undefined
+      } catch {
+        after = undefined // no order: the open message just closes, as before (the ids must not stay busy)
+      }
     }
     keep(ids) // a row changed in a filtered view stays until the view changes
     setOverlay(prev => {

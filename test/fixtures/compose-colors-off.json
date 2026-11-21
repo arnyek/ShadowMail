@@ -1,0 +1,110 @@
+{
+  "a palette text colour": [
+    "<p>a piros b</p>",
+    "<p>a piros b</p>"
+  ],
+  "every text colour": [
+    "red orange green blue purple gray",
+    "red orange green blue purple gray"
+  ],
+  "a highlight on a span": [
+    "<p><span>kiemelt</span></p>",
+    "<p><span>kiemelt</span></p>"
+  ],
+  "every highlight on a span": [
+    "<span>yellow</span> <span>green</span> <span>blue</span> <span>pink</span> <span>orange</span> <span>gray</span>",
+    "<span>yellow</span> <span>green</span> <span>blue</span> <span>pink</span> <span>orange</span> <span>gray</span>"
+  ],
+  "a highlight on a font": [
+    "<p>csak háttér</p>",
+    "<p>csak háttér</p>"
+  ],
+  "colour and highlight on one font": [
+    "<p>mindkettő</p>",
+    "<p>mindkettő</p>"
+  ],
+  "nested: a coloured font in a highlight, bold inside": [
+    "<p><span>x y <b>z</b></span> w</p>",
+    "<p><span>x y <b>z</b></span> w</p>"
+  ],
+  "a colour not in the palette": [
+    "<p>más piros fekete</p>",
+    "<p>más piros fekete</p>"
+  ],
+  "upper case hex": [
+    "<p>nagybetűs</p>",
+    "<p>nagybetűs</p>"
+  ],
+  "rgb() and named colours": [
+    "<p>rgb red</p>",
+    "<p>rgb red</p>"
+  ],
+  "a value with space around it": [
+    "<p>szóköz <span>szóköz</span></p>",
+    "<p>szóköz <span>szóköz</span></p>"
+  ],
+  "a javascript: colour": [
+    "<p>js</p>",
+    "<p>js</p>"
+  ],
+  "face and size only: unwrapped": [
+    "<p>face üres</p>",
+    "<p>face üres</p>"
+  ],
+  "face next to a palette colour: the face goes": [
+    "<p>piros</p>",
+    "<p>piros</p>"
+  ],
+  "a highlight with another property": [
+    "<p><span>pos</span> <span>pos2</span></p>",
+    "<p><span>pos</span> <span>pos2</span></p>"
+  ],
+  "a highlight written in another way": [
+    "<p><span>tömör</span> <span>pontosvessző nélkül</span> <span>hex</span> <span>nagy</span> <span>important</span></p>",
+    "<p><span>tömör</span> <span>pontosvessző nélkül</span> <span>hex</span> <span>nagy</span> <span>important</span></p>"
+  ],
+  "a highlight not in the palette": [
+    "<p><span>piros háttér</span></p>",
+    "<p><span>piros háttér</span></p>"
+  ],
+  "a text colour as a style": [
+    "<p><span>color stílus</span> <span>kettő</span></p>",
+    "<p><span>color stílus</span> <span>kettő</span></p>"
+  ],
+  "a style with url() or expression()": [
+    "<p><span>url</span> <span>expr</span></p>",
+    "<p><span>url</span> <span>expr</span></p>"
+  ],
+  "a highlight on a bold, an italic, an underline inside a colour": [
+    "<p><b>b</b> <i>i</i> <u>u</u> <s>s</s> <strong>st</strong> <em>em</em></p>",
+    "<p><b>b</b> <i>i</i> <u>u</u> <s>s</s> <strong>st</strong> <em>em</em></p>"
+  ],
+  "a highlight on other elements": [
+    "<p>p</p><div>div</div><b>b</b> <a href=\"https://example.invalid/\">a</a><blockquote>idézet</blockquote>",
+    "<p>p</p><div>div</div><b>b</b> <a href=\"https://example.invalid/\">a</a><blockquote>idézet</blockquote>"
+  ],
+  "a colour attribute on other elements": [
+    "<p><span>span</span> <b>b</b> <a href=\"https://example.invalid/\">a</a></p>",
+    "<p><span>span</span> <b>b</b> <a href=\"https://example.invalid/\">a</a></p>"
+  ],
+  "an empty style": [
+    "<p><span>üres</span> üres font</p>",
+    "<p><span>üres</span> üres font</p>"
+  ],
+  "a coloured link and a link in a colour": [
+    "<p><a href=\"https://example.invalid/\">link</a> <a href=\"mailto:a@example.invalid\">levél</a></p>",
+    "<p><a href=\"https://example.invalid/\">link</a> <a href=\"mailto:a@example.invalid\">levél</a></p>"
+  ],
+  "colours in a table": [
+    "A1<span>B1</span>",
+    "<div><div>A1 <span>B1</span></div></div>"
+  ],
+  "a coloured font around a block": [
+    "<p>bekezdés</p><ul><li>elem</li></ul>",
+    "<p>bekezdés</p><ul><li>elem</li></ul>"
+  ],
+  "a hostile mix": [
+    "<p>x<span>y</span></p>",
+    "<p>x<span>y</span></p>"
+  ]
+}

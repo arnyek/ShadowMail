@@ -97,13 +97,17 @@ test('to the top level (parent null): the leaf; with a namespace prefix the serv
 })
 
 test('every refusal: no RENAME, no index write, no sync', async t => {
-  const s = await setup(t)
+  const s = await setup(t, { known: true })
+  // an automatic role (the server's SPECIAL-USE flag) on a folder under one of our own
+  s.server.addMailbox('D/Küldött', { specialUse: '\\Sent' })
+  s.server.subscribed.add('D/Küldött')
   await s.idle()
-  // a role chosen by hand inside the subtree
-  s.index.setManualRole(s.row.id, 'archive', 'A/B/x')
+  s.manager.requestSync(s.row.id)
+  await sleep(20)
+  await s.idle()
   const cases = [
     [{ path: 'Trash', parent: 'C' }, 'protected_folder'],
-    [{ path: 'A', parent: 'C' }, 'protected_subfolder'], // A/B/x below it has a role
+    [{ path: 'D', parent: 'C' }, 'protected_subfolder'], // D/Küldött below it has an automatic role
     [{ path: 'C/c', parent: 'C/c' }, 'bad_target'], // itself
     [{ path: 'C', parent: 'C/c' }, 'bad_target'], // under itself
     [{ path: 'C/c', parent: 'C' }, 'bad_target'], // its present parent
@@ -118,7 +122,6 @@ test('every refusal: no RENAME, no index write, no sync', async t => {
   for (const [q, code] of cases) {
     await assert.rejects(s.folders.move({ accountId: s.row.id, ...q }), { code }, JSON.stringify(q))
   }
-  s.index.setManualRole(s.row.id, 'archive', null)
   await assert.rejects(s.folders.move({ accountId: s.row.id, path: 'D/b', parent: 'A' }), { code: 'folder_exists' }, '"b" vs "B" (A/B)')
   // a folder row without a delimiter (a flat server)
   s.db.prepare("UPDATE folders SET delimiter = NULL WHERE account_id = ? AND path = 'C'").run(s.row.id)
@@ -289,24 +292,169 @@ for (const [name, act, want] of RACES) {
   })
 }
 
-test('rename: a role anywhere in the subtree (a hand-picked one too) refuses it, like a move; the role stays after a full sync', async t => {
-  const s = await setup(t, { known: true })
-  await s.idle()
-  s.folders.setRole({ accountId: s.row.id, role: 'archive', path: 'A/B' })
-  const roleOf = p => ({ ...s.db.prepare('SELECT role, role_manual FROM folders WHERE account_id = ? AND path = ?').get(s.row.id, p) })
-  const local = s.local()
-  await assert.rejects(s.folders.rename({ accountId: s.row.id, path: 'A', name: 'A2' }), { code: 'protected_subfolder' }, 'the parent of a role folder')
-  await assert.rejects(s.folders.rename({ accountId: s.row.id, path: 'A/B', name: 'B2' }), { code: 'protected_folder' }, 'the role folder itself')
-  await assert.rejects(s.folders.move({ accountId: s.row.id, path: 'A', parent: 'C' }), { code: 'protected_subfolder' }, 'the same check on a move')
-  assert.deepEqual(s.renames(), [])
-  assert.deepEqual(s.local(), local)
-  assert.equal(s.calls(), 0, 'no server call')
+// A role picked by hand moves with its folder (the owner's decision): the folder row keeps its role and role_manual,
+// the index rewrites its path in place; an automatic role (the Inbox, the server's SPECIAL-USE flag, a usual name)
+// still refuses a rename and a move. Two full syncs after each step: the sync keeps a hand-picked role on its row.
+const roleOf = (s, p) => ({ ...s.db.prepare('SELECT role, role_manual FROM folders WHERE account_id = ? AND path = ?').get(s.row.id, p) })
+const fullSync = async s => {
   s.manager.requestSync(s.row.id)
   await sleep(20)
   await s.idle()
-  assert.deepEqual(roleOf('A/B'), { role: 'archive', role_manual: 1 })
-  // a folder without a role under it is renamed as before
-  assert.deepEqual(await s.folders.rename({ accountId: s.row.id, path: 'C', name: 'C2' }), { path: 'C2' })
+}
+const ARCHIVE = { role: 'archive', role_manual: 1 }
+
+for (const keeps of [true, false]) {
+  test(`a hand-picked Archive under A/B: renaming A and moving A take it along, now and after two full syncs (RENAME ${keeps ? 'keeps' : 'changes'} the UIDVALIDITY)`, async t => {
+    const s = await setup(t, { known: true })
+    s.server.renameKeepsUidValidity = keeps
+    await s.idle()
+    s.folders.setRole({ accountId: s.row.id, role: 'archive', path: 'A/B' })
+    assert.deepEqual(await s.folders.rename({ accountId: s.row.id, path: 'A', name: 'A2' }), { path: 'A2' })
+    assert.deepEqual(s.renames(), [{ op: 'rename', path: 'A', to: 'A2' }])
+    assert.deepEqual(roleOf(s, 'A2/B'), ARCHIVE, 'right after the rename')
+    await s.idle()
+    await fullSync(s)
+    await fullSync(s)
+    assert.deepEqual(roleOf(s, 'A2/B'), ARCHIVE, 'after two full syncs')
+    assert.ok(!s.local().some(p => p === 'A' || p.startsWith('A/')), JSON.stringify(s.local()))
+    assert.deepEqual(await s.folders.move({ accountId: s.row.id, path: 'A2', parent: 'C' }), { path: 'C/A2' })
+    assert.deepEqual(roleOf(s, 'C/A2/B'), ARCHIVE, 'right after the move')
+    await s.idle()
+    await fullSync(s)
+    await fullSync(s)
+    assert.deepEqual(roleOf(s, 'C/A2/B'), ARCHIVE, 'after two full syncs')
+    assert.deepEqual(s.index.folderList(s.row.id).filter(f => f.role === 'archive').map(f => f.path), ['C/A2/B'], 'one Archive')
+  })
+}
+
+test('a hand-picked role on the folder itself: renamed (A/B -> A/Bb) and moved to the top level, the role on the new path', async t => {
+  const s = await setup(t, { known: true })
+  await s.idle()
+  s.folders.setRole({ accountId: s.row.id, role: 'archive', path: 'A/B' })
+  assert.deepEqual(await s.folders.rename({ accountId: s.row.id, path: 'A/B', name: 'Bb' }), { path: 'A/Bb' })
+  assert.deepEqual(roleOf(s, 'A/Bb'), ARCHIVE)
+  await s.idle()
+  assert.deepEqual(await s.folders.move({ accountId: s.row.id, path: 'A/Bb', parent: null }), { path: 'Bb' })
+  assert.deepEqual(roleOf(s, 'Bb'), ARCHIVE)
+  await s.idle()
+  await fullSync(s)
+  await fullSync(s)
+  assert.deepEqual(roleOf(s, 'Bb'), ARCHIVE)
+  assert.ok(s.local().includes('Bb/x'), 'the subfolder came along')
+})
+
+test('a hand-picked role with a "." delimiter and the INBOX. namespace: renamed and moved, the role follows', async t => {
+  const s = await setup(t, { delimiter: '.', prefix: 'INBOX.', known: true })
+  await s.idle()
+  s.folders.setRole({ accountId: s.row.id, role: 'archive', path: 'INBOX.A.B' })
+  assert.deepEqual(await s.folders.rename({ accountId: s.row.id, path: 'INBOX.A', name: 'A2' }), { path: 'INBOX.A2' })
+  assert.deepEqual(roleOf(s, 'INBOX.A2.B'), ARCHIVE)
+  await s.idle()
+  assert.deepEqual(await s.folders.move({ accountId: s.row.id, path: 'INBOX.A2.B', parent: null }), { path: 'INBOX.B' })
+  assert.deepEqual(roleOf(s, 'INBOX.B'), ARCHIVE)
+  await s.idle()
+  await fullSync(s)
+  await fullSync(s)
+  assert.deepEqual(roleOf(s, 'INBOX.B'), ARCHIVE)
+})
+
+test('a hand-picked role renamed while a full sync runs (after its LIST, before its clean-up): kept, also after two more full syncs', async t => {
+  const s = await setup(t, { known: true })
+  await s.idle()
+  s.folders.setRole({ accountId: s.row.id, role: 'archive', path: 'A/B' })
+  await s.idle()
+  let fired = false
+  s.server.afterList = async () => {
+    if (fired) return
+    fired = true
+    await s.folders.rename({ accountId: s.row.id, path: 'A', name: 'Z' })
+  }
+  s.manager.requestSync(s.row.id)
+  await until(() => fired)
+  await sleep(20)
+  await s.idle()
+  assert.deepEqual(roleOf(s, 'Z/B'), ARCHIVE, 'after the racing run')
+  await fullSync(s)
+  await fullSync(s)
+  assert.deepEqual(roleOf(s, 'Z/B'), ARCHIVE, 'after two more full syncs')
+  assert.deepEqual(s.index.folderList(s.row.id).filter(f => f.role === 'archive').map(f => f.path), ['Z/B'])
+})
+
+test('an automatic role still refuses: the SPECIAL-USE Sent and a named "Archive" on the folder, a SPECIAL-USE folder under ours; no server call, no index write', async t => {
+  const s = await setup(t, { known: true })
+  s.server.addMailbox('Sent', { specialUse: '\\Sent' }).addMailbox('Archive').addMailbox('D/Vázlat', { specialUse: '\\Drafts' })
+  for (const f of ['Sent', 'Archive', 'D/Vázlat']) s.server.subscribed.add(f)
+  await s.idle()
+  await fullSync(s)
+  assert.equal(roleOf(s, 'Archive').role, 'archive')
+  assert.equal(roleOf(s, 'Archive').role_manual, 0)
+  assert.deepEqual(roleOf(s, 'D/Vázlat'), { role: 'drafts', role_manual: 0 }, 'the SPECIAL-USE folder under ours has its automatic role')
+  const local = s.local()
+  const calls = s.calls()
+  for (const q of [{ path: 'Sent', parent: 'C' }, { path: 'Archive', parent: 'C' }]) {
+    await assert.rejects(s.folders.move({ accountId: s.row.id, ...q }), { code: 'protected_folder' }, JSON.stringify(q))
+    await assert.rejects(s.folders.rename({ accountId: s.row.id, path: q.path, name: 'Más' }), { code: 'protected_folder' }, q.path)
+  }
+  await assert.rejects(s.folders.move({ accountId: s.row.id, path: 'D', parent: 'C' }), { code: 'protected_subfolder' })
+  await assert.rejects(s.folders.rename({ accountId: s.row.id, path: 'D', name: 'D2' }), { code: 'protected_subfolder' })
+  // the Inbox is never moved: an Inbox picked as nothing by hand is still the Inbox
+  await assert.rejects(s.folders.rename({ accountId: s.row.id, path: 'INBOX', name: 'Bejövő' }), { code: 'protected_folder' })
+  assert.deepEqual(s.renames(), [])
+  assert.deepEqual(s.local(), local)
+  assert.equal(s.calls(), calls, 'no server call')
+})
+
+test('an automatic folder picked by hand stays refused: the SPECIAL-USE Sent pinned as sent, a usual-named "Sent" pinned beside "Elküldött elemek", a \\Junk pinned as archive', async t => {
+  const s = await setup(t, { known: true })
+  s.server.addMailbox('Sent', { specialUse: '\\Sent' })
+  s.server.subscribed.add('Sent')
+  await s.idle()
+  await fullSync(s)
+  s.folders.setRole({ accountId: s.row.id, role: 'sent', path: 'Sent' })
+  await s.idle()
+  assert.deepEqual(roleOf(s, 'Sent'), { role: 'sent', role_manual: 1 })
+  const calls = s.calls()
+  await assert.rejects(s.folders.move({ accountId: s.row.id, path: 'Sent', parent: 'C' }), { code: 'protected_folder' })
+  await assert.rejects(s.folders.rename({ accountId: s.row.id, path: 'Sent', name: 'Kuldott' }), { code: 'protected_folder' })
+  // the server's \Junk folder picked by hand as the Archive: a candidate still, refused
+  s.folders.setRole({ accountId: s.row.id, role: 'archive', path: 'Junk' })
+  await s.idle()
+  assert.deepEqual(roleOf(s, 'Junk'), { role: 'archive', role_manual: 1 })
+  await assert.rejects(s.folders.move({ accountId: s.row.id, path: 'Junk', parent: 'C' }), { code: 'protected_folder' })
+  assert.deepEqual(s.renames(), [])
+  assert.equal(s.calls(), calls, 'no server call')
+
+  // no SPECIAL-USE at all: "Sent" and "Elküldött elemek" by their usual names, "Sent" picked by hand
+  const n = await setup(t, { known: true })
+  n.server.addMailbox('Sent').addMailbox('Elküldött elemek')
+  for (const f of ['Sent', 'Elküldött elemek']) n.server.subscribed.add(f)
+  await n.idle()
+  await fullSync(n)
+  n.folders.setRole({ accountId: n.row.id, role: 'sent', path: 'Sent' })
+  await n.idle()
+  assert.deepEqual(roleOf(n, 'Sent'), { role: 'sent', role_manual: 1 })
+  await assert.rejects(n.folders.rename({ accountId: n.row.id, path: 'Sent', name: 'Kuldott' }), { code: 'protected_folder' })
+  await assert.rejects(n.folders.move({ accountId: n.row.id, path: 'Sent', parent: 'C' }), { code: 'protected_folder' })
+  // a usual-named folder under a folder of ours is no candidate (the name counts on the top level only): it moves
+  n.folders.setRole({ accountId: n.row.id, role: 'sent', path: 'A/B' })
+  await n.idle()
+  assert.deepEqual(await n.folders.rename({ accountId: n.row.id, path: 'A', name: 'A2' }), { path: 'A2' })
+  assert.deepEqual(roleOf(n, 'A2/B'), { role: 'sent', role_manual: 1 })
+  assert.deepEqual(n.renames(), [{ op: 'rename', path: 'A', to: 'A2' }])
+})
+
+test('a hand-picked Trash: it can be moved itself, nothing can be moved under it (trash_target), it cannot be deleted', async t => {
+  const s = await setup(t, { known: true })
+  await s.idle()
+  s.folders.setRole({ accountId: s.row.id, role: 'trash', path: 'C' })
+  await assert.rejects(s.folders.move({ accountId: s.row.id, path: 'D/b', parent: 'C' }), { code: 'trash_target' })
+  await assert.rejects(s.folders.move({ accountId: s.row.id, path: 'D/b', parent: 'C/c' }), { code: 'trash_target' }, 'under it too')
+  await assert.rejects(s.folders.remove({ accountId: s.row.id, path: 'C', confirmed: true }), { code: 'protected_folder' })
+  assert.deepEqual(await s.folders.move({ accountId: s.row.id, path: 'C', parent: 'D' }), { path: 'D/C' })
+  assert.deepEqual(roleOf(s, 'D/C'), { role: 'trash', role_manual: 1 })
+  await s.idle()
+  await fullSync(s)
+  assert.deepEqual(roleOf(s, 'D/C'), { role: 'trash', role_manual: 1 })
 })
 
 test('a sibling whose name starts the same (A vs AB): moving or renaming A leaves AB and its messages alone, AB is a valid target', async t => {

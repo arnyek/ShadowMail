@@ -823,7 +823,13 @@ export const en = {
   composeSuggestions: 'Address suggestions',
   composeFormatting: 'Formatting',
   composeFormattingHint: 'Formatting (from the text to the toolbar: Alt+F10)',
-  composeTools: { bold: 'Bold', italic: 'Italic', underline: 'Underline', ul: 'Bulleted list', ol: 'Numbered list', link: 'Link', quote: 'Quote', clear: 'Clear formatting' },
+  composeTools: { bold: 'Bold', italic: 'Italic', underline: 'Underline', textColor: 'Text color', highlight: 'Highlight', ul: 'Bulleted list', ol: 'Numbered list', link: 'Link', quote: 'Quote', clear: 'Clear formatting' },
+  composeColors: {
+    auto: 'Automatic',
+    noHighlight: 'No highlight',
+    text: { red: 'Red', orange: 'Orange', green: 'Green', blue: 'Blue', purple: 'Purple', gray: 'Gray' },
+    highlight: { yellow: 'Yellow', green: 'Green', blue: 'Blue', pink: 'Pink', orange: 'Orange', gray: 'Gray' },
+  },
   composeToolLabels: { link: 'Link', quote: 'Quote', clear: 'Clear' },
   composeLinkUrl: 'Address (https://… or mailto:…)',
   composeLinkOk: 'Insert',
@@ -865,9 +871,11 @@ export const en = {
     code === 'too_large'
       ? detail && detail.bytes
         ? 'The image is over 10 MB and cannot go into the text.'
-        : detail && detail.maxPixels
-          ? `The photo stored turned is too large to turn upright: ${num(Math.round((detail.width * detail.height) / 1e6))} megapixels, at most ${num(Math.round(detail.maxPixels / 1e6))}.`
-          : 'With this image the attachments and images would go over 25 MB (most servers refuse bigger messages).'
+        : detail && detail.maxPixels && !detail.turned
+          ? `The image is too large to go into the text: ${num(Math.round((detail.width * detail.height) / 1e6))} megapixels, at most ${num(Math.round(detail.maxPixels / 1e6))}. Make it smaller, or attach it as a file.`
+          : detail && detail.maxPixels
+            ? `The photo stored turned is too large to turn upright: ${num(Math.round((detail.width * detail.height) / 1e6))} megapixels, at most ${num(Math.round(detail.maxPixels / 1e6))}.`
+            : 'With this image the attachments and images would go over 25 MB (most servers refuse bigger messages).'
       : code === 'unsupported_image'
         ? 'The image cannot go into the text: it is not a readable PNG or JPEG.'
         : code === 'not_attachable'

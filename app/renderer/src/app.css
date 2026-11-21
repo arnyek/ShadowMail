@@ -1706,6 +1706,10 @@ main.app > .error {
   border: 1px solid;
   border-radius: 7px;
 }
+/* a swatch that would not stand out on the menu (a light highlight, a dark colour on a dark theme, none): the theme's outline */
+.label-swatch.swatch-outline {
+  border-color: var(--c-text-2);
+}
 
 .claude-mark {
   margin-right: var(--space-2);
@@ -1909,11 +1913,15 @@ main.app > .error {
   border-bottom: 1px solid var(--c-border);
 }
 
+/* the writing surface is the message's own page in every theme (light, the theme-independent tokens): what is written
+   here is what the recipient sees, and the colour palette reads on it. The toolbar, the header and the menus follow the theme */
 .editor {
   flex: 1;
   overflow: auto;
   padding: var(--space-3) var(--space-4);
-  background: var(--c-bg);
+  background: var(--c-mail-bg);
+  color: var(--c-mail-text);
+  color-scheme: light;
   outline: none;
 }
 /* a pasted image: at most the editor's width (the sent HTML gets width="800" above 800 px, the main process) */
@@ -1923,8 +1931,8 @@ main.app > .error {
 .editor blockquote {
   margin: 0 0 0 var(--space-2);
   padding-left: var(--space-2);
-  border-left: 3px solid var(--c-border-strong);
-  color: var(--c-text-2);
+  border-left: 3px solid var(--c-mail-quote);
+  color: var(--c-mail-text-2);
 }
 
 .compose-attachments {

@@ -96,6 +96,28 @@ test('shape: ASCII whitespace breaks a run outside a <pre>; other spaces and any
 
 const at = html => shapeOf(window.document, sanitizeCompose(purify, html))
 
+test('shape: the starting body asks for the table rows (tableRows, as Composer.jsx writeBody): spaced cells are no bomb, the bypasses still ask', () => {
+  const rows = html => shapeOf(window.document, sanitizeCompose(purify, html, { tableRows: true }))
+  // 100 cells of 1000 x: a line of cells one space apart, the longest run is one cell (the joined 100 000 is gone)
+  const cells = rows(`<table><tr>${Array.from({ length: 100 }, () => `<td>${'x'.repeat(1000)}</td>`).join('')}</tr></table>`)
+  assert.deepEqual([cells.longest, cells.suspect], [1000, false])
+  // one cell over N still asks, a cell is no break
+  assert.equal(rows(`<table><tr><td>${'x'.repeat(100_000)}</td></tr></table>`).reason, 'run')
+  // the NBSP bypass: a row is one block, its direction switches are counted over all its cells
+  const nb = String.fromCodePoint(0xa0)
+  const chunk = Array.from({ length: 100 }, () => `x${cp(0x5d0)}`.repeat(5)).join(nb)
+  assert.equal(rows(`<table><tr>${`<td>${chunk}</td>`.repeat(100)}</tr></table>`).reason, 'switches', 'td + NBSP')
+  // the same cells, a row each: no block is over B (what a reader sees as lines is measured as lines)
+  assert.equal(rows(`<table>${`<tr><td>${chunk}</td></tr>`.repeat(100)}</table>`).reason, null)
+  // the news table: spaced text, short runs, no question
+  const news = rows(newsTableHtml())
+  assert.ok(!news.suspect && news.longest < 50, `${news.longest}`)
+  // a nested table: a line in a line, the text kept, no question (its time is measured in the real app,
+  // quote-table-e2e: jsdom's sanitizing of deep nesting is superlinear on either path, 400 levels 19-30 s)
+  const deep = rows(`${'<table><tr><td>'.repeat(100)}x${'</td></tr></table>'.repeat(100)}`)
+  assert.deepEqual([deep.suspect, deep.fragment.textContent], [false, 'x'])
+})
+
 test('shape: normal mail stays under N, the bombs over it; N exactly passes', () => {
   // the 2 MB one-paragraph Hebrew and emoji HTML
   for (const k of [0x5d0, 0x1f600]) assert.ok(shape(`<p>${fill(`x${cp(k)}`, MB2 - 7)}</p>`) > SHAPE_LIMIT, k.toString(16))

@@ -18,6 +18,10 @@
   --c-backdrop: rgba(32, 33, 36, 0.4);
   /* behind a message's own HTML (the reader's frame): light in every theme, the message keeps its own colors */
   --c-mail-bg: #ffffff;
+  /* the composer's writing surface on it, in every theme the colors the recipient sees: the text, a quote's text and line */
+  --c-mail-text: #1f1f1f;
+  --c-mail-text-2: #5f6368;
+  --c-mail-quote: #c4c9d0;
 
   /* text and icons */
   --c-text: #1f1f1f;

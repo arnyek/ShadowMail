@@ -29,6 +29,9 @@ import { parseSendAt, localIso } from '../app/main/mcp/tools.js'
 import { createConfirmPolicy } from '../app/main/mcp/confirm-policy.js'
 import { hu } from '../app/renderer/i18n/hu.js'
 import { en } from '../app/renderer/i18n/en.js'
+import { TEXT_COLORS, HIGHLIGHT_COLORS } from '../core/smtp/text-colors.js'
+import { visibleComposeHtml } from '../core/mime/visible-text.js'
+import { htmlToPlain } from '../core/mime/text.js'
 
 const NOW = Date.UTC(2026, 10, 12, 9, 0, 0)
 const sleep = ms => new Promise(r => setTimeout(r, ms))
@@ -523,7 +526,8 @@ test('rename_folder on the parent of a role folder: protected_subfolder with its
   const s = await setup(t)
   assert.equal((await s.call('create_folder', { account_id: s.row.id, name: 'Szülő' })).isError, false)
   assert.equal((await s.call('create_folder', { account_id: s.row.id, name: 'Régi', parent: 'Szülő' })).isError, false)
-  s.index.setManualRole(s.row.id, 'archive', 'Szülő/Régi')
+  // an automatic role (as the sync stores one): a role picked by hand would move with the folder
+  s.index.setFolderRoles(s.row.id, new Map([['INBOX', 'inbox'], ['Szülő/Régi', 'archive']]))
   const r = await s.call('rename_folder', { account_id: s.row.id, path: 'Szülő', name: 'Más' })
   assert.equal(r.isError, true)
   assert.equal(r._meta['shadowmail/data'].error, 'protected_subfolder')
@@ -531,6 +535,18 @@ test('rename_folder on the parent of a role folder: protected_subfolder with its
   assert.ok(s.imap.mailboxes.has('Szülő') && s.imap.mailboxes.has('Szülő/Régi') && !s.imap.mailboxes.has('Más'))
   const own = await s.call('rename_folder', { account_id: s.row.id, path: 'Szülő/Régi', name: 'X' })
   assert.equal(own._meta['shadowmail/data'].error, 'protected_folder', 'the role folder itself keeps the old code')
+})
+
+test('rename_folder on the parent of a folder with a role picked by hand: renamed, the role moves with it', async t => {
+  const s = await setup(t)
+  assert.equal((await s.call('create_folder', { account_id: s.row.id, name: 'Szülő' })).isError, false)
+  assert.equal((await s.call('create_folder', { account_id: s.row.id, name: 'Régi', parent: 'Szülő' })).isError, false)
+  s.index.setManualRole(s.row.id, 'archive', 'Szülő/Régi')
+  const r = await s.call('rename_folder', { account_id: s.row.id, path: 'Szülő', name: 'Más' })
+  assert.equal(r.isError, false, r.content[0].text)
+  assert.ok(s.imap.mailboxes.has('Más/Régi') && !s.imap.mailboxes.has('Szülő'))
+  const row = s.index.folderList(s.row.id).find(f => f.path === 'Más/Régi')
+  assert.deepEqual([row.role, row.role_manual], ['archive', 1])
 })
 
 test('test_account runs the UI\'s "Kapcsolat próbája" with the saved settings; only ok / the error code comes out', async t => {
@@ -1617,6 +1633,33 @@ test('send_draft of a draft that keeps the signature marker: the sent message ha
   assert.ok(!s.box.sent[0].raw.includes('data-sm-signature'), 'no marker in the sent message')
   const { simpleParser } = await import('mailparser')
   assert.match((await simpleParser(s.box.sent[0].raw)).text, /Jelölő-teszt/, 'the signature text itself goes out')
+})
+
+test('send_draft of the user\'s coloured draft: the palette colours go out as the composer would send them; the Modal\'s text is the same as without colour', async t => {
+  const s = await confirmedSetup(t)
+  const RED = TEXT_COLORS[0].hex
+  const YELLOW = HIGHLIGHT_COLORS[0].style
+  // saved by the composer (its form() keeps the palette colours); a foreign colour and style are not the toolbar's
+  const html = `<p>Sima <font color="${RED}">piros</font> és <span style="${YELLOW}">kiemelt</span>, <font color="#ff0000">idegen</font> <span style="color: red;">stílus</span>.</p>`
+  const sid = s.composer.open()
+  await s.composer.saveDraft(sid, { accountId: s.row.id, to: 'anna@example.invalid', cc: '', bcc: '', subject: 'Színes piszkozat', html, inReplyTo: null, references: [] })
+  s.composer.close(sid)
+  s.manager.syncNow(s.row.id)
+  await until(() => s.index.db.prepare("SELECT id FROM messages WHERE folder = 'Drafts' AND subject = 'Színes piszkozat'").get())
+  const id = s.index.db.prepare("SELECT id FROM messages WHERE folder = 'Drafts' AND subject = 'Színes piszkozat'").get().id
+  s.policy.decide = () => 'approve'
+  const r = await s.call('send_draft', { draft_id: id })
+  assert.equal(r.isError, false, r.content[0].text)
+  assert.equal(s.box.sent.length, 1)
+  const { simpleParser } = await import('mailparser')
+  const got = await simpleParser(s.box.sent[0].raw)
+  assert.ok(got.html.includes(`<font color="${RED}">piros</font>`), got.html)
+  assert.ok(got.html.includes(`<span style="${YELLOW}">kiemelt</span>`), got.html)
+  assert.ok(!got.html.includes('#ff0000') && !got.html.includes('color: red'), got.html)
+  // the Modal: the text part as it goes out, the same as the colourless one
+  const plain = htmlToPlain(visibleComposeHtml(html))
+  assert.equal(s.requests[0].view.text, plain)
+  assert.match(plain, /Sima piros és kiemelt, idegen stílus\./)
 })
 
 // --- the user's confirmation switches ------------------------------------------------------------------------

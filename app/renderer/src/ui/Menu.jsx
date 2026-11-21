@@ -14,8 +14,9 @@ function enabledItems(list) {
 }
 
 /**
- * items: [{ key, label, icon?, swatch?, disabled?, title?, checked?, danger?, onSelect }] or { separator: true }; swatch: a color
- * dot before the label (a label's color).
+ * items: [{ key, label, icon?, swatch?, swatchOutline?, disabled?, title?, checked?, danger?, onSelect }] or { separator: true };
+ * swatch: a color dot before the label (a label's color); swatchOutline: the dot gets the theme's outline instead of its own
+ * color (a light or a dark color that would not stand out on the menu, a transparent one).
  * `checked` (true/false) turns the items into radio items (the Select). onClose(reason) is called
  * with 'select', 'escape', 'tab' or 'outside'. `at` = { x, y } positions it fixed (context menu);
  * without it the menu sits under its (relatively positioned) parent.
@@ -127,7 +128,13 @@ export function Menu({ items, onClose, label, at, className, style, id }) {
               }}
             >
               {radio ? <Icon name="check" className={it.checked ? '' : 'icon-invisible'} /> : it.icon ? <Icon name={it.icon} /> : null}
-              {it.swatch ? <span className="label-swatch" style={{ backgroundColor: it.swatch, borderColor: it.swatch }} aria-hidden="true" /> : null}
+              {it.swatch ? (
+                <span
+                  className={cx('label-swatch', it.swatchOutline && 'swatch-outline')}
+                  style={it.swatchOutline ? { backgroundColor: it.swatch } : { backgroundColor: it.swatch, borderColor: it.swatch }}
+                  aria-hidden="true"
+                />
+              ) : null}
               <span className="menu-item-label">{it.label}</span>
             </button>
           </li>

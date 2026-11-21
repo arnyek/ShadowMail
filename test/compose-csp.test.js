@@ -1,18 +1,23 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// The composer window's own policy (app/renderer/compose.html): the main window's policy plus exactly ONE allowed
-// inline style (the editor's image commands write it; measured) and the pasted images' scheme. The main window
-// (index.html) keeps style-src 'self' and no inl-img:, and a received message's frame (mail-view:) never gets the hash.
+// The composer window's own policy (app/renderer/compose.html): the main window's policy plus exactly the allowed inline
+// styles (the editor's image commands write one, measured; and the highlight of each palette colour, computed here from
+// core/smtp/text-colors.js) and the pasted images' scheme. The main window (index.html) keeps style-src 'self' and no
+// inl-img:, and a received message's frame (mail-view:) never gets a hash.
 // That no policy line shows at a pasted image is measured by test/e2e/paste-image-e2e.mjs.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import crypto from 'node:crypto'
 import { viewCsp } from '../app/main/protocols.js'
+import { HIGHLIGHT_COLORS } from '../core/smtp/text-colors.js'
 
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const read = rel => fs.readFileSync(path.join(repo, rel), 'utf8')
 const EDITOR_STYLE = "'sha256-fFC89QmtxDk/dIQSVl8wDRNRgE5CdR0b9SsBNcFgSGg='"
+const hashOf = style => `'sha256-${crypto.createHash('sha256').update(style, 'utf8').digest('base64')}'`
+const HIGHLIGHT_STYLES = HIGHLIGHT_COLORS.map(c => hashOf(c.style))
 
 // the page's policy: directive -> its sources
 function policyOf(html) {
@@ -34,12 +39,16 @@ test('the main window: style-src \'self\' only, no pasted-image scheme', () => {
   assert.ok(!JSON.stringify(main).includes('unsafe'), 'nothing unsafe at all')
 })
 
-test('the composer: the main window\'s policy, plus exactly the one editor style and inl-img:', () => {
+test('the composer: the main window\'s policy, plus exactly the editor style, the palette\'s highlights, inl-img: and a free style attribute', () => {
   const main = policyOf(read('app/renderer/index.html'))
   const compose = policyOf(read('app/renderer/compose.html'))
-  assert.deepEqual(Object.keys(compose).sort(), Object.keys(main).sort(), 'the same directives')
+  // the one directive the composer has more: style attributes (the editor's own commands write them); nothing else
+  assert.deepEqual(Object.keys(compose).sort(), [...Object.keys(main), 'style-src-attr'].sort(), 'the same directives, plus style-src-attr')
+  assert.deepEqual(compose['style-src-attr'], ["'unsafe-inline'"])
+  assert.ok(!('style-src-attr' in main) && !('style-src-elem' in compose), 'no style-src-attr in the main window, no style-src-elem anywhere')
   for (const name of Object.keys(main)) {
-    if (name === 'style-src') assert.deepEqual(compose[name], ["'self'", "'unsafe-hashes'", EDITOR_STYLE])
+    assert.ok(name in compose, name)
+    if (name === 'style-src') assert.deepEqual(compose[name], ["'self'", "'unsafe-hashes'", EDITOR_STYLE, ...HIGHLIGHT_STYLES])
     else if (name === 'img-src') assert.deepEqual(compose[name], [...main[name], 'inl-img:'])
     else assert.deepEqual(compose[name], main[name], name)
   }
@@ -56,6 +65,14 @@ test('the two pages load the same app; the build makes both; the main process pu
   const main = read('app/main/main.js')
   assert.match(main, /win\.loadFile\(rendererCompose\(\), \{ hash: `compose=\$\{sessionId\}` \}\)/)
   assert.match(main, /mainWindow\.loadFile\(rendererIndex\(\)\)/)
+})
+
+test('the highlight hashes: one per palette highlight, all different, none is the image style\'s', () => {
+  assert.equal(HIGHLIGHT_STYLES.length, HIGHLIGHT_COLORS.length)
+  assert.equal(new Set([EDITOR_STYLE, ...HIGHLIGHT_STYLES]).size, HIGHLIGHT_STYLES.length + 1)
+  // the hash is of the exact text: the same colour written another way is another hash (it would not show)
+  assert.notEqual(hashOf('background-color: rgb(255,245,157);'), HIGHLIGHT_STYLES[0])
+  assert.equal(hashOf('background-color: rgb(255, 245, 157);'), HIGHLIGHT_STYLES[0])
 })
 
 test('a received message\'s frame never gets the editor\'s style hash', () => {

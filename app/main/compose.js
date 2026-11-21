@@ -33,6 +33,7 @@ import { SIG_CID_RE, unwrapSignature } from '../../core/smtp/signature.js'
 import { SIGNATURE_TYPES, prepareInlineImage, SignatureImageError } from '../../core/accounts/signature-image.js'
 import { checkSendAt } from '../../core/db/scheduled.js'
 import { labelKeyOf } from '../../core/db/label-key.js'
+import { cidKey, cidResolver } from '../../core/mime/cid.js'
 
 // the session image of a scheduled message: its html names this instead of a session id (a new session sends it)
 const SCHEDULED_SESSION = 'scheduled-session'
@@ -43,6 +44,30 @@ export const INLINE_IMAGE_SHOWN_WIDTH = SHOWN_WIDTH
 // our own inline part of a pasted image, in a saved draft (taken back into the session when the draft opens again)
 export const IMG_CID_RE = /^img-[0-9a-f]{24}@shadowmail$/
 const INL_IMG_RE = /<img\b[^>]*?\bsrc="inl-img:\/\/session\/([A-Za-z0-9_-]{1,64})\/([0-9a-f]{24})"[^>]*>/g
+// an <img> tag and one attribute of it, its value quoted or bare. No < or > inside the tag, not even in a quoted
+// value: a try stops at the next <, so an unclosed tag (or quote) cannot make each <img read on to the end of the
+// HTML (that was quadratic: 20 000 unclosed <img took 5 s); such an image is simply not taken
+const IMG_TAG_RE = /<img\b(?:[^<>"']|"[^"<>]*"|'[^'<>]*')*>/gi
+const ATTR_RE = /(\s)([^\s=/>"']+)(?:(\s*=\s*)("[^"]*"|'[^']*'|[^\s"'>]+))?/g
+// a cid: URL as a whole src value (RFC 2392: the Content-ID without < >, %-encoded)
+const CID_SRC_RE = /^\s*cid:([^\s"'<>()]+)\s*$/i
+
+/**
+ * Every <img src="cid:..."> of an HTML through `fn(the cid as written)`: a string is the new src, undefined keeps it.
+ * Only an image's src: a cid: in a background, a link, a CSS url() or the text is left alone, because the editor's
+ * cleaning keeps only <img src>, and a part referred to only there must stay an attachment of a forward.
+ */
+function mapImgCidSrc(html, fn) {
+  return html.replace(IMG_TAG_RE, tag =>
+    tag.replace(ATTR_RE, (whole, space, name, eq, value) => {
+      if (!value || name.toLowerCase() !== 'src') return whole
+      const quote = value[0] === '"' || value[0] === "'" ? value[0] : ''
+      const m = CID_SRC_RE.exec(quote ? value.slice(1, -1) : value)
+      const src = m ? fn(m[1]) : undefined
+      return src === undefined ? whole : `${space}${name}${eq}"${src}"`
+    }),
+  )
+}
 const EMAIL = /^[^\s@<>()",;:\\[\]]+@[^\s@<>()",;:\\[\]]+\.[^\s@<>()",;:\\[\]]+$/
 
 /** "Név <a@example.invalid>, c@example.invalid" or a list of such strings -> [{ name, address }]; bad ones -> { bad: [...] }. */
@@ -336,19 +361,7 @@ export class Composer {
       }
       // our own pasted images (img-...@shadowmail parts the HTML refers to): the session's images again, checked and
       // cleaned as when pasted (a draft on the server is not trusted more than a paste)
-      for (const a of parsed.attachments) {
-        const cid = a.cid ? String(a.cid).replace(/^<|>$/g, '') : ''
-        if (!IMG_CID_RE.test(cid) || !html.includes(`cid:${cid}`) || !this.decodeImage) continue
-        let img
-        try {
-          img = prepareInlineImage(Buffer.from(a.content), { decode: this.decodeImage, upright: this.uprightImage })
-        } catch {
-          continue // left as a cid: image, which the editor's sanitizer drops
-        }
-        const id = crypto.randomBytes(12).toString('hex')
-        s.inlineImages.set(id, { type: img.type, bytes: img.bytes, width: img.width, height: img.height })
-        html = html.split(`cid:${cid}`).join(`inl-img://session/${s.id}/${id}`)
-      }
+      html = this.#takeCidImages(s, html, parsed.attachments, cid => IMG_CID_RE.test(cid)).html
       form = {
         accountId: account.id,
         to: fmt(parsed.to),
@@ -362,8 +375,20 @@ export class Composer {
       s.initial = form
       return form
     }
+    // the original's own embedded images (the owner's decision): in the quote as this session's images, so they show, can be sized
+    // or removed like a pasted one, and go out embedded. Not for Claude's quote (safeQuote: no images) nor a body left
+    // out (omitBody). Only a part an <img src> refers to is taken (mapImgCidSrc). What is not taken (not PNG / JPEG,
+    // refused by the cleaning, over the limits, referred to only elsewhere) stays a cid: reference, which the editor's
+    // sanitizer drops: a reply leaves it out, a forward attaches it as before.
+    let taken = new Set()
+    if (!safeQuote && typeof omitBody !== 'string' && original.html) {
+      const quoted = this.#takeCidImages(s, original.html, original.attachments, () => true)
+      original = { ...original, html: quoted.html }
+      taken = quoted.taken
+    }
     if (mode === 'forward') {
-      for (const a of original.attachments) {
+      // an image taken into the quote is not attached again; every other part is, as before
+      for (const a of original.attachments.filter(x => !taken.has(x))) {
         const att = { id: crypto.randomUUID(), filename: a.filename, content: a.content, contentType: a.contentType }
         s.attachments.set(att.id, att)
       }
@@ -450,6 +475,44 @@ export class Composer {
 
   attachmentList(sessionId) {
     return [...this.#session(sessionId).attachments.values()].map(a => ({ id: a.id, filename: a.filename, size: a.content.length }))
+  }
+
+  /**
+   * The parts an HTML refers to with cid: (the Content-ID matched without < >, %-decoded, case-insensitively; one part
+   * however many times it is referred to), in the order the HTML first refers to them, taken into the session as its
+   * own images: each through prepareInlineImage (PNG / JPEG only, the metadata white lists, turned upright, the 10 MB
+   * and pixel limits) and within the session's 25 MB (MAX_ATTACHMENTS_BYTES, with what is in the session already);
+   * every reference to it becomes inl-img://session/<sid>/<id>. `accept(cidKey)` picks the parts that may be taken.
+   * A part refused, or no decoder at all, stays a cid: reference (the editor's sanitizer drops it); nothing is logged.
+   * -> { html, taken: the Set of the parts taken }
+   */
+  #takeCidImages(s, html, parts, accept) {
+    const taken = new Set()
+    if (!html || !this.decodeImage) return { html, taken }
+    // the part a reference shows: the Content-ID written the same way first, then another case / %-encoded (cidResolver)
+    const partOf = cidResolver(parts, a => accept(cidKey(a.cid)))
+    const order = new Set()
+    mapImgCidSrc(html, raw => {
+      const a = partOf(raw)
+      if (a) order.add(a)
+    })
+    if (!order.size) return { html, taken }
+    const srcOf = new Map()
+    for (const a of order) {
+      let img
+      try {
+        img = prepareInlineImage(Buffer.from(a.content), { decode: this.decodeImage, upright: this.uprightImage })
+      } catch {
+        continue
+      }
+      if (this.#sessionBytes(s) + img.bytes.length > MAX_ATTACHMENTS_BYTES) continue
+      const id = crypto.randomBytes(12).toString('hex')
+      s.inlineImages.set(id, { type: img.type, bytes: img.bytes, width: img.width, height: img.height })
+      srcOf.set(a, `inl-img://session/${s.id}/${id}`)
+      taken.add(a)
+    }
+    if (srcOf.size) html = mapImgCidSrc(html, raw => srcOf.get(partOf(raw)))
+    return { html, taken }
   }
 
   // the session's attachments and pasted images together: one 25 MB limit (MAX_ATTACHMENTS_BYTES)

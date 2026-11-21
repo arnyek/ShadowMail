@@ -821,7 +821,13 @@ export const hu = {
   composeSuggestions: 'Címjavaslatok',
   composeFormatting: 'Formázás',
   composeFormattingHint: 'Formázás (a szövegből az eszköztárra: Alt+F10)',
-  composeTools: { bold: 'Félkövér', italic: 'Dőlt', underline: 'Aláhúzott', ul: 'Felsorolás', ol: 'Számozott lista', link: 'Link', quote: 'Idézet', clear: 'Formázás törlése' },
+  composeTools: { bold: 'Félkövér', italic: 'Dőlt', underline: 'Aláhúzott', textColor: 'Szövegszín', highlight: 'Kiemelés', ul: 'Felsorolás', ol: 'Számozott lista', link: 'Link', quote: 'Idézet', clear: 'Formázás törlése' },
+  composeColors: {
+    auto: 'Automatikus',
+    noHighlight: 'Nincs kiemelés',
+    text: { red: 'Piros', orange: 'Narancs', green: 'Zöld', blue: 'Kék', purple: 'Lila', gray: 'Szürke' },
+    highlight: { yellow: 'Sárga', green: 'Zöld', blue: 'Kék', pink: 'Rózsaszín', orange: 'Narancs', gray: 'Szürke' },
+  },
   composeToolLabels: { link: 'Link', quote: 'Idézet', clear: 'Tisztítás' },
   composeLinkUrl: 'Cím (https://… vagy mailto:…)',
   composeLinkOk: 'Beszúrás',
@@ -863,9 +869,11 @@ export const hu = {
     code === 'too_large'
       ? detail && detail.bytes
         ? 'A kép nagyobb 10 MB-nál, nem illeszthető be.'
-        : detail && detail.maxPixels
-          ? `Az elforgatott tájolású fotó túl nagy a felállításhoz: ${Math.round((detail.width * detail.height) / 1e6)} megapixel, legfeljebb ${Math.round(detail.maxPixels / 1e6)} lehet.`
-          : 'A képpel együtt a mellékletek és a képek 25 MB fölé mennének (a legtöbb szerver nagyobbat nem fogad).'
+        : detail && detail.maxPixels && !detail.turned
+          ? `A kép túl nagy a szövegbe illesztéshez: ${Math.round((detail.width * detail.height) / 1e6)} megapixel, legfeljebb ${Math.round(detail.maxPixels / 1e6)} lehet. Kicsinyítsd le, vagy csatold mellékletként.`
+          : detail && detail.maxPixels
+            ? `Az elforgatott tájolású fotó túl nagy a felállításhoz: ${Math.round((detail.width * detail.height) / 1e6)} megapixel, legfeljebb ${Math.round(detail.maxPixels / 1e6)} lehet.`
+            : 'A képpel együtt a mellékletek és a képek 25 MB fölé mennének (a legtöbb szerver nagyobbat nem fogad).'
       : code === 'unsupported_image'
         ? 'A kép nem illeszthető be: nem olvasható PNG vagy JPEG.'
         : code === 'not_attachable'

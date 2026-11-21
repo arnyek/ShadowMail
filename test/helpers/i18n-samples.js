@@ -153,7 +153,7 @@ export const SAMPLES = {
   confirmFolderMove: n => [['Projects', 'Archive', n]],
   'moveDialog.title': () => [['Projects']],
   'moveDialog.topLevel': () => [['Work']],
-  composeImageError: () => [['too_large', { bytes: 11 * 1024 * 1024, maxBytes: 10 * 1024 * 1024 }], ['too_large', { maxBytes: 25 * 1024 * 1024 }], ['unsupported_image', {}], ['too_large', { width: 16000, height: 12000, maxPixels: 50_000_000 }], ['not_attachable', {}], ['not_available', {}]],
+  composeImageError: () => [['too_large', { bytes: 11 * 1024 * 1024, maxBytes: 10 * 1024 * 1024 }], ['too_large', { maxBytes: 25 * 1024 * 1024 }], ['unsupported_image', {}], ['too_large', { width: 16000, height: 12000, maxPixels: 50_000_000, turned: true }], ['too_large', { width: 16000, height: 12000, maxPixels: 50_000_000, turned: false }], ['not_attachable', {}], ['not_available', {}]],
   composeImageAttached: n => [[n]],
   folderError: () => [...codes(en.folderErrors), 'timeout'].map(c => [c]),
   searchDateRange: () => [['2026-03-05', '2026-04-01'], ['2026-03-05', ''], ['', '2026-04-01']],

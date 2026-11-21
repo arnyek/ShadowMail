@@ -2,7 +2,8 @@
 // The folder menu's "Move…" (jsdom): moveTargetReason (the reason of every refusal; moveTarget is its "no reason"),
 // the dialog's listbox (the top level and the account's tree, the refused targets disabled with the reason as the
 // option's description, the keyboard: Up / Down / Home / End, Enter chooses an allowed target only), the shape the choice
-// goes on with, and the menu item (after Rename; off with the reason for a role in the subtree or a flat server).
+// goes on with, and the menu item (after Rename; off with the reason for an automatic role in the subtree or a flat
+// server; a role picked by hand moves along).
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { setupDom, mount, inAct, key } from './helpers/react-dom-env.js'
@@ -31,7 +32,8 @@ test('moveTargetReason: every refusal has its reason; moveTarget is "no reason"'
   const r = (from, to) => moveTargetReason(ACCOUNT.folders, roles, from, to)
   assert.equal(r('Lapos', 'C'), 'flat')
   assert.equal(r('Nincs', 'C'), 'flat')
-  assert.equal(r('K', 'C'), 'role') // K/Arch below it has a role
+  assert.equal(r('K', 'C'), null) // K/Arch below it: a role picked by hand moves along
+  assert.equal(r('Trash', 'C'), 'role') // an automatic role (the server's \\Trash) stays
   assert.equal(r('C', null), 'top')
   assert.equal(r('A/B', null), null)
   assert.equal(r('A/B', 'Hely'), 'missing') // a placeholder
@@ -151,7 +153,7 @@ test('the folder menu: "Move…" right after Rename; off with the reason when th
   assert.equal(item().getAttribute('title'), t.moveDialog.reasons.role)
 })
 
-test('the tree tells the menu whether the folder can move (a role below it, a flat folder: blocked)', async t2 => {
+test('the tree tells the menu whether the folder can move (an automatic role in it, a flat folder: blocked) and whether it can be renamed', async t2 => {
   const menus = []
   const v = await mount(h(FolderTree, { accounts: [ACCOUNT], selected: { accountId: 1, folder: 'INBOX' }, onSelect: () => {}, onDropMessages: () => {}, onFolderMenu: m => menus.push(m), onNewFolder: () => {} }))
   t2.after(v.unmount)
@@ -159,6 +161,7 @@ test('the tree tells the menu whether the folder can move (a role below it, a fl
     v.container.querySelector(`.folder[data-path="${path}"]`).dispatchEvent(new window.MouseEvent('contextmenu', { bubbles: true, cancelable: true }))
     await wait(5)
   })
-  for (const p of ['A/B', 'C', 'K', 'Lapos']) await open(p)
-  assert.deepEqual(menus.map(m => [m.path, m.moveBlocked]), [['A/B', null], ['C', null], ['K', 'role'], ['Lapos', 'flat']])
+  for (const p of ['A/B', 'C', 'K', 'K/Arch', 'Trash', 'Lapos']) await open(p)
+  assert.deepEqual(menus.map(m => [m.path, m.moveBlocked, m.renameBlocked]), [['A/B', null, false], ['C', null, false], ['K', null, false], ['K/Arch', null, false], ['Trash', 'role', true], ['Lapos', 'flat', false]])
+  assert.equal(menus.find(m => m.path === 'K/Arch').name, 'Arch', 'the rename starts from the folder\'s own name, not the role\'s')
 })

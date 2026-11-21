@@ -140,12 +140,11 @@ try {
   await page.locator('.reader[data-message-id]').waitFor()
   check('a plain click opens the message, the row is not selected, the list is hidden', (await row('POP 10').getAttribute('aria-selected')) === 'false' && (await selectedCount()) === 2 && !(await page.locator('.list-area').isVisible()))
   await page.keyboard.press('Delete')
-  await row('POP 10').waitFor({ state: 'detached' })
-  // the next message (the one below) opens in the list's place (the reader keys card: after a delete the next one opens)
-  await page.waitForFunction(() => document.querySelector('.reader[data-message-id]')?.getAttribute('aria-label') === 'POP 11')
-  check('(a) in the list\'s place: Delete takes the open message, the next one (POP 11, the one below) opens; the 2 selected stay', (await selectedCount()) === 2 && (await row('POP 09').count()) === 1 && (await row('POP 11').count()) === 1 && !(await page.locator('.list-area').isVisible()))
-  await page.keyboard.press('Escape')
+  // in the list's place the list comes back at once (a webmail's way; beside the list the next one opens:
+  // test/e2e/full-view-back-e2e.mjs)
   await page.locator('.list-area').waitFor({ state: 'visible' })
+  await row('POP 10').waitFor({ state: 'detached' })
+  check('(a) in the list\'s place: Delete takes the open message, the list comes back; the 2 selected stay', (await selectedCount()) === 2 && (await row('POP 09').count()) === 1 && (await row('POP 11').count()) === 1 && (await page.locator('.reader[data-message-id]').count()) === 0)
   // a search hit open, a hidden folder selection: Delete takes the hit, not the selection
   const search = page.getByRole('searchbox', { name: t.searchLabel })
   await search.fill('POP 06')
@@ -202,12 +201,9 @@ try {
   await row('POP 07').click()
   await page.locator('.reader[data-message-id]').waitFor()
   await page.keyboard.press('Delete')
-  await row('POP 07').waitFor({ state: 'detached' })
-  // the next message (the one below, POP 08) opens in its place (the reader keys card); Esc gets back to the list
-  await page.waitForFunction(() => document.querySelector('.reader[data-message-id]')?.getAttribute('aria-label') === 'POP 08')
-  check('Del on the open message moves it to the Trash, the next one (POP 08) opens', !(await page.locator('.list-area').isVisible()))
-  await page.keyboard.press('Escape')
   await page.locator('.list-area').waitFor({ state: 'visible' })
+  await row('POP 07').waitFor({ state: 'detached' })
+  check('Del on the open message moves it to the Trash, the list comes back (no message open)', (await page.locator('.reader[data-message-id]').count()) === 0)
 
   // a double click on a row's hover trash moves it once, asks nothing; the hover
   // action of an unselected row keeps the selection

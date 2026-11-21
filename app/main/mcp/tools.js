@@ -1283,9 +1283,10 @@ export function createMcpTools({ appVersion, store, index, reader, manager, peop
         if (!source_sha256) throw new ToolError('not_available', DRAFT_TEXT.not_available)
         const sid = composer.open()
         const d = await prepareSession(sid, { mode: 'draft', messageId: a.draft_id })
-        // what goes out is what the composer would send: its own allow-list (no image, style, script; <a href> http(s) /
-        // mailto only), the hidden text out; the Modal shows that text and every link's target
-        const html = d.draftHtml ? visibleComposeHtml(d.draftHtml) : ''
+        // what goes out is what the composer would send: its own allow-list (no image, script, other style; <a href> http(s)
+        // / mailto only; the toolbar's palette colours stay, as the composer keeps them in a saved draft), the hidden text
+        // out; the Modal shows that text and every link's target
+        const html = d.draftHtml ? visibleComposeHtml(d.draftHtml, { colors: true }) : ''
         // empty or too complex visible part: nothing to show the user, nothing goes out
         if (!html || !htmlToPlain(html).trim()) {
           composer.close(sid)

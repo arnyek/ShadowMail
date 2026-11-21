@@ -74,6 +74,9 @@ export function contrast(fg, bg) {
 
 // [foreground, background (layers, top first)]
 const TEXT_PAIRS = [
+  // the composer's writing surface: the message's own light page in every theme
+  ['--c-mail-text', ['--c-mail-bg']],
+  ['--c-mail-text-2', ['--c-mail-bg']],
   ['--c-text', ['--c-bg']],
   ['--c-text', ['--c-surface']],
   ['--c-text', ['--c-surface-2']],
@@ -108,6 +111,8 @@ const TEXT_PAIRS = [
 ]
 
 const ICON_PAIRS = [
+  // a colour menu's swatch outline is --c-text-2 on the menu (--c-bg, below); a quote's line on the writing surface
+  // (--c-mail-quote) is decoration, as --c-border-strong was there before
   ['--c-text-2', ['--c-bg']],
   ['--c-text-2', ['--c-surface']],
   ['--c-text-2', ['--c-surface-2']],
@@ -254,7 +259,7 @@ test('every color token of theme.css is checked in some pair (or explicitly exem
 })
 
 // the message frame's background: light in every theme (the message keeps its own colors), never overridden
-const THEME_INDEPENDENT = ['--c-mail-bg']
+const THEME_INDEPENDENT = ['--c-mail-bg', '--c-mail-text', '--c-mail-text-2', '--c-mail-quote']
 const overrides = id => {
   const out = new Set()
   for (const body of blocks(css, sel => sel.split(',').some(x => x.trim().replace(/^:root/, '') === `[data-theme="${id}"]`))) {
@@ -309,6 +314,16 @@ test('a message keeps its own light page under every theme: the reader frame and
   const app = fs.readFileSync(new URL('../app/renderer/src/app.css', import.meta.url), 'utf8')
   const frame = blocks(app, sel => sel === '.mail-frame').join('')
   assert.match(frame, /background:\s*var\(--c-mail-bg\);/, 'the frame element sits on the theme-independent token')
+  // the composer's writing surface too: its page, text, quote and colour-scheme do not follow the theme
+  const editor = blocks(app, sel => sel === '.editor').join('')
+  assert.match(editor, /background:\s*var\(--c-mail-bg\);/)
+  assert.match(editor, /color:\s*var\(--c-mail-text\);/)
+  assert.match(editor, /color-scheme:\s*light;/)
+  const quote = blocks(app, sel => sel === '.editor blockquote').join('')
+  assert.match(quote, /border-left:\s*3px solid var\(--c-mail-quote\);/)
+  assert.match(quote, /color:\s*var\(--c-mail-text-2\);/)
+  // a colour menu's swatches carry the theme's outline (a light highlight or a dark colour would not stand out)
+  assert.match(blocks(app, sel => sel === '.label-swatch.swatch-outline').join(''), /border-color:\s*var\(--c-text-2\);/)
   const doc = viewDocument('<p>x</p>', false)
   assert.match(doc, /html\{color-scheme:light\}/, 'the message document says it is light')
   assert.match(doc, /body\{[^}]*background:#fff[;}]/, 'and paints its own white page')

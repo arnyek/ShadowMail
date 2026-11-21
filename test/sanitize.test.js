@@ -7,7 +7,7 @@ import fs from 'node:fs'
 import { JSDOM } from 'jsdom'
 import createDOMPurify from 'dompurify'
 import { parseMessage } from '../core/mime/message.js'
-import { sanitizeMail, sanitizeCompose } from '../app/renderer/src/sanitize.js'
+import { sanitizeMail, sanitizeCompose, tableToLines } from '../app/renderer/src/sanitize.js'
 
 const window = new JSDOM('').window
 const purify = createDOMPurify(window)
@@ -113,4 +113,80 @@ test('composer paste: only the toolbar\'s own formatting survives', () => {
   assert.deepEqual([...doc.querySelectorAll('a[href]')].map(a => a.getAttribute('href')), ['https://example.com/', 'mailto:a@example.invalid'])
   for (const tag of ['h1', 'p', 'b', 'i', 'u', 'ul', 'li', 'blockquote']) assert.equal(doc.getElementsByTagName(tag).length, 1, tag)
   assert.match(doc.body.textContent, /cella/, 'the text of removed tags stays')
+})
+
+// a web page's table pasted into the composer (Chromium's clipboard shape: no space or line between the cells)
+const COPIED_TABLE = '<table class="bevitel" style="color: rgb(0, 0, 0);"><tbody><tr><th>Kedvezményezett neve:</th><td>Példa Kft</td></tr>' +
+  '<tr><th>Számlaszáma:</th><td>11111111-22222222</td></tr><tr><th>Összeg:</th><td class="bold">1000 HUF</td></tr></tbody></table><br class="Apple-interchange-newline">'
+const linesOf = html => [...new JSDOM(`<body>${html}</body>`).window.document.body.querySelectorAll('div > div')].map(d => d.textContent)
+
+test('composer paste, a copied table (tableRows): one row a line, the cells one space apart, the header cells bold', () => {
+  const out = sanitizeCompose(purify, COPIED_TABLE, { tableRows: true })
+  assert.equal(out, '<div><div><b>Kedvezményezett neve:</b> Példa Kft</div><div><b>Számlaszáma:</b> 11111111-22222222</div><div><b>Összeg:</b> 1000 HUF</div></div><br>')
+})
+
+test('composer, a table without tableRows (the starting body, a reply\'s quote): the old shape, byte for byte', () => {
+  assert.equal(sanitizeCompose(purify, COPIED_TABLE), 'Kedvezményezett neve:Példa KftSzámlaszáma:11111111-22222222Összeg:1000 HUF<br>')
+  // and a tableRows call before leaves no hook behind
+  sanitizeCompose(purify, COPIED_TABLE, { tableRows: true })
+  assert.equal(sanitizeCompose(purify, '<table><tr><td>a</td><td>b</td></tr></table>'), 'ab')
+})
+
+test('a copied table: thead / tfoot / caption, empty and spanning cells, a nested table, inline formatting in a cell', () => {
+  const html = '<table><caption>Cím <i>dőlt</i></caption><thead><tr><th>A</th><th>B</th></tr></thead><tbody><tr><td colspan="2">egész</td></tr>' +
+    '<tr><td></td><td>jobb</td></tr><tr><td><table><tr><td>be1</td><td>be2</td></tr></table></td><td><b>v</b> <a href="https://example.com/">link</a></td></tr></tbody>' +
+    '<tfoot><tr><td>láb</td></tr></tfoot></table>'
+  const out = sanitizeCompose(purify, html, { tableRows: true })
+  const doc = new JSDOM(`<body>${out}</body>`).window.document
+  const rows = [...doc.body.firstElementChild.children].map(d => d.textContent)
+  assert.deepEqual(rows, ['Cím dőlt', 'A B', 'egész', ' jobb', 'be1 be2 v link', 'láb'])
+  assert.equal(doc.querySelectorAll('table, tr, td, th, caption, thead, tbody, tfoot').length, 0)
+  assert.deepEqual([...doc.querySelectorAll('div div div div')].map(d => d.textContent), ['be1 be2'], 'the nested row is a line inside its row')
+  assert.equal(doc.querySelector('a').getAttribute('href'), 'https://example.com/')
+  assert.equal(doc.querySelectorAll('i').length, 1)
+  for (const el of doc.body.querySelectorAll('*')) assert.deepEqual([...el.attributes].map(a => a.name).filter(n => n !== 'href'), [], el.outerHTML)
+})
+
+test('a table\'s rows: what stands in no cell (text right in the table, in a row group or a row, an element) is kept where it stands; whitespace, comments and columns are not lines', () => {
+  // the parsers here move such text out of a table, so the DOM is built by hand (in the app a deep nested table's
+  // innermost text was lost in a reply's quote before this)
+  const doc = new JSDOM('').window.document
+  const el = (name, ...kids) => {
+    const e = doc.createElement(name)
+    e.append(...kids)
+    return e
+  }
+  const table = el('table', el('colgroup', el('col')), '\n  ', 'fent', el('tbody', el('tr', el('td', 'a'), 'sor', el('th', 'b')), doc.createComment('x'), 'kint', el('tr', el('td', 'c')), el('i', 'dőlt')), el('tfoot', el('tr', el('td', 'láb'))), ' ')
+  tableToLines(table)
+  assert.deepEqual([...table.firstElementChild.children].map(d => d.textContent), ['fent', 'a sor b', 'kint', 'c', 'dőlt', 'láb'])
+  assert.equal(table.querySelector('b').textContent, 'b')
+  // through the sanitizer: a table nested 200 deep keeps its innermost text
+  const deep = sanitizeCompose(purify, `${'<table><tr><td>'.repeat(200)}legbelso${'</td></tr></table>'.repeat(200)}`, { tableRows: true })
+  assert.match(deep, /legbelso/)
+})
+
+test('a copied table is still sanitized: a script, an outside image, a handler or a style in a cell does not survive', () => {
+  const html = '<table><tr><th onclick="x()" style="color:red">K<script>alert(1)</script></th><td><img src="https://tracker.invalid/p.png" onerror="x()">' +
+    '<a href="javascript:alert(1)">rossz</a><iframe src="https://x.invalid"></iframe></td></tr></table>'
+  const out = sanitizeCompose(purify, html, { tableRows: true })
+  assert.doesNotMatch(out, /script|alert|tracker|onerror|onclick|style|iframe|javascript/i, out)
+  assert.deepEqual(linesOf(out), ['K rossz'])
+})
+
+test('a big copied table is linear: 4000 rows take at most 6 times 1000 rows (best of 3; a quadratic walk is 16 times)', () => {
+  const row = '<tr><th>Címke:</th><td>érték 1</td><td>érték 2</td><td>érték 3</td><td>érték 4</td></tr>'
+  const best = n => {
+    const html = `<table>${row.repeat(n)}</table>`
+    let min = Infinity
+    for (let i = 0; i < 3; i++) {
+      const t0 = performance.now()
+      const out = sanitizeCompose(purify, html, { tableRows: true })
+      min = Math.min(min, performance.now() - t0)
+      assert.equal((out.match(/<div><b>Címke:<\/b> érték 1 érték 2 érték 3 érték 4<\/div>/g) || []).length, n)
+    }
+    return min
+  }
+  const small = best(1000)
+  const big = best(4000)
+  assert.ok(big <= small * 6, `1000 rows ${Math.round(small)} ms, 4000 rows ${Math.round(big)} ms`)
 })

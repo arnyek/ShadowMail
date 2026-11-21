@@ -39,7 +39,7 @@ Windows írja, nem a program. A Windows „Legutóbbi fájlok” listájába a S
 
 ![Egy megnyitott levél: monogram, ikonos műveletek, mellékletkártyák](docs/screenshots/readme-reader.png)
 
-![Levélírás: Feladó, Címzett, Tárgy, ikonos formázás, kék Küldés gomb, mellette Küldés később](docs/screenshots/readme-compose.png)
+![Levélírás: Feladó, Címzett, Tárgy, ikonos formázás Szövegszínnel és Kiemeléssel, kék Küldés gomb, mellette Küldés később](docs/screenshots/readme-compose.png)
 
 ### Billentyűk megnyitott levélnél
 
@@ -48,8 +48,9 @@ Windows írja, nem a program. A Windows „Legutóbbi fájlok” listájába a S
 - **Delete**: törlés, **End**: archiválás (a fiók Archívum-mappájába, évenkénti módban az év mappájába). Ha van
   látható kijelölés a listában, azokra hat, különben a megnyitott levélre. Az olvasó eszköztárában a Törlés mellett
   **Archiválás** gomb is van. Nyitott levél nélkül a Delete a látható kijelölést törli, az End a lista végére görget.
-- Törlés, archiválás vagy áthelyezés után a lista **következő** (alatta lévő) levele nyílik meg; ha az volt az utolsó,
-  az előző.
+- Ha a levél a lista helyén van nyitva (olvasópanel nélkül), törlés, archiválás, áthelyezés (a Levélszemétbe is) vagy
+  Olvasatlannak jelölés után azonnal **visszajön a lista**, ott, ahol hagytad. Ha az olvasó a lista mellett vagy alatt
+  van, a lista **következő** (alatta lévő) levele nyílik meg; ha az volt az utolsó, az előző.
 - Ahol nincs hova archiválni (a fióknak nincs Archívum-mappája, vagy a levél már ott van), az End nem csinál semmit,
   csak egy sor mondja meg, miért.
 - A billentyűk akkor is működnek, ha a levél szövegébe kattintottál. Szövegmezőben, menüben, párbeszédablakban és a
@@ -62,6 +63,12 @@ Windows írja, nem a program. A Windows „Legutóbbi fájlok” listájába a S
 - A formázási eszköztár a szövegből az **Alt+F10**-zel érhető el: a nyilak, a **Home** és az **End** lépked a gombok
   között, az **Enter** formáz, az **Esc** visszavisz a szövegbe (a kijelölés megmarad). A **Ctrl+B**, **Ctrl+I**,
   **Ctrl+U** a szövegben is működik.
+- A **Szövegszín** és a **Kiemelés** (az Aláhúzott után) menüt nyit: elöl **Automatikus** / **Nincs kiemelés**, utána
+  hat-hat szín. Billentyűvel: **Alt+F10**, a nyilakkal a gombra, az **Enter**, a **Szóköz** vagy a **Le** nyitja a menüt,
+  a nyilak választanak, az **Enter** kiszínezi a kijelölt szöveget (kijelölés nélkül a következő begépelt szöveget), az
+  **Esc** visszavisz a szövegbe. Az írófelület minden témában világos, ahogy a címzett látja a levelet. Az ugyanabban a
+  levélíró ablakban kimásolt vagy kivágott és beillesztett színes szöveg megtartja a színét; máshonnan beillesztett
+  szöveg szín nélkül érkezik.
 - Képet a vágólapról (**Ctrl+V**) vagy fájlként a szövegre húzva lehet a levélbe tenni (PNG, JPEG; más képformátum
   mellékletként csatolódik). A kép mérete a képen jobb gombbal, vagy a kép mellett álló kurzornál a **Shift+F10**-zel
   állítható: Kicsi (320 px), Közepes (640 px), Nagy (800 px), Eredeti méret, vagy a kép eltávolítása. Csak a megjelenített
@@ -208,6 +215,39 @@ színezhetsz, rendezhetsz és törölhetsz címkét.
   Message-ID és Date fejléce, egy újra letöltött példányán a címke nem látszik.
 - Claude (MCP) felteheti és leveheti a meglévő címkéket; létrehozni, átnevezni és törölni csak te tudsz.
 
+### Újdonságok a 0.18.0-ban, ismert korlátok
+
+- **Az eredeti levél képei a válaszban és a továbbításban:** az eredeti szövegében látható képek (PNG és JPEG) az
+  idézetben is megjelennek, méretezhetők és törölhetők, mint egy beillesztett kép, és a leveledben, a szövegben mennek
+  ki. Továbbításkor ezek nem kerülnek még egyszer mellékletbe; minden más melléklet a régi módon jön.
+- **A táblázat megtartja a sorait:** a weboldalról beillesztett táblázat, és a válasz vagy a továbbítás idézetében álló
+  táblázat soronként egy sorban jelenik meg, a cellák egymás mellett, a fejléc-cellák félkövéren; az elküldött levél
+  szöveges része is soronként.
+- **A kézzel választott mappaszerep vándorol a mappával:** a fiókbeállításban kézzel kijelölt Archívum, Elküldött,
+  Piszkozatok, Kuka vagy Levélszemét mappa átnevezhető, áthúzható és az **Áthelyezés…** paranccsal (billentyűvel is)
+  áthelyezhető, és a fölötte álló mappa is; a szerep az új helyen marad. Az a szerep, amit a program maga talált (a
+  Beérkezett, a szerver saját mappái, a szokásos nevek), és az ilyen mappára kézzel rögzített szerep a helyén marad.
+- **Más írásmódú kép:** ha a levél szövege más kis-nagybetűvel vagy %-kódolva hivatkozik a képére, az olvasó most is
+  megmutatja, és nem kínálja fel mellékletként.
+- **Nagyon nagy kép** (50 megapixel fölött) nem kerül a szövegbe; egy sor jelzi, és mellékletként csatolható.
+- **Vissza a listába:** ha a levél a lista helyén van nyitva, törlés, archiválás, áthelyezés vagy Olvasatlannak jelölés
+  után azonnal visszajön a lista (ott, ahova görgetted); ha az olvasó a lista mellett vagy alatt van, a következő levél
+  nyílik, mint eddig.
+- **Szövegszín és kiemelés a levélíróban:** az eszköztáron az Aláhúzott után **Szövegszín** és **Kiemelés** gomb,
+  mindkettőben **Automatikus** / **Nincs kiemelés** és 6-6 szín. Az írófelület minden témában világos, mint a levél
+  lapja. A levélírón belül kimásolt vagy kivágott szöveg megtartja a színét, a máshonnan beillesztett szöveg színtelen;
+  a mentett piszkozat színesen nyílik újra, a válasz és a továbbítás idézete színtelen.
+
+A kiadás ismert korlátai:
+
+- Az idézetbe csak a HTML saját képcímkéjével megjelenített kép kerül. A háttérként vagy stílusban használt kép
+  válaszból kimarad, továbbításkor mellékletként jön, mint eddig.
+- Egy nagyon nagy, egy sorban szóközzel tagolt cellájú táblázat válaszra már nem kérdez; a program lassítására
+  épített táblázat továbbra is kérdez, most a túl sok, lassan megjeleníthető karakterről szóló szöveggel.
+- Egy színes levél megnyitásakor az olvasó a fejlesztői konzolba egy biztonsági (CSP) figyelmeztető sort ír; a
+  felületen ebből semmi nem látszik, és a levél rendben megjelenik.
+- Két levélíró ablak között másolt szöveg a színét elveszti (egy ablakon belül megtartja).
+
 ### Újdonságok a 0.17.0-ban, ismert korlátok
 
 - **Címkék:** egy levélre több címke tehető, mindegyik a saját színével (12 felkínált szín vagy egyéni). Feltehető a
@@ -239,7 +279,7 @@ színezhetsz, rendezhetsz és törölhetsz címkét.
 A kiadás ismert korlátai:
 
 - A felállított fotó színprofilja elvész (a színek a szabványos térben látszanak). Az 50 megapixelnél nagyobb
-  elforgatott fotót a program nem veszi át; a forgatást nem igénylő képre nincs ilyen korlát.
+  elforgatott fotót a program nem veszi át; a forgatást nem igénylő képre nincs ilyen korlát (a 0.18.0 óta van: lásd ott).
 - A címke neve, színe és sorrendje ezen a gépen van: új adatmappában vagy másik gépen a szerveren lévő címkét akkor
   látod, ha ugyanazzal a névvel újra létrehozod.
 - IMAP-fióknál a címke a levél adott példányáé: a másik mappabeli másolat nem kapja meg. Más mappa változása (amit egy
@@ -337,7 +377,6 @@ A kiadás ismert korlátai:
 - Ha egy évenkénti archiválásnál a második áthelyezés a szerveren elbukik, a lista csak a következő szinkronnál
   frissül; egy már létező év-mappánál a szerver "a mappa már létezik" hibát adhat.
 - Nagyon terhelt gépen egy-egy nagy levél szövege nem kerül a keresőbe (a 0.12.0 óta így van).
-- A lista helyén megnyitott levél törlése után a következő levél nyílik meg, nem a lista.
 - A fiókszerkesztő Archiválás-menüje a hosszú választást levágja; 860 px széles ablakban a Címlista
   szerkesztőjének címoszlopa keskeny.
 - A Windows-csomagot (ZIP) a kiadás előtt Windowson ellenőrizzük; a valódi Windows-tálcát és a billentyűket egy

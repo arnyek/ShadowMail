@@ -3,6 +3,8 @@
 // new order of a list after one step (the menu, Alt+Up / Alt+Down) or a drop. The writes are folders:reorder and
 // accounts:reorder; the main process checks the list again against the same tree (core/imap/folders.js).
 
+import { roleFixed } from '../../../core/imap/folders.js'
+
 /**
  * Per folder of a buildFolderTree tree: its displayed parent (null = the top level) and its sibling list, as the
  * write takes it: the real folders only (a placeholder parent has no row, so it cannot be ordered), in the shown
@@ -62,7 +64,8 @@ export function dropZone(e, el, isSibling) {
 /**
  * Can the folder `from` move under `target` (null = the top level) of the same account? The main process refuses the
  * same (FolderActions.move); this is what the tree shows as a drop target. `folders`: the account's rows (path,
- * delimiter); `roles`: Map path -> role (assignRoles). No: a role anywhere in the moved subtree, a folder without a
+ * delimiter, special_use, role, role_manual); `roles`: Map path -> role (assignRoles). No: a role that stays with its
+ * folder (roleFixed) anywhere in the moved subtree, a folder without a
  * delimiter, itself or a folder under it, its present parent, a placeholder (no row), the Trash or the Junk folder or a
  * folder under them; the top level when it is there already.
  */
@@ -72,8 +75,8 @@ export function moveTarget(folders, roles, from, target) {
 
 /**
  * Why the folder `from` cannot go under `target` (null = the top level), or null when it can (the main process's
- * refusals, FolderActions.move): 'flat' (no hierarchy delimiter, or no such folder), 'role' (a role folder in its
- * subtree), 'top' (already at the top level), 'missing' (no such folder: a placeholder), 'self' (itself or a folder under
+ * refusals, FolderActions.move): 'flat' (no hierarchy delimiter, or no such folder), 'role' (a folder in its subtree
+ * whose role stays where it is: roleFixed), 'top' (already at the top level), 'missing' (no such folder: a placeholder), 'self' (itself or a folder under
  * it), 'parent' (its present parent), 'trash' (the Trash or the Junk folder, or under them).
  */
 export function moveTargetReason(folders, roles, from, target) {
@@ -81,7 +84,9 @@ export function moveTargetReason(folders, roles, from, target) {
   if (!row || !row.delimiter) return 'flat'
   const d = row.delimiter
   const inside = (p, root) => p === root || p.startsWith(root + d)
-  for (const p of roles.keys()) if (inside(p, from)) return 'role'
+  // a role that stays with its folder (roleFixed: an automatic one, or one picked by hand on an automatic candidate)
+  // anywhere in the moved subtree; a role picked by hand on another folder moves with it (the main process's rule)
+  for (const f of folders) if (inside(f.path, from) && roleFixed(f, roles)) return 'role'
   const cut = from.lastIndexOf(d)
   const parent = cut >= 0 ? from.slice(0, cut) : null
   if (target === null) return parent !== null ? null : 'top'

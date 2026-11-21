@@ -40,7 +40,7 @@ The interface is Hungarian by default; Settings / Appearance / Nyelv / Language 
 
 ![An open message: monogram, icon actions, attachment cards](docs/screenshots/readme-en-reader.png)
 
-![Writing a message: From, To, Subject, icon formatting, the blue Send button, next to it Send later](docs/screenshots/readme-en-compose.png)
+![Writing a message: From, To, Subject, icon formatting with Text color and Highlight, the blue Send button, next to it Send later](docs/screenshots/readme-en-compose.png)
 
 ### Keys with a message open
 
@@ -49,8 +49,9 @@ The interface is Hungarian by default; Settings / Appearance / Nyelv / Language 
 - **Delete** deletes, **End** archives (into the account's Archive folder, by year in the yearly mode). With a visible
   selection in the list they act on that, otherwise on the open message. The reader's toolbar has an **Archive**
   button next to Delete. With no message open, Delete deletes the visible selection and End goes to the end of the list.
-- After a delete, an archive or a move the **next** message of the list (the one below) opens; after the last one, the
-  previous one.
+- With the message open in place of the list (no reader pane), a delete, an archive, a move (to Junk too) or Mark as
+  unread takes you **back to the list** at once, where you left it. With the reader beside or below the list, the
+  **next** message of the list (the one below) opens instead; after the last one, the previous one.
 - Where there is nowhere to archive to (the account has no Archive folder, or the message is in it already), End does
   nothing but a line says why.
 - The keys work after a click into the message text too. In a text field, a menu, a dialog and on a pane divider they
@@ -63,6 +64,11 @@ The interface is Hungarian by default; Settings / Appearance / Nyelv / Language 
 - **Alt+F10** in the text moves to the formatting toolbar: the arrows, **Home** and **End** move between the buttons,
   **Enter** formats, **Esc** goes back to the text (the selection is kept). **Ctrl+B**, **Ctrl+I** and **Ctrl+U** work
   in the text too.
+- **Text color** and **Highlight** (after Underline) open a menu: **Automatic** / **No highlight** first, then six colors
+  each. With the keyboard: **Alt+F10**, the arrows to the button, **Enter**, **Space** or **Down** opens the menu, the
+  arrows choose, **Enter** colors the selected text (with nothing selected, the text typed next), **Esc** goes back to
+  the text. The writing surface is light in every theme, as the recipient sees the message. A colored text copied or
+  cut and pasted in the same compose window keeps its colors; text pasted from anywhere else comes without colors.
 - An image goes into the message from the clipboard (**Ctrl+V**) or dragged onto the text as a file (PNG, JPEG; other
   image formats are attached). Its size is set with a right click on the image, or **Shift+F10** with the caret beside
   it: Small (320 px), Medium (640 px), Large (800 px), Original size, or the image removed. Only the shown width
@@ -212,6 +218,38 @@ color, order and delete labels.
   has no Message-ID and no Date header, a copy downloaded again does not show its label.
 - Claude (MCP) can put existing labels on and take them off; only you can make, rename and delete them.
 
+### New in 0.18.0, known limits
+
+- **The original's images in a reply and a forward:** the images the original shows inside its text (PNG and JPEG) are
+  in the quote too, can be sized or removed like a pasted one, and go out inside your message. A forward does not
+  attach them once more; every other attachment comes along as before.
+- **Tables keep their rows:** a table pasted from a web page, and a table in a reply's or a forward's quote, shows one
+  row a line, the cells side by side, the header cells bold; the text part of the sent message has one row a line too.
+- **A folder role picked by hand moves with its folder:** a folder you picked as Archive, Sent, Drafts, Trash or Junk
+  in the account settings can be renamed, dragged or moved with **Move…** (with the keyboard too), and so can a folder
+  above it; the role goes along to the new place. A role the program found itself (the Inbox, the server's own special
+  folders, the usual names), and one picked by hand on such a folder, stays where it is.
+- **Images written another way:** an image the message's text refers to in another case or %-encoded shows in the
+  reader, and it is not offered as an attachment.
+- **A very large image** (over 50 megapixels) is not put into the text; a line says so, and it can be attached instead.
+- **Back to the list:** with a message open in place of the list, a delete, an archive, a move or Mark as unread
+  goes back to the list at once (where it was scrolled to); with the reader beside or below the list the next message
+  opens, as before.
+- **Text color and highlight in the composer:** after Underline the toolbar has **Text color** and **Highlight**, each
+  with **Automatic** / **No highlight** and 6 colors. The writing surface is light in every theme, like the message's
+  page. Text copied or cut inside the composer keeps its color, text pasted from elsewhere comes without color; a saved
+  draft opens again with its colors, the quote of a reply or a forward has none.
+
+Known limits of this release:
+
+- Only an image shown with the HTML's own image tag comes into the quote. An image used as a background or in a style
+  is left out of a reply and attached to a forward, as before.
+- A very large table with spaced cells in one row no longer asks before a reply; a table built to slow the program down
+  still asks, now with the text about too many slow characters.
+- Opening a colored message, the reader writes a security (CSP) warning line to the developer console; nothing of it
+  shows on the screen, and the message shows as it should.
+- Text copied between two composer windows loses its color (inside one window it keeps it).
+
 ### New in 0.17.0, known limits
 
 - **Labels:** a message can have several labels, each in its own color (12 offered or your own). Put them on with the
@@ -243,7 +281,7 @@ color, order and delete labels.
 Known limits of this release:
 
 - A photo turned upright loses its color profile (the colors are shown in the standard space). A turned photo larger
-  than 50 megapixels is not taken; a photo that does not need turning has no such limit.
+  than 50 megapixels is not taken; a photo that does not need turning has no such limit (from 0.18.0 it has: see there).
 - A label's name, color and order are on this computer: in a new data folder or on another computer you see a label
   on the server once you make it again with the same name.
 - On an IMAP account a label belongs to that copy of the message: the copy in another folder does not get it. A change
@@ -341,7 +379,6 @@ Known limits of this release:
 - If the second move of a yearly archive fails on the server, the list updates only on the next sync; for an
   existing year folder the server may answer "folder exists".
 - On a heavily loaded computer the text of a large message may stay out of the search (so since 0.12.0).
-- After deleting a message opened in place of the list, the next message opens, not the list.
 - The account editor's Archive menu cuts a long choice; in an 860 px wide window the address column of the address
   book editor is narrow.
 - The Windows package (ZIP) is checked on Windows before the release; the real Windows taskbar and the keys inside

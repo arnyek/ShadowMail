@@ -26,6 +26,7 @@
 // has a ceiling (MAX_MATCH_WORK). A body over MAX_TAGS tags or MAX_DEPTH open elements is cut (its later <style> blocks still count); a body
 // over the work ceiling gives no text. Both are reported (visibleTextInfo().cut), never silent.
 import { Parser, DomHandler, DomUtils } from 'htmlparser2'
+import { isTextColor, isHighlightStyle } from '../smtp/text-colors.js'
 
 const NAMED = {
   white: '#ffffff', black: '#000000', red: '#ff0000', green: '#008000', blue: '#0000ff', gray: '#808080', grey: '#808080',
@@ -975,7 +976,42 @@ export const visibleText = html => visibleTextInfo(html).text
 const COMPOSE_TAGS = new Set(['p', 'br', 'div', 'span', 'b', 'strong', 'i', 'em', 'u', 's', 'ul', 'ol', 'li', 'a', 'blockquote', 'pre', 'code', 'h1', 'h2', 'h3'])
 const escText = s => s.replace(/[&<>\u00a0]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '\u00a0': '&nbsp;' })[c])
 const escAttr = s => s.replace(/[&"\u00a0]/g, c => ({ '&': '&amp;', '"': '&quot;', '\u00a0': '&nbsp;' })[c])
-function composeHtmlOf(doc, hidden) {
+// a table's own lines, in tree order: its caption, the rows directly in it or in its thead / tbody / tfoot (a nested
+// table's rows are its own); a line is its cells (td / th), each { th, kids }. Hidden rows and cells are left out.
+// What stands in the table in no cell and no caption (ASCII whitespace, comments and columns aside; this parser keeps
+// text written right in a table or a row there) is kept where it stands: a part of its row, or a line of its own, the
+// same rule as sanitize.js's tableToLines
+const ASCII_BLANK = /^[ \t\n\f\r]*$/
+const strayIn = (n, hidden) => (isEl(n) ? !hidden.has(n) && n.name !== 'col' && n.name !== 'colgroup' : n.type === 'text' && !ASCII_BLANK.test(n.data))
+function tableLines(table, hidden) {
+  const lines = []
+  const rowOf = tr =>
+    (tr.children || []).flatMap(c => (isEl(c) && (c.name === 'td' || c.name === 'th') ? (hidden.has(c) ? [] : [{ th: c.name === 'th', kids: c.children || [] }]) : strayIn(c, hidden) ? [{ th: false, kids: [c] }] : []))
+  for (const c of table.children || []) {
+    if (isEl(c) && hidden.has(c)) continue
+    if (isEl(c) && c.name === 'caption') lines.push([{ th: false, kids: c.children || [] }])
+    else if (isEl(c) && c.name === 'tr') lines.push(rowOf(c))
+    else if (isEl(c) && (c.name === 'thead' || c.name === 'tbody' || c.name === 'tfoot')) {
+      for (const r of c.children || []) {
+        if (isEl(r) && r.name === 'tr') {
+          if (!hidden.has(r)) lines.push(rowOf(r))
+        } else if (strayIn(r, hidden)) lines.push([{ th: false, kids: [r] }])
+      }
+    } else if (strayIn(c, hidden)) lines.push([{ th: false, kids: [c] }])
+  }
+  return lines
+}
+// with `colors` the composer's own colours stay, by sanitizeCompose's `colors` rule: a font's color only when it is a palette
+// text colour written exactly so, a style (on a span, a font, a b / strong / i / em / u / s / a / code) only when it is exactly one
+// palette highlight; a font with
+// neither is unwrapped. The values trimmed first, as DOMPurify trims every attribute value before it is checked
+const STYLED_TAGS = new Set(['span', 'font', 'b', 'strong', 'i', 'em', 'u', 's', 'a', 'code'])
+const colorAttrs = n => {
+  const color = n.name === 'font' ? n.attribs?.color?.trim() : undefined
+  const style = STYLED_TAGS.has(n.name) ? n.attribs?.style?.trim() : undefined
+  return `${isTextColor(color) ? ` color="${escAttr(color)}"` : ''}${isHighlightStyle(style) ? ` style="${escAttr(style)}"` : ''}`
+}
+function composeHtmlOf(doc, hidden, { colors = false } = {}) {
   const out = []
   // inA: inside a kept <a>. A nested <a> is unwrapped: htmlparser2 nests it, but the recipient's HTML5
   // parser closes the outer one, so a nested link would be a live second link next to the one the Modal lists
@@ -993,11 +1029,31 @@ function composeHtmlOf(doc, hidden) {
       continue
     }
     const kids = n.children || []
-    const keep = isEl(n) && COMPOSE_TAGS.has(n.name) && !(n.name === 'a' && item.inA)
+    // a table: a line (div) per row, the cells one space apart, a header cell bold, the caption first; the same as
+    // sanitize.js's tableToLines (tableRows), so Claude's quote and the composer's quote of a table are the same
+    if (isEl(n) && n.name === 'table') {
+      const seq = [{ close: '<div>' }]
+      for (const line of tableLines(n, hidden)) {
+        seq.push({ close: '<div>' })
+        line.forEach((cell, i) => {
+          if (i) seq.push({ close: ' ' })
+          if (cell.th) seq.push({ close: '<b>' })
+          for (const k of cell.kids) seq.push({ node: k, close: null, inA: item.inA })
+          if (cell.th) seq.push({ close: '</b>' })
+        })
+        seq.push({ close: '</div>' })
+      }
+      seq.push({ close: '</div>' })
+      for (let i = seq.length - 1; i >= 0; i--) stack.push(seq[i])
+      continue
+    }
+    const painted = colors && isEl(n) ? colorAttrs(n) : ''
+    const keep = isEl(n) && (COMPOSE_TAGS.has(n.name) || (n.name === 'font' && painted !== '')) && !(n.name === 'a' && item.inA)
     if (keep) {
       let attrs = ''
       const href = n.name === 'a' ? String(n.attribs?.href ?? '').replace(/[\u0000-\u001f\u007f]/g, '').trim() : ''
       if (href && /^(?:https?:|mailto:)/i.test(href)) attrs = ` href="${escAttr(href)}"`
+      attrs += painted
       out.push(`<${n.name}${attrs}>`)
       if (n.name === 'br') continue
       stack.push({ close: `</${n.name}>` })
@@ -1007,5 +1063,9 @@ function composeHtmlOf(doc, hidden) {
   }
   return out.join('')
 }
-/** The visible part of a message's HTML as composer HTML (empty when the body is too complex to filter). */
-export const visibleComposeHtml = html => visibleTextInfo(html, composeHtmlOf).text
+const colorComposeHtmlOf = (doc, hidden) => composeHtmlOf(doc, hidden, { colors: true })
+/**
+ * The visible part of a message's HTML as composer HTML (empty when the body is too complex to filter). `colors`: the
+ * composer's palette colours stay (the user's own saved draft), as sanitizeCompose's `colors` keeps them.
+ */
+export const visibleComposeHtml = (html, { colors = false } = {}) => visibleTextInfo(html, colors ? colorComposeHtmlOf : composeHtmlOf).text

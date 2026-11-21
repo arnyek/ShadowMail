@@ -147,6 +147,9 @@ const CASES = {
 }
 if (values.cases) for (const [k, html] of Object.entries(CASES)) eml(`k-${k}.eml`, 'text/html', `<html><body>${html}</body></html>`)
 const TABLE_NBSP = new Set(['td-nbsp'])
+// the starting body keeps a table's rows as lines (tableRows): these cells are one line, one block, spaced, so the
+// question comes for its direction switches (B), with its own text, not for one run over N
+const ROW_SWITCHES = new Set(['td', 'td-nbsp'])
 // the "news" table: normal mail, no question
 const { newsTableHtml } = await import('../helpers/bomb-samples.js')
 if (values.cases) eml('n-news.eml', 'text/html', `<html><body>${newsTableHtml()}</body></html>`)
@@ -519,7 +522,7 @@ try {
           const w = ask === Infinity ? created[0] : null
           const editorChars = w ? await w.waitForFunction(() => Boolean(document.querySelector('.editor blockquote')), null, { timeout: 10_000 }).then(() => w.evaluate(() => document.querySelector('.editor').textContent.length), () => -1) : null
           if (w && !w.isClosed()) await closeComposer(w)
-          rows.push({ ask: ask === Infinity ? null : Math.round(ask), shown: shownNow, text: Boolean(q && SUSPECT.test(q.message)), editorChars })
+          rows.push({ ask: ask === Infinity ? null : Math.round(ask), shown: shownNow, text: Boolean(q && (ROW_SWITCHES.has(k) ? SLOW_TEXTS.includes(q.message) : SUSPECT.test(q.message))), editorChars })
         }
         const limit = TABLE_CASES.has(k) || TABLE_NBSP.has(k) ? TABLE_MS : V1_MS
         const asks = r => r.ask !== null && r.ask <= limit && r.shown === 0 && r.text

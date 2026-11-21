@@ -875,11 +875,27 @@ composeFormattingHint;Formázás (a szövegből az eszköztárra: Alt+F10);Forma
 composeTools.bold;Félkövér;Bold
 composeTools.italic;Dőlt;Italic
 composeTools.underline;Aláhúzott;Underline
+composeTools.textColor;Szövegszín;Text color
+composeTools.highlight;Kiemelés;Highlight
 composeTools.ul;Felsorolás;Bulleted list
 composeTools.ol;Számozott lista;Numbered list
 composeTools.link;Link;Link
 composeTools.quote;Idézet;Quote
 composeTools.clear;Formázás törlése;Clear formatting
+composeColors.auto;Automatikus;Automatic
+composeColors.noHighlight;Nincs kiemelés;No highlight
+composeColors.text.red;Piros;Red
+composeColors.text.orange;Narancs;Orange
+composeColors.text.green;Zöld;Green
+composeColors.text.blue;Kék;Blue
+composeColors.text.purple;Lila;Purple
+composeColors.text.gray;Szürke;Gray
+composeColors.highlight.yellow;Sárga;Yellow
+composeColors.highlight.green;Zöld;Green
+composeColors.highlight.blue;Kék;Blue
+composeColors.highlight.pink;Rózsaszín;Pink
+composeColors.highlight.orange;Narancs;Orange
+composeColors.highlight.gray;Szürke;Gray
 composeToolLabels.link;Link;Link
 composeToolLabels.quote;Idézet;Quote
 composeToolLabels.clear;Tisztítás;Clear
