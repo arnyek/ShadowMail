@@ -879,6 +879,7 @@ export const hu = {
         : code === 'not_attachable'
           ? 'Ez a képformátum nem illeszthető a szövegbe, és fájl nélkül mellékletként sem csatolható. Mentsd el fájlba, és csatold úgy.'
           : hu.composeError(code, detail, 'attach'),
+  composePastePlain: 'A beillesztett rész túl összetett volt, ezért formázás nélkül került be.',
   composeImageAttached: n => (n === 1 ? 'A kép mellékletként csatolódott: ez a formátum nem illeszthető a szövegbe.' : `${n} kép mellékletként csatolódott: ez a formátum nem illeszthető a szövegbe.`),
   // the size menu of a pasted image in the text (right click or Shift+F10 on it): only the shown width changes
   composeImageMenu: {
@@ -1140,6 +1141,31 @@ export const hu = {
   // (<base>-<YYYY-MM-DD>.<ext>) and a message's .eml name when it has no subject
   contactsExportBase: 'ShadowMail-cimlista',
   sourceFileFallback: 'level',
+  // a list row dragged out into another program as .eml files (the copies go after 10 minutes and at lock)
+  dragOut: {
+    tooMany: (n, max) => `Egyszerre legfeljebb ${max} levél húzható ki más programba, most ${n} van kijelölve. Mappára most is áthelyezheted.`,
+    // the drag stayed inside the program (a move onto a folder works as before): why it did not go out
+    notice: (kind, info = {}) =>
+      kind === 'tooMany'
+        ? hu.dragOut.tooMany(info.n, info.max)
+        : kind === 'tooLarge'
+          ? `A kijelölt levelek együtt ${((info.bytes || 0) / 1024 / 1024).toFixed(1).replace('.', ',')} MB-osak, egyszerre legfeljebb ${Math.round((info.max || 0) / 1024 / 1024)} MB húzható ki más programba. Mappára most is áthelyezheted.`
+          : kind === 'noSize'
+            ? 'Egy kijelölt levél mérete nem ismert, ezért most nem húzható ki más programba. Mappára most is áthelyezheted.'
+            : 'A kihúzáshoz a levél még nincs letöltve; letöltöm, egy pillanat múlva húzd újra. Mappára most is áthelyezheted.',
+    error: (code, res = {}) =>
+      code === 'not_yet'
+        ? 'A levél még nincs letöltve; letöltöm, egy pillanat múlva húzd újra.'
+        : code === 'too_large'
+          ? `A kijelölt levelek együtt ${((res.bytes || 0) / 1024 / 1024).toFixed(1).replace('.', ',')} MB-osak, egyszerre legfeljebb ${Math.round((res.max || 0) / 1024 / 1024)} MB húzható ki más programba.`
+          : `A levél kihúzása nem sikerült: ${hu.dragOut.errors[code] || hu.searchError(code)}`,
+    errors: {
+      motw_failed: 'A másolat nem jelölhető meg biztonságosan; mentsd el az olvasó „Mentés .eml-ként” menüpontjával.',
+      write_failed: 'A másolatot nem sikerült lemezre írni.',
+      disk_full: 'Nincs elég hely a lemezen a másolathoz.',
+      not_writable: 'A data\\tmp mappa nem írható.',
+    },
+  },
   // the name of an attachment without one, in the reader and its save dialog: <word>-<n>
   attachmentFallback: 'melleklet',
   // the word typed to confirm a full reset without the code (the label and the error above show it)

@@ -11,13 +11,14 @@
 //   save_sent_to_server = 0, e.g. Gmail saves it itself; POP3: local Sent) and the draft goes.
 //   A failed send keeps the message: it is saved as a draft (best effort) and the error is returned.
 import { visibleComposeHtml } from '../../core/mime/visible-text.js'
+import { prepareQuote } from '../../core/mime/paste-prepare.js'
 import { expungeMessages } from '../../core/imap/actions.js'
 import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
 import addressparser from 'nodemailer/lib/addressparser'
 import { t, locale } from '../renderer/i18n/index.js'
-import { composeMessage, newMessageId, mailtoBodyHtml, replySubject, forwardSubject, replyReferences, replyRecipients, quoteHtml, forwardHtml } from '../../core/smtp/compose.js'
+import { composeMessage, newMessageId, mailtoBodyHtml, replySubject, forwardSubject, replyReferences, replyRecipients, quoteParts, joinQuote } from '../../core/smtp/compose.js'
 import { changeFlags } from '../../core/imap/actions.js'
 import { applyFlagChange } from './actions.js'
 import { sendRaw } from '../../core/smtp/send.js'
@@ -115,6 +116,20 @@ export const CLAUDE_HEADER = 'X-ShadowMail-Draft-Origin'
 export const CLAUDE_KEYWORD = '$ShadowMailClaude'
 
 const draftKeyOf = (accountId, messageId) => `${accountId}\u0000${String(messageId).replace(/^<|>$/g, '')}`
+
+// Claude's quote (safeQuote: no composer window sanitizes it): made ready exactly as the composer makes its own (the
+// original's body alone through paste-prepare.js prepareQuote, our header around it: richQuote), then the main process's
+// mirror of the composer's rich sanitizer, so the two are the same bytes (test/rich-quote.test.js). Too complex: the old
+// way (the original's visible part, no formatting). An original with nothing visible quotes nothing (the header line
+// stays): never its text part, which may carry what it hides.
+function claudeQuote(mode, original, locale) {
+  const kind = mode === 'forward' ? 'forward' : 'reply'
+  const parts = quoteParts(kind, original, t.outgoingQuote, locale)
+  const ready = prepareQuote(parts.body)
+  // too complex for the rich way: the original's visible part (the old way), its body alone too (its <style> stays off our header)
+  if (ready.plain) return joinQuote({ ...parts, body: visibleComposeHtml(parts.body) || '<p></p>' })
+  return visibleComposeHtml(joinQuote({ ...parts, body: ready.html }), { rich: true }) || joinQuote(quoteParts(kind, { ...original, html: '<p></p>', text: '' }, t.outgoingQuote, locale))
+}
 
 export class Composer {
   // scheduled ids being turned back into drafts ("Időzítés törlése"): held from the scheduler
@@ -330,7 +345,8 @@ export class Composer {
     // written into a draft nobody has looked at yet
     // an empty visible part (all hidden, or too complex to filter) quotes NOTHING: never the text/plain part, which
     // may carry what the HTML hides
-    let original = safeQuote && parsed.html ? { ...parsed, html: visibleComposeHtml(parsed.html) || '<p></p>', text: '' } : parsed
+    // (Claude's quote, safeQuote: the whole quote below, made ready as the composer makes it; the text part never quoted)
+    let original = safeQuote && parsed.html ? { ...parsed, text: '' } : parsed
     if (typeof omitBody === 'string' && mode !== 'draft') original = { ...original, html: null, text: omitBody }
     const account = this.store.getRow(row.account_id)
     if (!account) throw new ActionError('not_found')
@@ -392,19 +408,27 @@ export class Composer {
         const att = { id: crypto.randomUUID(), filename: a.filename, content: a.content, contentType: a.contentType }
         s.attachments.set(att.id, att)
       }
-      form = { accountId: account.id, to: '', cc: '', subject: forwardSubject(original.subject), quote: forwardHtml(original, t.outgoingQuote, locale), inReplyTo: null, references: [] }
+      const parts = quoteParts('forward', original, t.outgoingQuote, locale)
+      form = { accountId: account.id, to: '', cc: '', subject: forwardSubject(original.subject), quote: joinQuote(parts), quoteParts: parts, inReplyTo: null, references: [] }
     } else {
       const own = this.store.list().map(a => a.email).filter(Boolean)
       const { to, cc } = replyRecipients(original, { all: mode === 'replyAll', ownAddresses: own })
+      const parts = quoteParts('reply', original, t.outgoingQuote, locale)
       form = {
         accountId: account.id,
         to: fmt(to),
         cc: fmt(cc),
         subject: replySubject(original.subject),
-        quote: quoteHtml(original, t.outgoingQuote, locale),
+        quote: joinQuote(parts),
+        quoteParts: parts,
         inReplyTo: original.messageId,
         references: replyReferences(original),
       }
+    }
+    // (the parts go to the composer window only: Claude's quote is made ready here)
+    if (safeQuote) {
+      form.quote = claudeQuote(mode, original, locale)
+      delete form.quoteParts
     }
     s.origin = { id: row.id, accountId: row.account_id, messageId: row.message_id || null, flag: mode === 'forward' ? '$Forwarded' : '\\Answered' }
     s.initial = form

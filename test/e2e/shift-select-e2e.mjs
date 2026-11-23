@@ -24,6 +24,7 @@ import { createVaultedDatabase } from '../../core/vault/vaulted-db.js'
 import { AccountStore } from '../../core/accounts/model.js'
 import { newAccountDefaults } from '../../core/accounts/defaults.js'
 import { t, seedLanguage } from './lang.mjs'
+import { dragMessageTo } from './drag-env.mjs'
 
 const { values } = parseArgs({ options: { perf: { type: 'string' }, shots: { type: 'string' } } })
 if (values.shots) fs.mkdirSync(values.shots, { recursive: true })
@@ -160,7 +161,8 @@ try {
   await box('POP 11').click()
   await box('POP 14').click({ modifiers: ['Shift'] })
   check('the range to drag (11..14, 4)', await selectedIs(4))
-  await row('POP 12').dragTo(pop.locator('.folder[data-path="Trash"]'))
+  // out as files and back onto the folder (drag-env.mjs: headless has no OS drag)
+  await dragMessageTo(app, page, row('POP 12'), pop.locator('.folder[data-path="Trash"]'))
   await page.waitForFunction(() => document.querySelector('.list-count')?.dataset.total === '26', null, { timeout: 8000 }).catch(() => {})
   check('dragged onto a folder: all four moved (30 -> 26)', (await page.locator('.list-count').getAttribute('data-total')) === '26')
 

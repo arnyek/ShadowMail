@@ -155,6 +155,11 @@ export function sourceFileName(subject, safeFileName, fallback) {
   if (typeof fallback !== 'string' || !fallback) throw new TypeError('sourceFileName: fallback is required')
   // zero-width and direction marks would hide part of the name (safeFileName keeps them)
   const clean = String(subject || '').replace(/[\u200b-\u200f\u2060-\u2064\ufeff]/g, '').trim()
-  const base = safeFileName(clean, fallback).slice(0, 100).replace(/[. ]+$/g, '')
+  let base = safeFileName(clean, fallback).slice(0, 100)
+  // the cut must not split a pair (an emoji): the file system writes half a character as U+FFFD, so the name on disk
+  // would not be the name given (a file dragged out and dropped back would not be recognised); a lone half elsewhere
+  // in the subject becomes U+FFFD here, as on disk
+  if (/[\ud800-\udbff]$/.test(base)) base = base.slice(0, -1)
+  base = base.toWellFormed().replace(/[. ]+$/g, '')
   return `${base || fallback}.eml`
 }

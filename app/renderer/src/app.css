@@ -1926,6 +1926,9 @@ main.app > .error {
 }
 /* a pasted image: at most the editor's width (the sent HTML gets width="800" above 800 px, the main process) */
 .editor img { max-width: 100%; height: auto; }
+/* the "Automatic" text colour (text-colors.js AUTO_COLOR): a marker the editor writes with its own command; shown in the
+   colour around it, and the sanitizer takes it off before anything goes out */
+.editor font[color="#010203" i] { color: inherit; }
 .compose-info { margin: 0; padding: var(--space-2) var(--space-4); color: var(--c-text-2); font-size: var(--fs-s); }
 
 .editor blockquote {

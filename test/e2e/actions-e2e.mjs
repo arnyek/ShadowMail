@@ -20,6 +20,7 @@ import { createVaultedDatabase } from '../../core/vault/vaulted-db.js'
 import { AccountStore } from '../../core/accounts/model.js'
 import { newAccountDefaults } from '../../core/accounts/defaults.js'
 import { t, seedLanguage } from './lang.mjs'
+import { dragMessageTo } from './drag-env.mjs'
 
 const { values } = parseArgs({ options: { shot: { type: 'string' } } })
 const require = createRequire(import.meta.url)
@@ -219,7 +220,8 @@ try {
   await box('POP 02').uncheck()
 
   // drag and drop onto Drafts
-  await row('POP 08').dragTo(page.locator('.folder-tree section', { hasText: 'POP3-fiók' }).locator('.folder[data-path="Drafts"]'))
+  // out as files and back onto the folder (drag-env.mjs: headless has no OS drag)
+  await dragMessageTo(app, page, row('POP 08'), page.locator('.folder-tree section', { hasText: 'POP3-fiók' }).locator('.folder[data-path="Drafts"]'))
   await row('POP 08').waitFor({ state: 'detached' })
   check('drag and drop onto a folder moves it', true)
 

@@ -881,6 +881,7 @@ export const en = {
         : code === 'not_attachable'
           ? 'This image format cannot go into the text, and without a file it cannot be attached either. Save it to a file and attach that.'
           : en.composeError(code, detail, 'attach'),
+  composePastePlain: 'The pasted part was too complex, so it went in without formatting.',
   composeImageAttached: n => (n === 1 ? 'The image was attached as a file: this format cannot go into the text.' : `${count(n, 'image')} were attached as files: this format cannot go into the text.`),
   // the size menu of a pasted image in the text (right click or Shift+F10 on it): only the shown width changes
   composeImageMenu: {
@@ -1142,6 +1143,31 @@ export const en = {
   fileFilterContacts: 'Contacts (.vcf, .csv)',
   contactsExportBase: 'ShadowMail-contacts',
   sourceFileFallback: 'message',
+  // a list row dragged out into another program as .eml files (the copies go after 10 minutes and at lock)
+  dragOut: {
+    tooMany: (n, max) => `At most ${num(max)} messages can be dragged into another program at once, ${num(n)} are selected. Moving them onto a folder still works.`,
+    // the drag stayed inside the program (a move onto a folder works as before): why it did not go out
+    notice: (kind, info = {}) =>
+      kind === 'tooMany'
+        ? en.dragOut.tooMany(info.n, info.max)
+        : kind === 'tooLarge'
+          ? `The selected messages are ${((info.bytes || 0) / 1024 / 1024).toFixed(1)} MB together; at most ${Math.round((info.max || 0) / 1024 / 1024)} MB can be dragged into another program at once. Moving them onto a folder still works.`
+          : kind === 'noSize'
+            ? 'The size of a selected message is not known, so it cannot be dragged into another program now. Moving it onto a folder still works.'
+            : 'The message is not downloaded yet; downloading it now, drag it out again in a moment. Moving it onto a folder still works.',
+    error: (code, res = {}) =>
+      code === 'not_yet'
+        ? 'The message is not downloaded yet; downloading it now, drag it again in a moment.'
+        : code === 'too_large'
+          ? `The selected messages are ${((res.bytes || 0) / 1024 / 1024).toFixed(1)} MB together; at most ${Math.round((res.max || 0) / 1024 / 1024)} MB can be dragged into another program at once.`
+          : `Dragging the message out failed: ${en.dragOut.errors[code] || en.searchError(code)}`,
+    errors: {
+      motw_failed: 'The copy cannot be marked safely; save it with the reader\'s "Save as .eml" menu item instead.',
+      write_failed: 'The copy could not be written to disk.',
+      disk_full: 'There is not enough space on the disk for the copy.',
+      not_writable: 'The data\\tmp folder is not writable.',
+    },
+  },
   attachmentFallback: 'attachment',
   // the word typed to confirm a full reset without the code (the label and the error above show it)
   resetConfirmWord: 'DELETE',

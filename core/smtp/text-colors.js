@@ -48,3 +48,20 @@ export const isTextColor = value => typeof value === 'string' && TEXT_HEXES.has(
 
 /** Whether a style attribute is exactly one palette highlight, written exactly as the editor writes it. */
 export const isHighlightStyle = value => typeof value === 'string' && HIGHLIGHT_STYLES.has(value)
+
+/**
+ * The composer's "Automatic" text colour: a marker, not a colour. The editor writes it with its own command (a
+ * <font color="#010203">, one undo step), the editor's CSS shows that text in the colour around it (app.css), and the
+ * sanitizer and the mirror (rich-style.js) always take it off, so it never goes out: "Automatic" means "no colour of its
+ * own". Not in the palette (test/text-colors.test.js).
+ */
+export const AUTO_COLOR = '#010203'
+// opaque only (the editor writes the marker opaque; a see-through rgb(1, 2, 3) is some other colour, and a transparent
+// one the hidden-text rule's)
+const AUTO_RGB = /^rgba?\(\s*0*1(?:\.0*)?\s*[,\s]\s*0*2(?:\.0*)?\s*[,\s]\s*0*3(?:\.0*)?\s*(?:[,/]\s*(?:1(?:\.0*)?|100(?:\.0*)?%)\s*)?\)$/
+/** Whether a colour value is the "Automatic" marker, in any case or form: the hex (with an opaque alpha too), rgb(1, 2, 3), rgba(...). */
+export const isAutoColor = value => {
+  if (typeof value !== 'string') return false
+  const v = value.trim().toLowerCase()
+  return v === AUTO_COLOR || v === `${AUTO_COLOR}ff` || AUTO_RGB.test(v)
+}

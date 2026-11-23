@@ -67,8 +67,20 @@ The interface is Hungarian by default; Settings / Appearance / Nyelv / Language 
 - **Text color** and **Highlight** (after Underline) open a menu: **Automatic** / **No highlight** first, then six colors
   each. With the keyboard: **Alt+F10**, the arrows to the button, **Enter**, **Space** or **Down** opens the menu, the
   arrows choose, **Enter** colors the selected text (with nothing selected, the text typed next), **Esc** goes back to
-  the text. The writing surface is light in every theme, as the recipient sees the message. A colored text copied or
-  cut and pasted in the same compose window keeps its colors; text pasted from anywhere else comes without colors.
+  the text. The writing surface is light in every theme, as the recipient sees the message.
+- **Paste (Ctrl+V)** from a browser, Word, Excel or the composer itself: the formatting stays (a table with its grid, colors,
+  highlights, fonts and sizes, lists, headings) and goes out so; only what can do harm goes (code, outside images,
+  placement that covers or cuts the message, hidden text, a text color unreadable without its background); the rules
+  of the pasted part's own style sheet stay too (Word's Normal style and headings, Excel's cell borders and fills). Bullets
+  and numbering from Word become real lists, with their levels. A very large
+  (over 20,000 cells) or deeply nested table comes in one row a line; a part too complex comes without formatting, and a
+  line says so. A piece of a web page dragged onto the text goes the same way.
+- **Ctrl+Shift+V:** paste without formatting (the text only).
+- **Reply and forward:** the quote keeps the original's formatting (a table with its grid, borders and backgrounds,
+  colors, fonts and sizes, the rules of the message's own style sheet too), with the same filtering as a paste:
+  hidden text (text the color of its background too) goes, the text of a message with a dark background is readable
+  in the default color. A very large or deeply nested table comes one row a line, the quote of a message too complex
+  without formatting. Claude gets the same quote.
 - An image goes into the message from the clipboard (**Ctrl+V**) or dragged onto the text as a file (PNG, JPEG; other
   image formats are attached). Its size is set with a right click on the image, or **Shift+F10** with the caret beside
   it: Small (320 px), Medium (640 px), Large (800 px), Original size, or the image removed. Only the shown width
@@ -134,6 +146,21 @@ In the **More** menu of an open message:
   program marks the saved file as coming from the internet (see Security in brief).
 
 ![The Headers view: summary, SPF/DKIM/DMARC, raw headers](docs/screenshots/readme-en-headers.png)
+
+### Dragging a message into another program
+
+- A message (or the selected messages) can be **dragged from the list into another program** with the mouse: the
+  Claude desktop app, Explorer, the desktop, another mail program. It arrives there as an `.eml` file (named after the
+  subject) with the whole, original source and its attachments, the same as the **Save as .eml** file.
+- The same move dropped on one of the program's **own folders** still moves the message.
+- The file is an unencrypted copy in the `data\tmp` folder (where that cannot be marked: in the computer's temporary
+  folder, `%TEMP%\ShadowMail`), marked as coming from the internet. The program removes it **10 minutes after the
+  drag**, and at lock, quit and start too.
+- A message not downloaded yet (IMAP, never opened) does not go out on the first drag: the drag stays as it was (a
+  move onto a folder, nothing downloaded). If it was not dropped on a folder, a line says so and the program downloads
+  it in the background (its read state does not change); a moment later the second drag takes it out.
+- At most 50 messages and 100 MB together can be dragged out at once; a bigger selection can still be moved onto a
+  folder.
 
 ### Appearance
 
@@ -218,6 +245,35 @@ color, order and delete labels.
   has no Message-ID and no Date header, a copy downloaded again does not show its label.
 - Claude (MCP) can put existing labels on and take them off; only you can make, rename and delete them.
 
+### New in 0.19.0, known limits
+
+- **Formatted paste from a browser, Word and Excel:** a part pasted into the composer keeps its formatting: a table
+  with its grid, borders and fills, colors, highlights, fonts and sizes, bullets and numbering (a list from Word
+  becomes a real list, with its levels), headings. **Ctrl+Shift+V** pastes without formatting. More above, under
+  "Keys in the composer".
+- **The formatting goes out so:** the sent message has the formatting you see in the composer; in its text part a
+  table stands one row a line, the cells separated by tabs.
+- **The quote keeps the formatting:** in a reply's and a forward's quote the original's tables, colors, fonts and the
+  rules of its own style sheet stay, with the same filtering as a paste. Claude gets the same quote.
+- **Dragging a message into another program:** one or more messages can be dragged from the list as `.eml` files into
+  the Claude desktop app, Explorer or the desktop; dropped on one of the program's own folders it is still a move.
+  More above, under "Dragging a message into another program".
+- **Two security fixes in the filtering of hidden text:** text pushed off the screen (a negative indent or margin, an
+  offset, a transform) is now found in any unit (`em`, `%`, `vw`, `calc()`, a number with an exponent or a long
+  fraction), and so is a tiny font size given the same ways (for example `font-size:1e-9px`). Such text, not shown in
+  the message, could reach Claude and the search index before.
+
+Known limits of this release:
+
+- The quote of a large newsletter with its own style sheet (hundreds of rules, hundreds of blocks) comes without
+  formatting, like that of a message too complex: the program's work limit runs out first.
+- The hidden text filter sometimes takes shown text for hidden: text pushed out with a negative margin or indent, even
+  when a large padding beside it keeps it in place. Such text does not reach Claude, the search index, the quote or a
+  paste.
+- A message not downloaded yet (IMAP, never opened) cannot be dragged out on the first drag, only on the second.
+- Not measured with a real Word or Edge clipboard: the Word paste was tried on a made-up sample, the Excel one on a
+  real Excel copy.
+
 ### New in 0.18.0, known limits
 
 - **The original's images in a reply and a forward:** the images the original shows inside its text (PNG and JPEG) are
@@ -225,6 +281,7 @@ color, order and delete labels.
   attach them once more; every other attachment comes along as before.
 - **Tables keep their rows:** a table pasted from a web page, and a table in a reply's or a forward's quote, shows one
   row a line, the cells side by side, the header cells bold; the text part of the sent message has one row a line too.
+  (Since 0.19.0 a table in the quote keeps its grid, see above.)
 - **A folder role picked by hand moves with its folder:** a folder you picked as Archive, Sent, Drafts, Trash or Junk
   in the account settings can be renamed, dragged or moved with **Move…** (with the keyboard too), and so can a folder
   above it; the role goes along to the new place. A role the program found itself (the Inbox, the server's own special
@@ -238,7 +295,7 @@ color, order and delete labels.
 - **Text color and highlight in the composer:** after Underline the toolbar has **Text color** and **Highlight**, each
   with **Automatic** / **No highlight** and 6 colors. The writing surface is light in every theme, like the message's
   page. Text copied or cut inside the composer keeps its color, text pasted from elsewhere comes without color; a saved
-  draft opens again with its colors, the quote of a reply or a forward has none.
+  draft opens again with its colors, the quote of a reply or a forward has none (since 0.19.0 it has the original's).
 
 Known limits of this release:
 
@@ -520,7 +577,7 @@ folder** (for example to another drive). Restore: copy the saved `data` folder n
 
 - `data\mail.sqlite`: accounts (with encrypted passwords), message data, search index
 - `data\store\`: the downloaded messages (.eml, encrypted)
-- `data\tmp\`: opened attachments; emptied on start and on quit
+- `data\tmp\`: opened attachments and messages dragged into another program; emptied on start, at lock and on quit
 - `data\electron\`: the program's own internal data and logs
 
 ### Updating to a new version

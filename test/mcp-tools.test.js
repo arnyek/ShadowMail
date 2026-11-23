@@ -748,6 +748,30 @@ test('the reply quote through Composer.prepare: an empty or uncomputable visible
   }
 })
 
+test('Claude\'s reply quote keeps the original\'s formatting (the composer\'s rich quote): a table with its border, a class colour', async t => {
+  const html = '<style>.k { color: #c62828; } p { display: none; }</style><table border="1"><tr><td class="k">piros cella</td></tr></table>'
+  const source = Buffer.from(`From: t@example.invalid\r\nTo: sajat@example.invalid\r\nSubject: richq\r\nMessage-ID: <richq@x>\r\nDate: Tue, 10 Nov 2026 09:00:00 +0000\r\nMIME-Version: 1.0\r\nContent-Type: text/html; charset=utf-8\r\n\r\n${html}\r\n`)
+  const s = await setup(t, { extra: [{ source, subject: 'richq', from: 't@example.invalid', to: 'sajat@example.invalid', messageId: '<richq@x>', date: NOW - 30, idate: NOW - 30, body: '' }] })
+  const sid = s.composer.open()
+  const form = await s.composer.prepare(sid, { mode: 'reply', messageId: s.idBySubject('richq'), safeQuote: true })
+  s.composer.close(sid)
+  assert.match(form.quote, /írta:<\/p><blockquote>/, 'the original\'s sheet does not reach our header line')
+  assert.match(form.quote, /<table border="1">/, form.quote)
+  assert.match(form.quote, /<td style="color: #c62828;">piros cella<\/td>/, form.quote)
+})
+
+test('Claude\'s quote on the old way (the original over the tag cut): the original\'s <style> does not reach our header lines', async t => {
+  const html = `<style>p { display: none; } body { color: #ffffff; }</style><div>MELYTETEJE</div>${'<i></i>'.repeat(100_001)}`
+  const source = Buffer.from(`From: Mély Márta <t@example.invalid>\r\nTo: sajat@example.invalid\r\nSubject: deepq\r\nMessage-ID: <deepq@x>\r\nDate: Tue, 10 Nov 2026 09:00:00 +0000\r\nMIME-Version: 1.0\r\nContent-Type: text/html; charset=utf-8\r\n\r\n${html}\r\n`)
+  const s = await setup(t, { extra: [{ source, subject: 'deepq', from: 't@example.invalid', to: 'sajat@example.invalid', messageId: '<deepq@x>', date: NOW - 40, idate: NOW - 40, body: '' }] })
+  for (const [mode, header] of [['reply', /^<p>[^<]*Mély Márta[^<]*írta:<\/p><blockquote>/], ['forward', /^<p>[^<]*<br>Feladó: Mély Márta/]]) {
+    const sid = s.composer.open()
+    const form = await s.composer.prepare(sid, { mode, messageId: s.idBySubject('deepq'), safeQuote: true })
+    s.composer.close(sid)
+    assert.match(form.quote, header, `${mode}: ${form.quote.slice(0, 300)}`)
+  }
+})
+
 test('a network error on a Claude draft\'s APPEND is an error, no second APPEND without the keyword', async t => {
   let appends = 0
   const wrap = c => {
@@ -1635,12 +1659,13 @@ test('send_draft of a draft that keeps the signature marker: the sent message ha
   assert.match((await simpleParser(s.box.sent[0].raw)).text, /Jelölő-teszt/, 'the signature text itself goes out')
 })
 
-test('send_draft of the user\'s coloured draft: the palette colours go out as the composer would send them; the Modal\'s text is the same as without colour', async t => {
+test('send_draft of the user\'s rich draft: the formatting goes out as the composer would send it (rich: colours, a table with its grid); the Modal\'s text has the table as TAB lines', async t => {
   const s = await confirmedSetup(t)
   const RED = TEXT_COLORS[0].hex
   const YELLOW = HIGHLIGHT_COLORS[0].style
-  // saved by the composer (its form() keeps the palette colours); a foreign colour and style are not the toolbar's
-  const html = `<p>Sima <font color="${RED}">piros</font> és <span style="${YELLOW}">kiemelt</span>, <font color="#ff0000">idegen</font> <span style="color: red;">stílus</span>.</p>`
+  // saved by the composer (its form() keeps the formatting: rich); what loads or breaks out is not kept
+  const table = '<table border="1" style="border-collapse: collapse;"><tbody><tr><th colspan="2" bgcolor="#eeeeee">Fej</th></tr><tr><td style="border: 1px solid #999999;">Kazán A</td><td align="right">1</td></tr></tbody></table>'
+  const html = `<p>Sima <font color="${RED}">piros</font> és <span style="${YELLOW}">kiemelt</span>, <font color="#ff0000" face="Arial">idegen</font> <span style="color: red; position: fixed; background: url(https://evil.invalid/t.png);">stílus</span>.</p>${table}`
   const sid = s.composer.open()
   await s.composer.saveDraft(sid, { accountId: s.row.id, to: 'anna@example.invalid', cc: '', bcc: '', subject: 'Színes piszkozat', html, inReplyTo: null, references: [] })
   s.composer.close(sid)
@@ -1653,13 +1678,42 @@ test('send_draft of the user\'s coloured draft: the palette colours go out as th
   assert.equal(s.box.sent.length, 1)
   const { simpleParser } = await import('mailparser')
   const got = await simpleParser(s.box.sent[0].raw)
+  // the outgoing HTML is the mirror's rich output of the saved body
+  assert.equal(got.html, visibleComposeHtml(html, { rich: true }))
   assert.ok(got.html.includes(`<font color="${RED}">piros</font>`), got.html)
   assert.ok(got.html.includes(`<span style="${YELLOW}">kiemelt</span>`), got.html)
-  assert.ok(!got.html.includes('#ff0000') && !got.html.includes('color: red'), got.html)
-  // the Modal: the text part as it goes out, the same as the colourless one
-  const plain = htmlToPlain(visibleComposeHtml(html))
+  assert.ok(got.html.includes('<font color="#ff0000" face="Arial">idegen</font> <span style="color: red;">stílus</span>'), got.html)
+  assert.ok(got.html.includes(table), got.html)
+  assert.ok(!/url\(|evil|position/.test(got.html), got.html)
+  // the Modal: the text part as it goes out, the table a line per row, the cells one TAB apart
+  const plain = htmlToPlain(visibleComposeHtml(html, { rich: true }), { tables: true })
   assert.equal(s.requests[0].view.text, plain)
-  assert.match(plain, /Sima piros és kiemelt, idegen stílus\./)
+  assert.match(plain, /Sima piros és kiemelt, idegen stílus\.\n\nFej\nKazán A\t1$/)
+  assert.match(got.text, /Fej\nKazán A\t1/)
+})
+
+test('send_draft of a draft with a text written right into a table (another program\'s draft): what the recipient sees is in the Modal\'s text and the text part', async t => {
+  const s = await confirmedSetup(t)
+  // the browser moves what stands in a table but in no cell before the table (foster parenting), so the recipient sees it
+  const html = '<p>Szia,</p><table>FIZESS A HU12 SZAMLARA<tr><td>Udv</td></tr></table><table><tr><b>ITT IS</b><td>x</td></tr><colgroup><p>ES ITT</p></colgroup></table>'
+  const sid = s.composer.open()
+  await s.composer.saveDraft(sid, { accountId: s.row.id, to: 'anna@example.invalid', cc: '', bcc: '', subject: 'Tábla piszkozat', html, inReplyTo: null, references: [] })
+  s.composer.close(sid)
+  s.manager.syncNow(s.row.id)
+  await until(() => s.index.db.prepare("SELECT id FROM messages WHERE folder = 'Drafts' AND subject = 'Tábla piszkozat'").get())
+  const id = s.index.db.prepare("SELECT id FROM messages WHERE folder = 'Drafts' AND subject = 'Tábla piszkozat'").get().id
+  s.policy.decide = () => 'approve'
+  const r = await s.call('send_draft', { draft_id: id })
+  assert.equal(r.isError, false, r.content[0].text)
+  const { simpleParser } = await import('mailparser')
+  const got = await simpleParser(s.box.sent[0].raw)
+  // the outgoing HTML has the browser's structure: the texts stand before their tables, in no table
+  assert.ok(got.html.includes('<p>Szia,</p>FIZESS A HU12 SZAMLARA<table><tbody><tr><td>Udv</td></tr></tbody></table>'), got.html)
+  assert.ok(/<b>ITT IS<\/b><p>ES ITT<\/p><table>/.test(got.html), got.html)
+  for (const w of ['FIZESS A HU12 SZAMLARA', 'ITT IS', 'ES ITT', 'Udv']) {
+    assert.ok(s.requests[0].view.text.includes(w), `${w} in the Modal: ${s.requests[0].view.text}`)
+    assert.ok(got.text.includes(w), `${w} in the text part: ${got.text}`)
+  }
 })
 
 // --- the user's confirmation switches ------------------------------------------------------------------------

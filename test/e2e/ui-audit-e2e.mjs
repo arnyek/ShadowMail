@@ -9,13 +9,16 @@
 // confirmation, reader, composer, every settings tab, the account editor, first start, recovery
 // code), and per screen: no unstyled native control (`button:not([class]), select`), no icon button
 // without aria-label or title; for the round: no renderer console error/warning, no main-process
-// stderr, an empty net-guard log. Statically: no raw hex color outside theme.css in app/renderer.
+// stderr, an empty net-guard log. Statically: no raw hex color outside theme.css in app/renderer (a CSS attribute
+// selector's value is a matched value, not a painted colour: the "Automatic" marker's selector is checked against
+// text-colors.js AUTO_COLOR instead).
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { spawnSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { THEMES, DEFAULT_THEME } from '../../app/renderer/src/themes.js'
+import { AUTO_COLOR } from '../../core/smtp/text-colors.js'
 
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..')
 const results = []
@@ -46,17 +49,28 @@ for (const theme of THEMES) {
 
 // raw hex colors: only theme.css may have them. label-chips.js holds the offered LABEL colors (data a label stores as
 // #rrggbb, chosen by the user, not a color of the interface) and the black / white of the chip text: exempt by name.
+// In a CSS file the value of an attribute selector (`font[color="#010203" i]`) is what the rule matches, not a colour it
+// paints: left out of this check.
 const HEX_EXEMPT = new Set(['theme.css', 'label-chips.js'])
+const ATTR_SELECTOR_VALUE = /\[\s*[\w-]+\s*[~|^$*]?=\s*(?:"[^"\n]*"|'[^'\n]*')\s*[is]?\s*\]/g
 const hex = []
 const walk = dir => {
   for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
     const p = path.join(dir, e.name)
     if (e.isDirectory()) walk(p)
-    else if (/\.(css|jsx?)$/.test(e.name) && !HEX_EXEMPT.has(e.name) && /#[0-9a-fA-F]{3,6}\b/.test(fs.readFileSync(p, 'utf8'))) hex.push(path.relative(repo, p))
+    else if (/\.(css|jsx?)$/.test(e.name) && !HEX_EXEMPT.has(e.name)) {
+      let text = fs.readFileSync(p, 'utf8')
+      if (e.name.endsWith('.css')) text = text.replace(ATTR_SELECTOR_VALUE, '[]')
+      if (/#[0-9a-fA-F]{3,6}\b/.test(text)) hex.push(path.relative(repo, p))
+    }
   }
 }
 walk(path.join(repo, 'app', 'renderer'))
 check('no raw hex color outside theme.css', hex.length === 0, hex.join(', '))
+// the editor's "Automatic" rule matches the marker the editor writes, and paints nothing of its own
+const css = fs.readFileSync(path.join(repo, 'app', 'renderer', 'src', 'app.css'), 'utf8')
+const autoRule = css.match(/\.editor font\[color="(#[0-9a-fA-F]{6})" i\]\s*\{([^}]*)\}/)
+check('the editor\'s Automatic rule: the marker of text-colors.js, shown in the colour around it', autoRule && autoRule[1].toLowerCase() === AUTO_COLOR && autoRule[2].trim() === 'color: inherit;', autoRule ? `${autoRule[1]} { ${autoRule[2].trim()} }` : 'no rule')
 
 console.log(`\n${results.filter(Boolean).length} / ${results.length} OK`)
 process.exit(results.every(Boolean) ? 0 : 1)

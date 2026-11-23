@@ -14,12 +14,10 @@ import { createDraftState } from './draft-state.js'
 import { accountSignatureHtml, accountImageSrc, signatureInner, SIGNATURE_ATTR } from '../../../core/smtp/signature.js'
 import { Banner, Button, IconButton, Menu, Modal, Select, TextField } from './ui/index.js'
 import { IMAGE_SIZES, sizeOf } from '../../../core/smtp/image-width.js'
-import { TEXT_COLORS, HIGHLIGHT_COLORS } from '../../../core/smtp/text-colors.js'
-import { CLIP_TYPE, selectionHtml, plainColorAt } from './compose-colors.js'
+import { TEXT_COLORS, HIGHLIGHT_COLORS, AUTO_COLOR } from '../../../core/smtp/text-colors.js'
+import { selectionHtml, plainColorAt } from './compose-colors.js'
+import { preparePaste, prepareQuote, hasShownText } from '../../../core/mime/paste-prepare.js'
 import { ScheduleDialog } from './ScheduleDialog.jsx'
-
-// the text a clipboard HTML would show (a parsed, inert document: no script runs, no image loads)
-const visibleTextOf = html => (html ? (new DOMParser().parseFromString(html, 'text/html').body.textContent || '').trim() : '')
 
 export { ScheduleDialog }
 
@@ -182,14 +180,12 @@ export function createEmptyTextGuard() {
       }
       for (const f of ['bold', 'italic', 'underline']) if (document.queryCommandState(f) !== Boolean(state.toggles[f] % 2)) document.execCommand(f)
       // the deleted text's colour and highlight are kept for the next character too: back to none, unless chosen since
+      // (no colour: the "Automatic" marker, which the editor shows in the colour around it and nothing sends)
       const sel = window.getSelection()
       if (sel && sel.rangeCount) {
-        if (!state.color) {
-          const plain = plainColorAt(sel.getRangeAt(0), el)
-          if (document.queryCommandValue('foreColor') !== plain) {
-            document.execCommand('styleWithCSS', false, false)
-            document.execCommand('foreColor', false, plain)
-          }
+        if (!state.color && document.queryCommandValue('foreColor') !== plainColorAt(sel.getRangeAt(0), el)) {
+          document.execCommand('styleWithCSS', false, false)
+          document.execCommand('foreColor', false, AUTO_COLOR)
         }
         // the highlight's value comes from backColor (hiliteColor gives none)
         const hl = document.queryCommandValue('backColor') || document.queryCommandValue('hiliteColor')
@@ -469,15 +465,32 @@ export function Composer({ sessionId }) {
       setTimeout(ready, 250)
     }
     // the starting body into the editor, unless its shape says no -> true, or the reason ('run': a run over N,
-    // 'switches': a block over B direction switches; nothing written). A table in it (a reply's or a forward's quote)
-    // keeps its rows as lines, as a pasted one does; Claude's quote (visibleComposeHtml) makes the same lines. `colors`:
-    // the toolbar's colours stay, only for the user's own saved body (a draft or a scheduled message opened again); a
-    // quote, a mailto body and a signature come without colours, as a paste does
-    const writeBody = (html, colors = false) => {
-      const { fragment, reason } = shapeOf(document, sanitizeCompose(DOMPurify, html, { sessionId, tableRows: true, colors }))
+    // 'switches': a block over B direction switches; nothing written). `saved`: the user's own saved body (a draft or a
+    // scheduled message opened again) keeps its formatting as it was saved; otherwise the link's body and the signature the
+    // old way (no formatting, a table as lines), and a reply's / forward's `quote` with the original's formatting
+    // (prepareQuote: hidden text out, readability, the table limit; too complex: the old way). Claude's quote
+    // (app/main/compose.js) makes the same bytes.
+    const place = ({ fragment, reason }) => {
       if (reason) return reason
       if (editor.current) editor.current.replaceChildren(fragment)
       return true
+    }
+    // `quote`: { before, body, after } (core/smtp/compose.js quoteParts): only the original's body is made ready, its
+    // <style> never reaches our header lines; a quote without parts counts as all body
+    const writeBody = (html, saved = false, quote = null) => {
+      if (saved) return place(shapeOf(document, sanitizeCompose(DOMPurify, html, { sessionId, rich: true })))
+      const head = sanitizeCompose(DOMPurify, html, { sessionId, tableRows: true })
+      if (!quote || !quote.body) return place(shapeOf(document, head))
+      const whole = quote.before + quote.body + quote.after
+      // the old way's shape too, and it decides first: the quote asks wherever the plain quote (tables as lines, h4 / hr /
+      // td joined) asks. The rich quote keeps those as blocks of their own, and 2000 blocks of alternating directions are
+      // as slow to lay out as one long run (measured: until the watchdog). On the prepared quote: no <style> reaches the
+      // sanitizer's parser (Chromium writes a policy line for one)
+      const ready = prepareQuote(quote.body)
+      const prepared = ready.plain ? whole : quote.before + ready.html + quote.after
+      const plain = shapeOf(document, head + sanitizeCompose(DOMPurify, prepared, { sessionId, tableRows: true }))
+      if (plain.reason || ready.plain) return place(plain)
+      return place(shapeOf(document, head + sanitizeCompose(DOMPurify, prepared, { sessionId, rich: true })))
     }
     Promise.all([api.compose.accounts(), api.compose.initial(sessionId)]).then(([res, init]) => {
       if (!res.ok || !res.accounts.length) return true
@@ -502,9 +515,10 @@ export function Composer({ sessionId }) {
         }
         // a saved draft opened again: its own body, the signature is already in it
         const saved = form.draftHtml !== undefined
-        const html = saved ? form.draftHtml : (form.body || '') + accountSignatureHtml(account) + (form.quote || '')
+        const html = saved ? form.draftHtml : (form.body || '') + accountSignatureHtml(account)
         document.title = form.subject ? `${form.subject} - ShadowMail` : t.composeTitle
-        return writeBody(html, saved)
+        const quote = saved ? null : form.quoteParts || (form.quote ? { before: '', body: form.quote, after: '' } : null)
+        return writeBody(html, saved, quote)
       }
       document.title = t.composeTitle
       return writeBody(accountSignatureHtml(account))
@@ -537,7 +551,7 @@ export function Composer({ sessionId }) {
     cc,
     bcc,
     subject,
-    html: sanitizeCompose(DOMPurify, editor.current ? editor.current.innerHTML : '', { sessionId, colors: true }),
+    html: sanitizeCompose(DOMPurify, editor.current ? editor.current.innerHTML : '', { sessionId, rich: true }),
     inReplyTo: threading.current.inReplyTo || undefined,
     references: threading.current.references.length ? threading.current.references : undefined,
   })
@@ -716,14 +730,14 @@ export function Composer({ sessionId }) {
   }
 
   // a colour from a colour menu: the editor's own command on the text's selection (styleWithCSS off: a <font color>, a
-  // highlight span); null = take it off: "Automatikus" is the colour the text has without one, "Nincs kiemelés" transparent
+  // highlight span); null = take it off: "Automatikus" the marker (text-colors.js AUTO_COLOR: shown in the colour around
+  // it, never sent), "Nincs kiemelés" transparent
   const paint = (cmd, value) => {
     if (!editor.current || sentRef.current) return
     if (toolbar.current && toolbar.current.contains(document.activeElement)) backToText()
     else editor.current.focus()
-    const sel = window.getSelection()
     let v = value
-    if (v === null) v = cmd === 'hiliteColor' ? 'transparent' : sel && sel.rangeCount ? plainColorAt(sel.getRangeAt(0), editor.current) : ''
+    if (v === null) v = cmd === 'hiliteColor' ? 'transparent' : AUTO_COLOR
     emptyGuard.current.choose(cmd)
     document.execCommand('styleWithCSS', false, false)
     document.execCommand(cmd, false, v)
@@ -731,10 +745,9 @@ export function Composer({ sessionId }) {
     touch()
   }
 
-  // copy / cut in the text: the composer's own HTML of the selection (sanitized, the palette colours kept) with this
-  // window's mark; a cut then deletes the selection with the editor's own command (one undo step)
-  const clipMark = useRef(null)
-  clipMark.current ??= crypto.randomUUID()
+  // copy / cut in the text: the composer's own HTML of the selection (sanitized, its formatting kept: rich; Chromium's own
+  // copy would write the editor's computed font and colour onto it); a cut then deletes the selection with the editor's
+  // own command (one undo step). A paste is one way for every clipboard (pasteHtml), so no mark is needed
   const ownCopy = (e, cut) => {
     if (sentRef.current || !editor.current) return
     const sel = window.getSelection()
@@ -742,15 +755,29 @@ export function Composer({ sessionId }) {
     const range = sel.getRangeAt(0)
     if (!editor.current.contains(range.commonAncestorContainer)) return
     e.preventDefault()
-    e.clipboardData.setData('text/html', sanitizeCompose(DOMPurify, selectionHtml(range, editor.current), { sessionId, colors: true }))
+    e.clipboardData.setData('text/html', sanitizeCompose(DOMPurify, selectionHtml(range, editor.current), { sessionId, rich: true }))
     e.clipboardData.setData('text/plain', sel.toString())
-    e.clipboardData.setData(CLIP_TYPE, clipMark.current)
     if (cut) {
       document.execCommand('delete')
       bodyTouched.current = true
       touch()
     }
   }
+
+  // a pasted or dropped text/html into the text at the selection, one insertHTML (one undo step): the clipboard made ready
+  // (core/mime/paste-prepare.js: hidden text out, an unreadable colour off, a huge table as lines), then the rich
+  // sanitizer; too complex to make ready: the old way (no formatting, a table as lines) with an informing line
+  const pasteHtml = html => {
+    const ready = preparePaste(html)
+    setInfo(ready.plain ? t.composePastePlain : null)
+    // insert: no bare span (the old way leaves every span bare) and many blocks in one wrapping div: the editor's insertHTML
+    // is quadratic in both (sanitize.js INSERT_WRAP_NODES)
+    document.execCommand('insertHTML', false, ready.plain ? sanitizeCompose(DOMPurify, html, { sessionId, tableRows: true, insert: true }) : sanitizeCompose(DOMPurify, ready.html, { sessionId, rich: true, insert: true }))
+    bodyTouched.current = true
+    touch()
+  }
+  // a drag that started in this very text is the editor's own move (Chromium moves it), not a drop from outside
+  const dragFromText = useRef(false)
 
   // pasted / dropped images into the text at `range` (the caret's range when the paste or drop came; the awaits move
   // the selection): PNG / JPEG go in as inl-img images of this session, one insertHTML (one undo step); a format the text
@@ -879,7 +906,23 @@ export function Composer({ sessionId }) {
         if (e.dataTransfer.types.includes('Files')) e.preventDefault()
       }}
       onDrop={e => {
-        if (!e.dataTransfer.files.length || sentRef.current) return
+        if (sentRef.current) return
+        // a piece of a web page or a document dragged ONTO THE TEXT: the paste's own way (the editor would put it in as it
+        // came, styles and all), at the drop point; the editor's own drag is its own move
+        const html = e.dataTransfer.getData('text/html')
+        if (!e.dataTransfer.files.length && html && !dragFromText.current && editor.current && editor.current.contains(e.target)) {
+          e.preventDefault()
+          const range = document.caretRangeFromPoint ? document.caretRangeFromPoint(e.clientX, e.clientY) : null
+          editor.current.focus()
+          if (range && editor.current.contains(range.startContainer)) {
+            const sel = window.getSelection()
+            sel.removeAllRanges()
+            sel.addRange(range)
+          }
+          pasteHtml(html)
+          return
+        }
+        if (!e.dataTransfer.files.length) return
         e.preventDefault()
         const files = [...e.dataTransfer.files]
         // a PNG / JPEG dropped ON THE TEXT goes in at the drop point; anything else, and anything dropped elsewhere, is attached
@@ -978,6 +1021,12 @@ export function Composer({ sessionId }) {
           e.preventDefault()
           openImageMenu(img, e.target === img ? { x: e.clientX, y: e.clientY } : null)
         }}
+        onDragStart={() => {
+          dragFromText.current = true
+        }}
+        onDragEnd={() => {
+          dragFromText.current = false
+        }}
         onCopy={e => ownCopy(e, false)}
         onCut={e => ownCopy(e, true)}
         onPaste={e => {
@@ -987,16 +1036,19 @@ export function Composer({ sessionId }) {
           // an image on the clipboard (a screenshot, a copied image or image file): the image goes in, unless the HTML
           // beside it has text to show (then it is a piece of a page: the HTML path, where outside images are dropped)
           const images = [...e.clipboardData.files].filter(f => f.type.startsWith('image/'))
-          if (images.length && !visibleTextOf(html)) {
+          if (images.length && !hasShownText(html)) {
             const sel = window.getSelection()
             void insertImages(images, sel.rangeCount ? sel.getRangeAt(0).cloneRange() : null)
             return
           }
-          // a pasted table keeps its rows as lines (a web page's label / value table ran into one line); a copy or cut of this
-          // very window (its mark) keeps the palette colours, anything else comes without colour
-          const own = e.clipboardData.getData(CLIP_TYPE) === clipMark.current
-          if (html) document.execCommand('insertHTML', false, sanitizeCompose(DOMPurify, html, { sessionId, tableRows: true, colors: own }))
-          else document.execCommand('insertText', false, e.clipboardData.getData('text/plain'))
+          // the formatting stays (a table with its grid, colours, fonts, lists), only what can do harm goes (pasteHtml);
+          // no text/html (Ctrl+Shift+V: Chromium hands only the text/plain then, MEASURED): the plain text
+          if (html) {
+            pasteHtml(html)
+            return
+          }
+          setInfo(null)
+          document.execCommand('insertText', false, e.clipboardData.getData('text/plain'))
           bodyTouched.current = true
           touch()
         }}

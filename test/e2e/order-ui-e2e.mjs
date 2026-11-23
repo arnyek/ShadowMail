@@ -24,6 +24,7 @@ import { createVaultedDatabase } from '../../core/vault/vaulted-db.js'
 import { AccountStore } from '../../core/accounts/model.js'
 import { newAccountDefaults } from '../../core/accounts/defaults.js'
 import { t, seedLanguage } from './lang.mjs'
+import { dragMessageTo } from './drag-env.mjs'
 
 const { values } = parseArgs({ options: { shots: { type: 'string' } } })
 const require = createRequire(import.meta.url)
@@ -243,7 +244,8 @@ try {
   check('a folder dropped on INBOX: only the order, the INBOX count unchanged, Számlák still empty', (await countIn('INBOX')) === inboxCount && (await countIn('Számlák')) === 0)
 
   // 3. a message drag still moves
-  await page.locator('.msg-row', { hasText: 'POP 1' }).dragTo(folder(page, 'Számlák'))
+  // out as files and back onto the folder (drag-env.mjs: headless has no OS drag)
+  await dragMessageTo(app, page, page.locator('.msg-row', { hasText: 'POP 1' }), folder(page, 'Számlák'))
   await page.locator('.msg-row', { hasText: 'POP 1' }).waitFor({ state: 'detached' })
   await until(async () => (await countIn('Számlák')) === 1, 'the message in Számlák')
   check('a message dragged onto a folder still moves (and no order line for it)', (await countIn('INBOX')) === inboxCount - 1 && (await lines(page)) === 0)

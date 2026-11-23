@@ -101,9 +101,10 @@ test('list pages: no overlap, every message once, sorted by date / sender / subj
       }
     }
   }
-  // only the list's columns cross the bridge (no body); the recipient lines since 0.15.1 (the Sent / Drafts lists show them)
+  // only the list's columns cross the bridge (no body); the recipient lines since 0.15.1 (the Sent / Drafts lists show them);
+  // stored and size since 0.19.0 (the drag's choice: a 0 / 1 flag, never the store path)
   const one = (await ipc.call('mail:list', { accountId: account.id, folder: 'INBOX', limit: 1 })).rows[0]
-  assert.deepEqual(Object.keys(one).sort(), ['bcc_addrs', 'cc_addrs', 'date', 'flags', 'folder', 'from_addr', 'from_name', 'has_attachments', 'id', 'preview', 'subject', 'to_addrs', 'uid'])
+  assert.deepEqual(Object.keys(one).sort(), ['bcc_addrs', 'cc_addrs', 'date', 'flags', 'folder', 'from_addr', 'from_name', 'has_attachments', 'id', 'preview', 'size', 'stored', 'subject', 'to_addrs', 'uid'])
 })
 
 test('10 000-message folder: opening it (count + first page + folder counts) stays well under 1 s', async t => {

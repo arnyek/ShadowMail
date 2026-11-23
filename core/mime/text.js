@@ -9,14 +9,90 @@ import { htmlTotalActive, exceedsNestingDepth } from './html-total.js' // the `h
 export const BODY_MAX_CHARS = 100_000
 export const PREVIEW_CHARS = 200
 
-export function htmlToPlain(html) {
-  return htmlToText(html, {
-    wordwrap: false,
-    selectors: [
-      { selector: 'img', format: 'skip' },
-      { selector: 'a', options: { ignoreHref: true } },
-    ],
-  })
+const PLAIN_SELECTORS = [
+  { selector: 'img', format: 'skip' },
+  { selector: 'a', options: { ignoreHref: true } },
+]
+// a table of an outgoing message (the composer's rich mode keeps it a table): a line per row, the cells one TAB apart, as
+// Chromium's own text/plain of a copied table; the caption the first line, a header cell not marked, a nested table's rows
+// where its cell is, an empty line before and after. Without it html-to-text writes the cells of a row into one word.
+// Past TAB_TABLE_DEPTH nested tables the inner ones are walked as plain text (each level copies its cells' text up once)
+export const TAB_TABLE_DEPTH = 20
+const SECTIONS = new Set(['thead', 'tbody', 'tfoot'])
+// no text of their own in a table (a caption or a section is read where it stands)
+const SKIP_IN_TABLE = new Set(['caption', 'colgroup', 'col', 'thead', 'tbody', 'tfoot', 'style', 'script'])
+let tableDepth = 0
+function tabTable(elem, walk, builder) {
+  if (tableDepth >= TAB_TABLE_DEPTH) {
+    walk(elem.children, builder)
+    return
+  }
+  tableDepth++
+  try {
+    builder.openTable()
+    const cell = nodes => {
+      builder.openTableCell()
+      walk(nodes, builder)
+      builder.closeTableCell()
+    }
+    const line = nodes => {
+      builder.openTableRow()
+      cell(nodes)
+      builder.closeTableRow()
+    }
+    // a safety net: what stands in a table, a section or a row but in no cell (the outgoing HTML's mirror moves it
+    // before the table, as the browser does) still gets its own line, so the text part never drops a shown text
+    const stray = n => (n.type === 'text' && /\S/.test(n.data)) || (n.type === 'tag' && !SKIP_IN_TABLE.has(n.name))
+    const row = tr => {
+      const cells = []
+      for (const c of tr.children) {
+        if (c.type === 'tag' && (c.name === 'td' || c.name === 'th')) cells.push(c)
+        else if (stray(c)) line([c])
+      }
+      builder.openTableRow()
+      for (const c of cells) cell(c.children)
+      builder.closeTableRow()
+    }
+    const rows = (children, inSection) => {
+      let loose = []
+      const flush = () => {
+        if (!loose.length) return
+        builder.openTableRow()
+        for (const c of loose) cell(c.children)
+        builder.closeTableRow()
+        loose = []
+      }
+      for (const c of children) {
+        if (c.type === 'tag' && (c.name === 'td' || c.name === 'th')) {
+          loose.push(c)
+          continue
+        }
+        flush()
+        if (c.type !== 'tag') {
+          if (stray(c)) line([c])
+        } else if (c.name === 'tr') row(c)
+        else if (!inSection && c.name === 'caption') line(c.children)
+        else if (!inSection && SECTIONS.has(c.name)) rows(c.children, true)
+        else if (stray(c)) line([c])
+      }
+      flush()
+    }
+    rows(elem.children, false)
+    // a cell's own blank lines (its paragraphs) are one line break: the row stays as close to one line as its text lets
+    builder.closeTable({ tableToString: rows => rows.map(r => r.map(x => x.text.replace(/\n{2,}/g, '\n')).join('\t')).join('\n'), leadingLineBreaks: 2, trailingLineBreaks: 2 })
+  } finally {
+    tableDepth--
+  }
+}
+const TAB_TABLE_OPTIONS = { wordwrap: false, formatters: { tabTable }, selectors: [...PLAIN_SELECTORS, { selector: 'table', format: 'tabTable' }] }
+
+/**
+ * An HTML body as plain text (no wrap, no image, a link's text without its target). `tables`: a table as TAB-separated
+ * lines (the text/plain part of an outgoing message, the send Modal's text); without it a table's text as html-to-text
+ * writes it (the index and the preview of a received message, as before).
+ */
+export function htmlToPlain(html, { tables = false } = {}) {
+  return htmlToText(html, tables ? TAB_TABLE_OPTIONS : { wordwrap: false, selectors: PLAIN_SELECTORS })
 }
 
 /** For indexing: collapses blank lines and spaces, caps the length. */

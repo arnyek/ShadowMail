@@ -28,8 +28,8 @@
 // 7. A turned photo (a real JPEG with Exif Orientation 6): shown upright (its natural size swapped), and
 //    the sent part, decoded by the real nativeImage, is upright (the colored corners where an upright image has them).
 // 8. A table copied from a web page (Chromium's clipboard HTML: no space or line between the cells, a style on the
-//    table): one row a line in the editor, the header cell bold, no table tag; sent, the text part has the rows as lines
-//    and nothing runs together. The policy lines of this HTML paste are told apart like step 2's (the formatted-paste card).
+//    table): a table in the editor (the rich paste keeps it), its rows and cells as copied, the header cells th; sent, the
+//    HTML has the table, the text part a line per row with the cells one TAB apart, and nothing runs together. The policy lines of this HTML paste are told apart like step 2's (the formatted-paste card).
 // The renderer console has no error or warning (no CSP line), the main log no error line and no file name, the net-guard
 // log is empty.
 // Playwright: PW=<path of the playwright package> (default: the repo's playwright-core devDependency).
@@ -126,7 +126,7 @@ let knownHtmlPath = 0
 let knownTablePath = 0
 // a web page's label / value table as Chromium puts it on the clipboard (measured in Electron 45.3.0), synthetic values
 const TABLE_HTML = '<meta charset="utf-8"><table class="bevitel" style="color: rgb(0, 0, 0); font-family: &quot;Times New Roman&quot;; font-size: medium;"><tbody><tr><th>Kedvezményezett neve:</th><td>Példa Kft</td></tr><tr><th>Számlavezető bank neve:</th><td>Minta Bank</td></tr><tr><th>Összeg:</th><td class="bold">1000 HUF</td></tr></tbody></table><br class="Apple-interchange-newline">'
-const TABLE_LINES = ['Kedvezményezett neve: Példa Kft', 'Számlavezető bank neve: Minta Bank', 'Összeg: 1000 HUF']
+const TABLE_ROWS = [['Kedvezményezett neve:', 'Példa Kft'], ['Számlavezető bank neve:', 'Minta Bank'], ['Összeg:', '1000 HUF']]
 const check = (name, ok, detail = '') => {
   results.push(Boolean(ok))
   console.log(`${ok ? 'OK  ' : 'FAIL'} ${name}${detail ? `: ${detail}` : ''}`)
@@ -572,13 +572,13 @@ try {
   consoleSeen = consoleLines.length
   const shown = await w.evaluate(() => {
     const ed = document.querySelector('.editor')
-    return { lines: ed.innerText.split('\n').map(l => l.trim()).filter(Boolean), table: ed.querySelectorAll('table, tr, td, th').length, bold: [...ed.querySelectorAll('b, strong')].map(b => b.textContent), html: ed.innerHTML.slice(0, 400) }
+    return { tables: ed.querySelectorAll('table').length, rows: [...ed.querySelectorAll('tr')].map(tr => [...tr.cells].map(c => c.textContent.trim())), th: ed.querySelectorAll('th').length, html: ed.innerHTML.slice(0, 400) }
   })
-  check('a pasted web-page table: one row a line in the editor, the cells apart, the header cells bold, no table tag', TABLE_LINES.every(l => shown.lines.includes(l)) && shown.table === 0 && ['Kedvezményezett neve:', 'Összeg:'].every(b => shown.bold.includes(b)), JSON.stringify(shown))
+  check('a pasted web-page table: a table in the editor, its rows and cells as copied, the header cells th', shown.tables === 1 && JSON.stringify(shown.rows) === JSON.stringify(TABLE_ROWS) && shown.th === 3, JSON.stringify(shown))
   await send(w, 'cimzett@example.invalid', 'Táblázat')
   mail = await sentMail(page, 7)
   const sentLines = mail ? (mail.text || '').split('\n').map(l => l.trim()) : []
-  check('the pasted table sent: the text part has each row as a line, nothing runs together; the HTML has no table and no glued cells', mail && TABLE_LINES.every(l => sentLines.includes(l)) && !/neve:Példa|KftSzámla|BankÖsszeg/.test(mail.text + mail.html) && !/<table/i.test(mail.html), mail ? JSON.stringify({ text: mail.text, html: mail.html.slice(0, 400) }) : 'nothing arrived')
+  check('the pasted table sent: the HTML has the table, the text part a line per row with the cells one TAB apart, nothing runs together', mail && /<table/i.test(mail.html) && TABLE_ROWS.every(r => sentLines.includes(r.join('\t'))) && !/neve:Példa|KftSzámla|BankÖsszeg/.test(mail.text), mail ? JSON.stringify({ text: mail.text, html: mail.html.slice(0, 400) }) : 'nothing arrived')
 } catch (err) {
   check('the run finished', false, err && err.stack ? err.stack.split('\n').slice(0, 4).join(' | ') : String(err))
 } finally {

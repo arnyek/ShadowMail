@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // The composer page (Composer.jsx, jsdom, a stub bridge) and the toolbar's colours (core/smtp/text-colors.js): a saved
 // body opened again (a draft, a scheduled message) keeps its palette colours in the editor; a reply's or a forward's quote,
-// a mailto body and a signature come without colour; what the editor holds goes to send and save with its palette colours
-// (form() sanitizes with colors), and a colour the toolbar does not make does not.
+// a mailto body and a signature come without colour; what the editor holds goes to send and save with its colours (form()
+// sanitizes rich: core/smtp/rich-style.js, the palette and every other checked colour), and what loads or breaks out does not.
 process.env.TZ = 'Europe/Budapest'
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
@@ -12,6 +12,7 @@ setupDom()
 globalThis.requestAnimationFrame = window.requestAnimationFrame = fn => setTimeout(() => fn(Date.now()), 0)
 globalThis.cancelAnimationFrame = window.cancelAnimationFrame = id => clearTimeout(id)
 const sent = []
+const suspects = []
 let initialForm = null
 let signature = ''
 window.shadowMail = {
@@ -22,7 +23,7 @@ window.shadowMail = {
     initial: async () => ({ ok: true, form: initialForm, attachments: [] }),
     checked: async () => ({ ok: true }),
     ready: async () => ({ ok: true }),
-    suspect: async () => ({ ok: true }),
+    suspect: async (sid, reason) => (suspects.push(reason), { ok: true }),
     suggest: async () => ({ ok: true, items: [] }),
     onLockRequested: () => () => {},
     onCloseRequested: () => () => {},
@@ -39,7 +40,7 @@ window.shadowMail = {
 const { createElement: h } = await import('react')
 const { Composer } = await import('../app/renderer/src/Composer.jsx')
 const { hu } = await import('../app/renderer/i18n/hu.js')
-const { TEXT_COLORS, HIGHLIGHT_COLORS } = await import('../core/smtp/text-colors.js')
+const { TEXT_COLORS, HIGHLIGHT_COLORS, AUTO_COLOR } = await import('../core/smtp/text-colors.js')
 
 const SID = '11111111-2222-3333-4444-555555555555'
 const RED = TEXT_COLORS[0].hex
@@ -70,13 +71,16 @@ const send = async () => {
   return last[1]
 }
 
-test('a saved draft opened again: its palette colours in the editor; sent with them; a foreign colour not', async t => {
-  await open(t, base({ draftHtml: COLOURED }))
+test('a saved draft opened again: its colours in the editor (rich: a foreign checked colour too, a table as a table); sent with them; what loads or breaks out not', async t => {
+  const hostile = '<span style="background: url(https://evil.invalid/t.png); position: fixed; color: green;">x</span><table><tr><td style="border: 1px solid red;">c</td></tr></table>'
+  await open(t, base({ draftHtml: COLOURED + hostile }))
   assert.ok(coloured(editor().innerHTML), editor().innerHTML)
-  assert.ok(!editor().innerHTML.includes('#ff0000'), 'the foreign colour is not in the editor')
+  assert.ok(editor().innerHTML.includes('<font color="#ff0000">idegen</font>'), 'a foreign colour stays (rich)')
+  assert.ok(editor().innerHTML.includes('<span style="color: green;">x</span><table><tbody><tr><td style="border: 1px solid red;">c</td></tr></tbody></table>'), editor().innerHTML)
   const html = await send()
   assert.ok(coloured(html), html)
-  assert.ok(!html.includes('#ff0000'), html)
+  assert.ok(html.includes('<font color="#ff0000">idegen</font>') && html.includes('<td style="border: 1px solid red;">'), html)
+  assert.ok(!/url\(|evil|position/.test(html), html)
 })
 
 test('a scheduled message opened again (it comes as draftHtml too): the colours stay', async t => {
@@ -84,9 +88,22 @@ test('a scheduled message opened again (it comes as draftHtml too): the colours 
   assert.ok(coloured(editor().innerHTML))
 })
 
+// a reply's / forward's quote keeps the original's formatting (prepareQuote + the rich sanitizer), and it goes out so
 for (const [name, over] of [
   ['a reply\'s quote', { body: '', quote: `<p>Idézet:</p><blockquote>${COLOURED}</blockquote>` }],
   ['a forward\'s quote', { body: '', quote: `<p>---------- Továbbított üzenet ----------</p>${COLOURED}` }],
+]) {
+  test(`${name}: the original's colours in the editor, and sent`, async t => {
+    await open(t, base(over))
+    assert.ok(coloured(editor().innerHTML), editor().innerHTML)
+    assert.ok(editor().innerHTML.includes('<font color="#ff0000">idegen</font>'), editor().innerHTML)
+    const html = await send()
+    assert.ok(coloured(html), html)
+    assert.ok(html.includes('<font color="#ff0000">idegen</font>'), html)
+  })
+}
+
+for (const [name, over] of [
   ['a mailto body', { body: COLOURED }],
 ]) {
   test(`${name}: no colour in the editor (as before); the user's own colour added afterwards goes out`, async t => {
@@ -122,7 +139,7 @@ test('save as draft: the palette colours go to the saved draft', async t => {
 })
 
 // --- the colour buttons and menus (the editor's commands recorded: jsdom has no execCommand) --------------------------
-const { CLIP_TYPE, selectionHtml, plainColorAt } = await import('../app/renderer/src/compose-colors.js')
+const { selectionHtml, plainColorAt } = await import('../app/renderer/src/compose-colors.js')
 const commands = []
 document.execCommand = (cmd, ui, value) => (commands.push([cmd, value]), true)
 document.queryCommandState = () => false
@@ -174,14 +191,13 @@ test('Text color: the menu lists Automatic first, then the six palette colours w
   assert.equal(window.getSelection().toString(), 'szó', 'the selection kept')
 })
 
-test('Automatic takes the colour off with the colour the text has without one; No highlight with transparent', async t => {
+test('Automatic takes the colour off with the marker (shown in the colour around it, never sent); No highlight with transparent', async t => {
   await open(t, base({ draftHtml: `<p>egy <font color="${RED}">szó</font> itt</p>` }))
   selectText('szó')
   await inAct(async () => tool(hu.composeTools.textColor).click())
   commands.length = 0
   await inAct(async () => menuItems()[0].click())
-  const plain = getComputedStyle(editor().querySelector('p')).color
-  assert.deepEqual(commands, [['styleWithCSS', false], ['foreColor', plain]])
+  assert.deepEqual(commands, [['styleWithCSS', false], ['foreColor', AUTO_COLOR]])
   selectText('szó')
   await inAct(async () => tool(hu.composeTools.highlight).click())
   const items = menuItems()
@@ -237,7 +253,7 @@ const clip = (type, data = {}) => {
   return { e, store }
 }
 
-test('copy in the text: the selection\'s own HTML with its palette colours (a piece of one coloured word too), the plain text and the window\'s mark; cut deletes with the editor command', async t => {
+test('copy in the text: the selection\'s own HTML with its colours (a piece of one coloured word too) and the plain text, no mark type; cut deletes with the editor command', async t => {
   await open(t, base({ draftHtml: `<p>egy <font color="${RED}"><b>színesszó</b></font> <span style="${YELLOW}">kiemelt</span> itt</p>` }))
   selectText('esszó')
   const c = clip('copy')
@@ -245,32 +261,52 @@ test('copy in the text: the selection\'s own HTML with its palette colours (a pi
   assert.ok(c.e.defaultPrevented)
   assert.equal(c.store['text/html'], `<font color="${RED}"><b>esszó</b></font>`)
   assert.equal(c.store['text/plain'], 'esszó')
-  assert.match(c.store[CLIP_TYPE], /^[0-9a-f-]{36}$/)
+  assert.deepEqual(Object.keys(c.store).sort(), ['text/html', 'text/plain'], 'no clipboard mark any more')
   commands.length = 0
   selectText('kiemelt')
   const x = clip('cut')
   await inAct(async () => editor().dispatchEvent(x.e))
   assert.equal(x.store['text/html'], `<span style="${YELLOW}">kiemelt</span>`)
-  assert.equal(x.store[CLIP_TYPE], c.store[CLIP_TYPE], 'one mark per window')
   assert.deepEqual(commands, [['delete', undefined]])
 })
 
-test('paste: the window\'s own mark keeps the palette colours; no mark, another mark, a foreign colour: none', async t => {
+test('paste: every clipboard the same way, formatted (rich) after the paste step: a colour stays, hidden text and what loads go; a former mark changes nothing', async t => {
   await open(t, base({ draftHtml: '<p>egy szó itt</p>' }))
   selectText('szó')
   const c = clip('copy')
   await inAct(async () => editor().dispatchEvent(c.e))
-  const mark = c.store[CLIP_TYPE]
-  const html = `<font color="${RED}">piros</font> <span style="${YELLOW}">sárga</span> <font color="#ff0000">idegen</font>`
+  const html = `<font color="${RED}">piros</font> <span style="${YELLOW}">sárga</span> <font color="#ff0000">idegen</font><span style="font-size: 0px">rejtett</span><img src="https://evil.invalid/t.png"><span style="position: fixed">x</span>`
+  const want = `<font color="${RED}">piros</font> <span style="${YELLOW}">sárga</span> <font color="#ff0000">idegen</font>x`
   const pasted = async data => {
     commands.length = 0
     const p = clip('paste', data)
     await inAct(async () => editor().dispatchEvent(p.e))
     return commands.find(x => x[0] === 'insertHTML')[1]
   }
-  assert.equal(await pasted({ 'text/html': html, [CLIP_TYPE]: mark }), `<font color="${RED}">piros</font> <span style="${YELLOW}">sárga</span> idegen`)
-  assert.equal(await pasted({ 'text/html': html }), 'piros <span>sárga</span> idegen')
-  assert.equal(await pasted({ 'text/html': html, [CLIP_TYPE]: '00000000-0000-0000-0000-000000000000' }), 'piros <span>sárga</span> idegen')
+  assert.equal(await pasted({ 'text/html': html }), want)
+  assert.equal(await pasted({ 'text/html': html, 'application/x-shadowmail-compose': '00000000-0000-0000-0000-000000000000' }), want)
+  // no text/html (Ctrl+Shift+V): the plain text
+  commands.length = 0
+  const p = clip('paste', { 'text/plain': 'sima szöveg' })
+  await inAct(async () => editor().dispatchEvent(p.e))
+  assert.deepEqual(commands, [['insertText', 'sima szöveg']])
+})
+
+test('paste too complex to make ready: the old way (no formatting, a table as lines) and the informing line', async t => {
+  await open(t, base({ draftHtml: '<p>egy szó itt</p>' }))
+  selectText('szó')
+  // over visible-text.js's tag cut (100 000 tags): never a part of the clipboard
+  const html = `<table><tr><th>Fej</th><td><font color="${RED}">piros</font></td></tr></table><p><span style="color: red">a</span><span>b</span></p>` + '<i>x</i>'.repeat(100_001)
+  commands.length = 0
+  const p = clip('paste', { 'text/html': html })
+  await inAct(async () => editor().dispatchEvent(p.e))
+  const inserted = commands.find(x => x[0] === 'insertHTML')[1]
+  // in the many-node wrapper (sanitize.js INSERT_WRAP_NODES): the table as lines, then the rest
+  assert.ok(inserted.startsWith('<div><div><div><b>Fej</b> piros</div></div>'), inserted.slice(0, 80))
+  assert.ok(inserted.endsWith('</div>'), inserted.slice(-40))
+  assert.ok(!/<font|<table|style=|<span/.test(inserted.slice(0, 300)), 'no formatting, and no bare span (the editor\'s insertHTML is quadratic in them)')
+  assert.ok(inserted.includes('<p>ab</p><i>x</i>'), inserted.slice(0, 120))
+  assert.equal(document.querySelector('.compose-info[role="status"]')?.textContent, hu.composePastePlain)
 })
 
 test('selectionHtml: the formatting around a piece is copied up to its block, not the block or a link; plainColorAt: the colour outside the coloured fonts', () => {
@@ -287,4 +323,26 @@ test('selectionHtml: the formatting around a piece is copied up to its block, no
   assert.equal(selectionHtml(whole, root), root.querySelector('p').innerHTML)
   assert.equal(plainColorAt(r, root), getComputedStyle(root.querySelector('a')).color)
   root.remove()
+})
+
+test('the quote asks wherever the plain quote asks (its blocks joined), and nothing goes into the editor; else it is rich', async t => {
+  // 50 h4 of 1000 characters without a space: the plain quote joins them into one 50 000 run (over N); rich, each is a block
+  suspects.length = 0
+  await open(t, base({ body: '', quote: `<p>Idézet:</p>${`<h4>${'x'.repeat(1000)}</h4>`.repeat(50)}` }))
+  assert.deepEqual(suspects, ['run'])
+  assert.equal(editor().textContent, '')
+})
+
+test('the same quote as h2 (a block on both ways): no question, the rich quote in the editor', async t => {
+  suspects.length = 0
+  await open(t, base({ body: '', quote: `<p>Idézet:</p>${`<h2>${'x'.repeat(1000)}</h2>`.repeat(50)}` }))
+  assert.deepEqual(suspects, [])
+  assert.equal(editor().querySelectorAll('h2').length, 50)
+})
+
+test('the quote\'s parts: only the original\'s body is made ready, its <style> does not reach our header line', async t => {
+  await open(t, base({ body: '', quote: 'ignored', quoteParts: { before: '<p>Anna írta:</p><blockquote>', body: '<style>p { display: none; } blockquote { color: #c00000; }</style><div>tartalom</div><p>rejtett</p>', after: '</blockquote>' } }))
+  const html = editor().innerHTML
+  assert.ok(html.includes('<p>Anna írta:</p><blockquote>'), html)
+  assert.ok(html.includes('tartalom') && !html.includes('rejtett') && !html.includes('#c00000'), html)
 })

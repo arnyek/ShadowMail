@@ -53,24 +53,26 @@ for (const [name, html] of Object.entries(SAME)) {
   })
 }
 
-// the composer's colours (core/smtp/text-colors.js): the mirror keeps what sanitizeCompose keeps, with the option and
-// without it (Claude's quote: no colour at all; the MCP send_draft of the user's own saved draft: the palette stays)
+// the composer's colours (core/smtp/text-colors.js): without `rich` (Claude's quote) no colour at all, as sanitizeCompose; with it
+// (the MCP send_draft of the user's own saved draft) the two ways byte for byte: test/rich-parity.test.js
 for (const [name, html] of Object.entries(COLOR_SAMPLES)) {
-  for (const colors of [false, true]) {
-    test(`quote = sanitizeCompose, colors ${colors ? 'on' : 'off'}: ${name}`, () => {
-      const mirror = visibleComposeHtml(html, { colors })
-      assert.deepEqual(shape(mirror), shape(sanitizeCompose(purify, html, { tableRows: true, colors })))
-      if (!colors) assert.ok(!/<font|style=|color=/.test(mirror), mirror)
-    })
-  }
+  test(`quote = sanitizeCompose, without rich: ${name}`, () => {
+    const mirror = visibleComposeHtml(html)
+    assert.deepEqual(shape(mirror), shape(sanitizeCompose(purify, html, { tableRows: true })))
+    assert.ok(!/<font|style=|color=/.test(mirror), mirror)
+  })
 }
 
-test('the mirror\'s colours: escaped, a font with nothing left unwrapped, the default is without colours', () => {
-  const html = '<p><font color="#c62828" style="background-color: rgb(255, 245, 157);">x</font><font face="Arial">y</font></p>'
-  assert.equal(visibleComposeHtml(html), '<p>xy</p>')
-  assert.equal(visibleComposeHtml(html, { colors: true }), '<p><font color="#c62828" style="background-color: rgb(255, 245, 157);">x</font>y</p>')
-  // an attribute value that tries to break out is no palette value: nothing of it is written
-  assert.equal(visibleComposeHtml('<p><font color="#c62828&quot; onclick=&quot;x">x</font></p>', { colors: true }), '<p>x</p>')
+test('the mirror\'s rich mode: escaped, a font with nothing left unwrapped, the default is without formatting', () => {
+  const html = '<p><font color="#c62828" style="background-color: rgb(255, 245, 157);">x</font><font face="Arial">y</font><font size="9">z</font></p>'
+  assert.equal(visibleComposeHtml(html), '<p>xyz</p>')
+  assert.equal(visibleComposeHtml(html, { rich: true }), '<p><font color="#c62828" style="background-color: rgb(255, 245, 157);">x</font><font face="Arial">y</font>z</p>')
+  // an attribute value that tries to break out is no colour: nothing of it is written
+  assert.equal(visibleComposeHtml('<p><font color="#c62828&quot; onclick=&quot;x">x</font></p>', { rich: true }), '<p>x</p>')
+  assert.equal(visibleComposeHtml('<p><span style="font-family: &quot;A&quot; onclick=&quot;x&quot;">x</span></p>', { rich: true }), '<p>x</p>')
+  // a table stays a table in the rich mode, lines without it
+  assert.equal(visibleComposeHtml('<table><tr><td>a</td><td>b</td></tr></table>', { rich: true }), '<table><tbody><tr><td>a</td><td>b</td></tr></tbody></table>')
+  assert.equal(visibleComposeHtml('<table><tr><td>a</td><td>b</td></tr></table>'), '<div><div>a b</div></div>')
 })
 
 test('quote from a hostile original: no script, style, image, handler, javascript: link, frame, svg or hidden text', () => {

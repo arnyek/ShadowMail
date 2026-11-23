@@ -634,7 +634,7 @@ export function createMcpTools({ appVersion, store, index, reader, manager, peop
         from: payload.from,
         to: lists[0].ok.map(displayAddress), cc: lists[1].ok.map(displayAddress), bcc: lists[2].ok.map(displayAddress),
         subject: payload.subject,
-        text: htmlToPlain(payload.html),
+        text: htmlToPlain(payload.html, { tables: true }),
         attachments: attachments.map(x => ({ name: x.filename, size: x.size })),
         links,
         linkCount,
@@ -1283,12 +1283,12 @@ export function createMcpTools({ appVersion, store, index, reader, manager, peop
         if (!source_sha256) throw new ToolError('not_available', DRAFT_TEXT.not_available)
         const sid = composer.open()
         const d = await prepareSession(sid, { mode: 'draft', messageId: a.draft_id })
-        // what goes out is what the composer would send: its own allow-list (no image, script, other style; <a href> http(s)
-        // / mailto only; the toolbar's palette colours stay, as the composer keeps them in a saved draft), the hidden text
-        // out; the Modal shows that text and every link's target
-        const html = d.draftHtml ? visibleComposeHtml(d.draftHtml, { colors: true }) : ''
+        // what goes out is what the composer would send: its own allow-list (no image, script, class / id, loading or
+        // breaking-out style; <a href> http(s) / mailto only; the formatting core/smtp/rich-style.js keeps stays, as the
+        // composer keeps it in a saved draft: rich), the hidden text out; the Modal shows that text and every link's target
+        const html = d.draftHtml ? visibleComposeHtml(d.draftHtml, { rich: true }) : ''
         // empty or too complex visible part: nothing to show the user, nothing goes out
-        if (!html || !htmlToPlain(html).trim()) {
+        if (!html || !htmlToPlain(html, { tables: true }).trim()) {
           composer.close(sid)
           throw new ToolError('draft_too_complex', 'A piszkozat HTML-je túl összetett ahhoz, hogy biztonságosan megmutassam; a felhasználó az appban nyithatja meg és küldheti el.')
         }

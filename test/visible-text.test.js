@@ -303,3 +303,181 @@ for (const [name, html] of Object.entries(gone)) test(`hidden: ${name}`, () => a
 test('normalizeColor', () => {
   assert.deepEqual(['#FFF', 'white', 'rgb(255, 255, 255)', 'rgb(255 255 255 / 0)', '#ffff', 'hsl(0 0% 0%)', 'var(--x)'].map(normalizeColor), ['#ffffff', '#ffffff', '#ffffff', 'transparent', '#ffffff', '#000000', null])
 })
+
+test('a page body\'s text= colour counts (an old newsletter: light text on a dark bgcolor body is visible; the same dark is hidden)', () => {
+  assert.equal(visibleText('<html><body bgcolor="#000000" text="#ffffff"><p>fehér a feketén</p></body></html>'), 'fehér a feketén')
+  assert.equal(visibleText('<html><body bgcolor="#000000" text="#050505"><p>rejtett</p></body></html>'), '')
+  // any style (a sheet's too) wins over the attribute
+  assert.equal(visibleText('<html><head><style>body { color: #000000 }</style></head><body bgcolor="#000000" text="#ffffff"><p>rejtett</p></body></html>'), '')
+  // a value that is no colour is no attribute (the default black: on black, hidden)
+  assert.equal(visibleText('<html><body bgcolor="#000000" text="zz"><p>rejtett</p></body></html>'), '')
+  assert.equal(visibleText('<html><body text="zz"><p>marad</p></body></html>'), 'marad')
+})
+
+test('a background shorthand and its longhand: the one the cascade puts last decides (a rule\'s !important shorthand over an own longhand)', () => {
+  // the rule's important white background wins: black text on white, visible
+  assert.equal(visibleText('<style>td { background: #ffffff !important; }</style><table><tr><td style="background-color: #000000;">feher</td></tr></table>'), 'feher')
+  // the own longhand wins over a plain rule: black on black, hidden
+  assert.equal(visibleText('<style>td { background: #ffffff; }</style><table><tr><td style="background-color: #000000;">rejtett</td></tr></table>'), '')
+  // both inline: the later one
+  assert.equal(visibleText('<p style="background-color: #000000; background: #ffffff;">feher</p>'), 'feher')
+  assert.equal(visibleText('<p style="background: #ffffff; background-color: #000000;">rejtett</p>'), '')
+})
+
+test('a far-off place in any unit is hidden (em in the element\'s own font, %, vw / vh); a near one, as in a hanging indent, is not', async () => {
+  const { searchTextOf } = await import('../core/mime/text.js')
+  const { visibleComposeHtml } = await import('../core/mime/visible-text.js')
+  const hidden = {
+    'text-indent -40em': '<p style="text-indent: -40em;">ELREJTVE</p>',
+    'text-indent -12em on a 96 px own font': '<p style="font-size: 96px; text-indent: -12em;">ELREJTVE</p>',
+    'text-indent -12em under an inherited 96 px font': '<div style="font-size: 96px;"><p style="text-indent: -12em;">ELREJTVE</p></div>',
+    'absolute left -50em': '<div style="position: absolute; left: -50em;">ELREJTVE</div>',
+    'absolute left -100%': '<div style="position: absolute; left: -100%;">ELREJTVE</div>',
+    'absolute top -60vh': '<div style="position: absolute; top: -60vh;">ELREJTVE</div>',
+    'fixed right -32rem': '<div style="position: fixed; right: -32rem;">ELREJTVE</div>',
+    'text-indent -6in': '<p style="text-indent: -6in;">ELREJTVE</p>',
+  }
+  for (const [name, html] of Object.entries(hidden)) {
+    const page = `<p>LATHATO</p>${html}`
+    assert.equal(visibleText(page), 'LATHATO', `read_message: ${name}`)
+    assert.ok(!searchTextOf({ html: page }).includes('ELREJTVE'), `search: ${name}`)
+    assert.ok(!visibleComposeHtml(page).includes('ELREJTVE') && !visibleComposeHtml(page, { rich: true }).includes('ELREJTVE'), `Claude's quote: ${name}`)
+  }
+  const shown = {
+    'Word hanging indent': '<p style="margin-left: .5in; text-indent: -.25in;">MARAD</p>',
+    'text-indent -2em on 16 px': '<p style="text-indent: -2em;">MARAD</p>',
+    'left -10% on a relative element': '<div style="position: relative; left: -10%;">MARAD</div>',
+    'absolute left -10% (60 px)': '<div style="position: absolute; left: -10%;">MARAD</div>',
+    'text-indent 2em': '<p style="text-indent: 2em;">MARAD</p>',
+    'text-indent -30em in a 10 px font (300 px)': '<p style="font-size: 10px; text-indent: -30em;">MARAD</p>',
+    'an unknown length (a variable) in a text-indent decides nothing': '<p style="text-indent: var(--i);">MARAD</p>',
+    'an unknown length (min()) in a text-indent decides nothing': '<p style="text-indent: min(-100em, 2px);">MARAD</p>',
+  }
+  for (const [name, html] of Object.entries(shown)) assert.equal(visibleText(html), 'MARAD', name)
+})
+
+test('a negative left or top margin far off is hidden (measured in the reader: out of reach); a near one, a right / bottom one, is not', () => {
+  for (const st of ['margin-left: -2000px;', 'margin-top: -2000px;', 'margin: -2000px 0 0 0;', 'margin: 0 0 0 -2000px;', 'margin: 0 -2000px;', 'margin-left: -200em;', 'margin-top: -60vh;', 'font-size: 96px; margin-left: -6em;']) {
+    assert.equal(visibleText(`<p>LATHATO</p><p style="${st}">ELREJTVE <b>BENNE</b></p>`), 'LATHATO', st)
+  }
+  for (const st of ['margin-left: -20px;', 'margin: -10px;', 'margin-right: -2000px;', 'margin-bottom: -2000px;', 'margin-left: -2em;', 'margin: 0 0 0 auto;']) {
+    assert.ok(visibleText(`<p style="${st}">MARAD</p>`).includes('MARAD'), st)
+  }
+  // the shorthand and the longhand: the cascade's order decides (inline, in a sheet, an important rule)
+  assert.ok(visibleText('<p style="margin: 0 0 0 -2000px; margin-left: 0;">MARAD</p>').includes('MARAD'))
+  assert.equal(visibleText('<p style="margin-left: 0; margin: 0 0 0 -2000px;">ELREJTVE</p><p>LATHATO</p>'), 'LATHATO')
+  assert.equal(visibleText('<style>.a { margin-left: 0; } .b { margin: 0 0 0 -2000px; }</style><p class="a b">ELREJTVE</p><p>LATHATO</p>'), 'LATHATO')
+  assert.ok(visibleText('<style>.b { margin: 0 0 0 -2000px; } .a { margin-left: 0; }</style><p class="a b">MARAD</p>').includes('MARAD'))
+  assert.ok(visibleText('<style>p.a { margin-left: 0; } .b { margin: 0 0 0 -2000px; }</style><p class="a b">MARAD</p>').includes('MARAD'), 'the more specific longhand')
+  assert.equal(visibleText('<style>.b { margin: -2000px 0 0 0 !important; }</style><p class="b" style="margin-top: 0;">ELREJTVE</p><p>LATHATO</p>'), 'LATHATO')
+})
+
+test('a far relative offset and a far transform translation are hidden; near ones, sticky, rotations and unknown lengths are not', () => {
+  const hidden = ['position: relative; left: -2000px;', 'position: relative; top: -2000px;', 'position: relative; left: -150em;', 'position: relative; right: 2000px;',
+    'position: relative; bottom: 2000px;', 'transform: translateX(-2000px);', 'transform: translate(-150em, 0);', 'transform: translateY(-60vh);',
+    'transform: translate3d(0, -2000px, 0);', 'transform: matrix(1, 0, 0, 1, -2000, 0);', 'translate: -2000px 0;', 'translate: 0 -2000px;',
+    'transform: translateX(-300px) translateX(-300px);', 'transform: rotate(5deg) translateX(-2000px);', 'font-size: 96px; transform: translateX(-6em);',
+    'position: relative; left: auto; right: 2000px;', 'position: relative; top: auto; bottom: 2000px;', 'position: relative; left: inherit; right: 2000px;',
+    'position: relative; top: unset; bottom: 2000px;']
+  for (const st of hidden) assert.equal(visibleText(`<p>LATHATO</p><p style="${st}">ELREJTVE <b>BENNE</b></p>`), 'LATHATO', st)
+  const shown = ['position: relative; left: -20px;', 'position: relative; right: 2000px; left: 0;', 'position: relative; bottom: 2000px; top: 0;',
+    'position: relative; left: auto; right: 20px;', 'position: relative; top: auto; bottom: -2000px;',
+    'position: relative; top: -10px;', 'position: sticky; top: -2000px;', 'position: static; left: -2000px;', 'transform: translateX(-20px);',
+    'transform: translate(2000px, 0);', 'transform: rotate(180deg);', 'transform: scale(1.5);', 'transform: translateX(calc(10px - 20px));',
+    'translate: calc(10px - 20px) 0;', 'translate: none;', 'transform: translateX(-300px) translateX(200px);']
+  for (const st of shown) assert.ok(visibleText(`<p style="${st}">MARAD</p>`).includes('MARAD'), st)
+})
+
+test('matrix3d moves too; a far move beside a turn, mirror, scale or skew is hidden either way; moves add up down the tree', () => {
+  const hidden = ['transform: matrix3d(1,0,0,0, 0,1,0,0, 0,0,1,0, -2000,0,0,1);', 'transform: matrix3d(1,0,0,0, 0,1,0,0, 0,0,1,0, 0,-2000,0,1);',
+    'transform: rotate(180deg) translateX(2000px);', 'transform: scale(-1) translateX(2000px);', 'transform: skewX(10deg) translateY(-2000px);',
+    'transform: perspective(100px) translateX(2000px);', 'transform: matrix(-1, 0, 0, 1, 2000, 0);', 'transform: matrix3d(-1,0,0,0, 0,1,0,0, 0,0,1,0, 2000,0,0,1);',
+    'rotate: 180deg; transform: translateX(2000px);', 'scale: -1; translate: 2000px;', 'position: relative; left: -300px; transform: translateX(-300px);',
+    'position: relative; top: -300px; translate: 0 -300px;']
+  for (const st of hidden) assert.equal(visibleText(`<p>LATHATO</p><p style="${st}">ELREJTVE <b>BENNE</b></p>`), 'LATHATO', st)
+  const shown = ['transform: rotate(180deg);', 'transform: rotate(5deg) translateX(100px);', 'transform: scale(1.5) translateX(-100px);', 'transform: translateX(2000px);',
+    'transform: matrix3d(1,0,0,0, 0,1,0,0, 0,0,1,0, 2000,0,0,1);', 'transform: matrix3d(1,0,0,0, 0,1,0,0, 0,0,1,0, -100,0,0,1);', 'rotate: 180deg;']
+  for (const st of shown) assert.ok(visibleText(`<p style="${st}">MARAD</p>`).includes('MARAD'), st)
+  // nested: the moves add up (signed), a parent's turn counts for its subtree; a margin does not add up
+  const nest = (outer, inner) => visibleText(`<p>LATHATO</p><div style="${outer}"><p style="${inner}">BELSO</p>KULSO</div>`)
+  const innerGone = out => !out.includes('BELSO') && out.includes('KULSO') && out.includes('LATHATO')
+  assert.ok(innerGone(nest('position: relative; left: -300px;', 'position: relative; left: -300px;')), 'relative -300 + -300')
+  assert.ok(innerGone(nest('position: relative; left: -300px;', 'transform: translateX(-300px);')), 'relative -300 + translate -300')
+  assert.ok(innerGone(nest('transform: rotate(180deg) translateX(400px);', 'transform: translateX(200px);')), 'a turned parent, 400 + 200')
+  assert.ok(innerGone(nest('position: relative; top: -300px;', 'position: relative; bottom: 300px;')), 'top -300 + bottom 300 (-300)')
+  for (const [outer, inner] of [['position: relative; left: -300px;', 'position: relative; left: 300px;'], ['position: relative; left: -200px;', 'position: relative; left: -200px;'],
+    ['margin-left: -300px;', 'margin-left: -300px;'], ['position: relative; left: 2000px;', 'position: relative; left: -2000px;'], ['transform: rotate(5deg);', 'transform: translateX(100px);']]) {
+    assert.ok(nest(outer, inner).includes('BELSO'), `${outer} / ${inner}`)
+  }
+  // three levels: -200 each
+  const deep = visibleText('<p>LATHATO</p><div style="position: relative; left: -200px;"><div style="position: relative; left: -200px;"><p style="position: relative; left: -200px;">MELY</p>KOZEP</div></div>')
+  assert.ok(!deep.includes('MELY') && deep.includes('KOZEP'), deep)
+})
+
+test('a hiding value past the read guard hides; a long number reads as its short form (place, size, opacity)', () => {
+  const z = n => '0'.repeat(n)
+  const pad = ' translateY(0px)'.repeat(12)
+  const hidden = [`transform: translateX(-2000px)${pad};`, `transform: scale(0)${pad};`, `clip-path: inset(0 0 0 0)${', circle(1px)'.repeat(20)};`,
+    `clip: rect(1px, 2px, 3px, 4px)${'x'.repeat(220)};`, `translate: 0px${' 0px'.repeat(60)};`, `rotate: ${'1'.repeat(210)}deg;`,
+    `position: absolute; left: -2000.${z(60)}px;`, `position: relative; left: -2000.${z(60)}px;`, `position: relative; top: -2000.${z(60)}px;`,
+    `text-indent: -2000.${z(60)}px;`, `margin-left: -2000.${z(60)}px;`, `margin: 0 0 0 -2000.${z(2100)}px;`, `position: relative; left: -${z(60)}2000px;`,
+    `transform: translateX(-2000.${z(60)}px);`, `opacity: 0.${z(60)};`, `opacity: 0.${z(60)}1;`, `overflow: hidden; height: 0.${z(60)}px;`]
+  for (const st of hidden) assert.equal(visibleText(`<p>LATHATO</p><p style="${st}">ELREJTVE <b>BENNE</b></p>`), 'LATHATO', st.slice(0, 60))
+  const harmless = `transform: ${'translateX(0px) '.repeat(12).trim()}` // a 191-character value
+  assert.ok(harmless.length - 'transform: '.length < 200)
+  const shown = ['transform: none;', `${harmless};`, 'clip-path: inset(0 0 0 0);', `position: relative; left: -20.${z(60)}px;`, `text-indent: -20.${z(60)}px;`,
+    `opacity: 1.${z(60)};`, `opacity: 0.5${z(60)};`, `overflow: hidden; height: 20.${z(60)}px;`, `margin-left: ${z(60)}20px;`, `position: relative; left: -2000.${z(60)}px; left: 0;`,
+    `overflow: hidden; height: 0.${z(60)}zz;`]
+  for (const st of shown) assert.ok(visibleText(`<p style="${st}">MARAD</p>`).includes('MARAD'), st.slice(0, 60))
+  // the font size reads a long number too (a size of nothing hides; the font-size test below has the rest)
+  assert.ok(!visibleText(`<p style="font-size: 0.${z(60)}px;">ELREJTVE</p>`).includes('ELREJTVE'))
+  // past the guard with no far move at all, and a translate padded with spaces inside: the raw (trimmed) length decides
+  for (const st of [`transform: ${'translateX(0px) '.repeat(14).trim()};`, `translate: -2000px${' '.repeat(200)}0px;`]) {
+    assert.equal(visibleText(`<p>LATHATO</p><p style="${st}">ELREJTVE</p>`), 'LATHATO', st.slice(0, 40))
+  }
+})
+
+test('calc() is worked out for the far-off place; an unknown value (var(), env(), an unreadable calc()) hides in a positioned place or a translation, not in a text-indent or a margin', () => {
+  const hidden = ['position: relative; left: calc(-2000px);', 'position: relative; left: calc(-1000px - 50em);', 'position: absolute; top: calc(-100vh - 10px);',
+    'transform: translateX(calc(-2000px));', 'position: relative; left: var(--x);', 'transform: translateX(var(--x));', 'translate: var(--x);',
+    'transform: translateX(calc(-100em));', 'translate: calc(-100em) 0;', 'text-indent: calc(-100em);', 'margin-left: calc(-1000px - 1000px);',
+    'position: relative; left: calc(2 * -1000px);', 'position: relative; left: calc((-1000px - 1000px) / 2 * 3);', 'position: relative; left: calc(calc(-1000px) * 2);',
+    'position: absolute; left: env(safe-area-inset-left);', 'position: absolute; right: min(10px, 20px);', 'position: relative; left: calc(10px * 10px);',
+    'position: relative; left: auto; right: var(--r);', 'transform: translate(calc(10px - 2010px), 0);', 'position: relative; left: calc(-20em + 1px); font-size: 100px;']
+  for (const st of hidden) assert.equal(visibleText(`<p>LATHATO</p><p style="${st}">ELREJTVE <b>BENNE</b></p>`), 'LATHATO', st)
+  const shown = ['position: relative; left: calc(10px - 20px);', 'position: absolute; left: calc(50% - 100px);', 'text-indent: var(--i);', 'margin-left: var(--m);',
+    'position: relative; left: calc(2000px);', 'transform: translateX(calc(2000px));', 'text-indent: calc(1em - 30px);', 'margin-left: env(x);',
+    'position: relative; left: 0; right: var(--r);', 'position: static; left: var(--x);', 'transform: translateX(calc(-10px * 2)) rotate(5deg);',
+    'transform: translateX(abc);', 'position: relative; left: calc(calc(10px) - 20px);', 'position: relative; left: calc(10px / 2);']
+  for (const st of shown) assert.ok(visibleText(`<p style="${st}">MARAD</p>`).includes('MARAD'), st)
+})
+
+test('an exponent in a length reads as its number (-2e3px is -2000px); the e of an em or ex unit is no exponent', () => {
+  const hidden = ['position: relative; left: -2e3px;', 'text-indent: -2e3px;', 'margin-left: -2e3px;', 'transform: translateX(-2e3px);',
+    'position: absolute; top: -2E3px;', 'position: relative; left: -2e+3px;', 'position: relative; left: -.2e4px;', 'position: relative; left: -2e2em;',
+    'position: relative; left: calc(-2e3px);', 'position: relative; left: calc(-1e3px * 2);', 'translate: -2e3px 0;', 'position: relative; left: -2e3;']
+  for (const st of hidden) assert.equal(visibleText(`<p>LATHATO</p><p style="${st}">ELREJTVE <b>BENNE</b></p>`), 'LATHATO', st)
+  const shown = ['position: relative; left: 2e3px;', 'text-indent: -2e1px;', 'position: relative; left: -2e-3px;', 'position: relative; left: -2em;',
+    'position: relative; left: -2ex;', 'text-indent: -1e1em;', 'position: relative; left: calc(-2e1px);', 'margin-left: -2e;']
+  for (const st of shown) assert.ok(visibleText(`<p style="${st}">MARAD</p>`).includes('MARAD'), st)
+})
+
+test('a font size with an exponent, a long fraction, a view unit or a calc() is read: a size of nothing hides on every way out', async () => {
+  const { searchTextOf } = await import('../core/mime/text.js')
+  const { visibleComposeHtml } = await import('../core/mime/visible-text.js')
+  const z = n => '0'.repeat(n)
+  const hidden = ['font-size: 1e-9px;', 'font-size: 1E-9px;', `font-size: 0.${z(60)}1px;`, 'font-size: 1e-3em;', 'font-size: 0.1vw;', 'font-size: calc(0px);',
+    'font-size: calc(1px - 1px);', 'font: 1e-9px Arial;', 'font: italic 0.1vw/2 Arial;', 'font-size: calc(10% - 1px);', 'font-size: 1e-1vh;']
+  for (const st of hidden) {
+    const page = `<p>LATHATO</p><p style="${st}">ELREJTVE <b>BENNE</b></p>`
+    assert.equal(visibleText(page), 'LATHATO', `read_message: ${st}`)
+    assert.ok(!searchTextOf({ html: page }).includes('ELREJTVE'), `search: ${st}`)
+    assert.ok(!visibleComposeHtml(page).includes('ELREJTVE') && !visibleComposeHtml(page, { rich: true }).includes('ELREJTVE'), `Claude's quote: ${st}`)
+  }
+  const shown = ['font-size: 1.2e1px;', 'font-size: 1e1pt;', 'font-size: 2vw;', 'font-size: calc(10px + 2px);', 'font-size: var(--fs);', 'font-size: -5px;',
+    'font-size: 1e400px;', 'font: bold 700 Arial;', 'font-size: calc(var(--a) * 1px);', 'font-size: calc(50% + 2px);', 'font-size: 1e-9;']
+  for (const st of shown) assert.ok(visibleText(`<div style="font-size: 16px;"><p style="${st}">MARAD</p></div>`).includes('MARAD'), st)
+  // em and % in a calc() are of the parent's size: 0.1em of a 16 px parent is 1.6 px (hidden), of a 96 px one 9.6 px (shown)
+  assert.ok(!visibleText('<div style="font-size: 16px;"><p style="font-size: calc(0.1em);">ELREJTVE</p></div>').includes('ELREJTVE'))
+  assert.ok(visibleText('<div style="font-size: 96px;"><p style="font-size: calc(0.1em);">MARAD</p></div>').includes('MARAD'))
+})

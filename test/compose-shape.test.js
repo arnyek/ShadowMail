@@ -11,7 +11,7 @@ import { spawnSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { JSDOM } from 'jsdom'
 import createDOMPurify from 'dompurify'
-import { sanitizeCompose, COMPOSE_TAGS } from '../app/renderer/src/sanitize.js'
+import { sanitizeCompose, RICH_TAGS } from '../app/renderer/src/sanitize.js'
 import { SHAPE_LIMIT, SWITCH_LIMIT, SHAPE_BLOCKS, longestRun, shapeOf, directionClass, DIRECTION, UNICODE_VERSION } from '../app/renderer/src/compose-shape.js'
 import { quoteHtml as quoteWith } from '../core/smtp/compose.js'
 import { hu } from '../app/renderer/i18n/hu.js'
@@ -32,10 +32,10 @@ const timed = fn => {
   return { r, ms: performance.now() - t0 }
 }
 
-test('shape: the boundaries are the block elements the composer keeps, derived from COMPOSE_TAGS', () => {
-  // if COMPOSE_TAGS changes, this list must be looked at again (the derivation follows it)
-  assert.deepEqual([...SHAPE_BLOCKS], ['p', 'br', 'div', 'ul', 'ol', 'li', 'blockquote', 'pre', 'h1', 'h2', 'h3'])
-  assert.ok(SHAPE_BLOCKS.every(t => COMPOSE_TAGS.includes(t)))
+test('shape: the boundaries are the block elements the composer keeps, derived from RICH_TAGS', () => {
+  // if RICH_TAGS changes, this list must be looked at again (the derivation follows it)
+  assert.deepEqual([...SHAPE_BLOCKS], ['p', 'br', 'div', 'ul', 'ol', 'li', 'blockquote', 'pre', 'h1', 'h2', 'h3', 'table', 'caption', 'tr', 'th', 'td', 'h4', 'h5', 'h6', 'hr', 'dl', 'dt', 'dd'])
+  assert.ok(SHAPE_BLOCKS.every(t => RICH_TAGS.includes(t)))
   assert.equal(SHAPE_LIMIT, 40_000)
 })
 
@@ -46,7 +46,15 @@ test('shape: the basics on the sanitized DOM: tags, boundaries, references and s
   assert.equal(shape('ab<br>cd'), 2)
   assert.equal(shape('<p>xx</p>yyy'), 3, 'the end of a block is a boundary too')
   assert.equal(shape('aaaa<div>b</div>cc'), 4)
-  for (const tag of SHAPE_BLOCKS) assert.equal(shape(`xxxx<${tag}>yy</${tag}>zz`), 4, tag)
+  // in the rich mode (a saved draft opened again), where every one of them is kept; a table's own parts in a table
+  const richShape = html => shapeOf(window.document, sanitizeCompose(purify, html, { rich: true })).longest
+  const inTable = { table: t => `<table><tr><td>${t}</td></tr></table>`, caption: t => `<table><caption>${t}</caption></table>`, tr: t => `<table><tr><td>${t}</td></tr></table>`, td: t => `<table><tr><td>${t}</td></tr></table>`, th: t => `<table><tr><th>${t}</th></tr></table>`, dt: t => `<dl><dt>${t}</dt></dl>`, dd: t => `<dl><dd>${t}</dd></dl>` }
+  for (const tag of SHAPE_BLOCKS) {
+    const body = inTable[tag] ? inTable[tag]('yy') : tag === 'hr' || tag === 'br' ? `<${tag}>` : `<${tag}>yy</${tag}>`
+    assert.equal(richShape(`xxxx${body}zz`), 4, tag)
+  }
+  for (const tag of SHAPE_BLOCKS.filter(t => !RICH_TAGS.slice(RICH_TAGS.indexOf('font')).includes(t))) assert.equal(shape(`xxxx<${tag}>yy</${tag}>zz`), 4, tag)
+  assert.equal(richShape(`<table><tr><td>${'x'.repeat(1000)}</td><td>${'x'.repeat(1000)}</td></tr></table>`), 1000, 'every cell is a block of its own')
   assert.equal(shape('a&amp;b&#x5d0;c&#1488;d'), 7)
   assert.equal(shape(`${cp(0x1f600)}${cp(0x1f600)}`), 2)
   const frag = window.document.createElement('template')

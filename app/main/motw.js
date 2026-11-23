@@ -76,7 +76,7 @@ export async function openMarked({ filename, content, tmpDir, fallbackDir, openP
 }
 
 // a failed write as a code the reader can say
-const writeError = err => (err && (err.code === 'EACCES' || err.code === 'EPERM' || err.code === 'EROFS') ? 'not_writable' : err && err.code === 'ENOSPC' ? 'disk_full' : 'write_failed')
+export const writeError = err => (err && (err.code === 'EACCES' || err.code === 'EPERM' || err.code === 'EROFS') ? 'not_writable' : err && err.code === 'ENOSPC' ? 'disk_full' : 'write_failed')
 
 /**
  * "Összes mentése": every file into `folder` (the user chose it), one by one, each under its cleaned name

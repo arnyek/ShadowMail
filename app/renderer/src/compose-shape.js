@@ -7,17 +7,18 @@
 // this Chromium's parser (<select>) nor DOMPurify's content rules (<noscript>), and every difference was a gap.
 //
 // Pure (no React, no window); jsdom-tested. The main process must NOT import this file (not packaged): N is in core/.
-import { COMPOSE_TAGS } from './sanitize.js'
+import { RICH_TAGS } from './sanitize.js'
 import { SHAPE_LIMIT, SWITCH_LIMIT } from '../../../core/mime/shape-limit.js'
 import { RUNS, UNICODE_VERSION } from '../../../core/mime/bidi-class.js'
 
 // N and B live in core/ (the main process needs them too, and app/renderer/src is not packaged)
 export { SHAPE_LIMIT, SWITCH_LIMIT }
 
-// the block elements of HTML; a boundary is one of them that the composer KEEPS (derived from COMPOSE_TAGS: if the
-// composer's tags change, the boundaries follow; test/compose-shape.test.js pins the list)
-const HTML_BLOCKS = new Set(['p', 'div', 'br', 'ul', 'ol', 'li', 'blockquote', 'pre', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'table', 'tr', 'td', 'th', 'hr', 'dl', 'dt', 'dd'])
-export const SHAPE_BLOCKS = Object.freeze(COMPOSE_TAGS.filter(t => HTML_BLOCKS.has(t)))
+// the block elements of HTML; a boundary is one of them that the composer KEEPS (derived from RICH_TAGS, the widest set it
+// keeps: a saved draft opened again keeps its table, and every cell is a block of its own; if the composer's tags change,
+// the boundaries follow; test/compose-shape.test.js pins the list)
+const HTML_BLOCKS = new Set(['p', 'div', 'br', 'ul', 'ol', 'li', 'blockquote', 'pre', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'table', 'caption', 'tr', 'td', 'th', 'hr', 'dl', 'dt', 'dd'])
+export const SHAPE_BLOCKS = Object.freeze(RICH_TAGS.filter(t => HTML_BLOCKS.has(t)))
 const BLOCK_NAMES = new Set(SHAPE_BLOCKS.map(t => t.toUpperCase()))
 
 // ASCII whitespace (U+0020, U+0009, U+000A, U+000D) breaks a run OUTSIDE a <pre>: the editor's

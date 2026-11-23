@@ -109,7 +109,7 @@ test('the preload bridge exposes exactly these calls, each mapped to one IPC cha
     'compose.removeAttachment', 'compose.saveDraft', 'compose.schedule', 'compose.send', 'compose.suggest', 'compose.suspect',
     'contacts.addFromMessage', 'contacts.count', 'contacts.delete', 'contacts.export', 'contacts.get', 'contacts.importApply', 'contacts.importPreview', 'contacts.list', 'contacts.lookup', 'contacts.save',
     'flushPrefs', 'folders.create', 'folders.deleteCount', 'folders.move', 'folders.remove', 'folders.rename', 'folders.reorder', 'folders.resetOrder', 'folders.setRole', 'folders.setSubscribed', 'folders.subscriptions',
-    'hello', 'labels.create', 'labels.list', 'labels.remove', 'labels.rename', 'labels.reorder', 'labels.setColor', 'mail.action', 'mail.allowImages', 'mail.folders', 'mail.ids', 'mail.label', 'mail.labelState', 'mail.labelsOf', 'mail.list', 'mail.open', 'mail.openAttachment', 'mail.render', 'mail.saveAllAttachments', 'mail.saveAttachment', 'mail.saveSource', 'mail.showSavedAttachments', 'mail.source',
+    'hello', 'labels.create', 'labels.list', 'labels.remove', 'labels.rename', 'labels.reorder', 'labels.setColor', 'mail.action', 'mail.allowImages', 'mail.dragDrop', 'mail.dragFetch', 'mail.dragOut', 'mail.dragStart', 'mail.folders', 'mail.ids', 'mail.label', 'mail.labelState', 'mail.labelsOf', 'mail.list', 'mail.open', 'mail.openAttachment', 'mail.render', 'mail.saveAllAttachments', 'mail.saveAttachment', 'mail.saveSource', 'mail.showSavedAttachments', 'mail.source',
     'mail.status', 'mail.sync', 'mail.thread', 'mcp.confirm', 'mcp.confirmSettings', 'mcp.confirmations', 'mcp.connectInfo', 'mcp.copy', 'mcp.openAck', 'mcp.recent', 'mcp.setConfirm', 'mcp.setEnabled', 'mcp.status', 'onStatus', 'scheduled.cancel', 'scheduled.list', 'scheduled.reschedule', 'scheduled.sendNow', 'search.cancel', 'search.local', 'search.pop3Old', 'search.server', 'setLanguage', 'taskbar.setEnabled', 'taskbar.status', 'vault.change', 'vault.confirmRecovery', 'vault.copyRecoveryCode', 'vault.create', 'vault.finishReset', 'vault.lock', 'vault.lockNotice', 'vault.newRecoveryCode', 'vault.recover', 'vault.reset', 'vault.saveRecoveryCode', 'vault.status', 'vault.unlock',
   ])
 
@@ -162,6 +162,10 @@ test('the preload bridge exposes exactly these calls, each mapped to one IPC cha
   exposed.api.mail.showSavedAttachments()
   exposed.api.mail.source(1)
   exposed.api.mail.saveSource(1)
+  exposed.api.mail.dragOut([1])
+  exposed.api.mail.dragStart('t')
+  exposed.api.mail.dragDrop('t', null)
+  exposed.api.mail.dragFetch([1])
   const sid = '00000000-0000-0000-0000-000000000000'
   exposed.api.compose.open()
   exposed.api.compose.initial(sid)
@@ -234,6 +238,7 @@ test('the preload bridge exposes exactly these calls, each mapped to one IPC cha
     'accounts:list', 'accounts:save', 'accounts:delete', 'accounts:reorder', 'accounts:test', 'accounts:signatureImagePick', 'accounts:signatureImageRemove', 'accounts:signatureImage',
     'mail:folders', 'mail:list', 'mail:status', 'mail:sync',
     'mail:open', 'mail:thread', 'mail:allowImages', 'mail:render', 'mail:saveAttachment', 'mail:openAttachment', 'mail:saveAllAttachments', 'mail:showSavedAttachments', 'mail:source', 'mail:saveSource',
+    'mail:dragOut', 'mail:dragStart', 'mail:dragDrop', 'mail:dragFetch',
     'compose:open', 'compose:initial', 'compose:accounts', 'compose:suggest', 'compose:addFiles', 'compose:addImage', 'compose:removeAttachment',
     'compose:saveDraft', 'compose:send', 'compose:schedule', 'compose:discard', 'compose:close', 'compose:lockDone', 'compose:ready', 'compose:checked', 'compose:suspect',
     'folder:create', 'folder:rename', 'folder:move', 'folder:delete', 'folder:deleteCount', 'folders:reorder', 'folders:resetOrder', 'folders:setRole', 'folders:subscriptions', 'folders:setSubscribed',

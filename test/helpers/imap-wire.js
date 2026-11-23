@@ -4,10 +4,11 @@
 // UID STORE +FLAGS / -FLAGS (and .SILENT), SUBSCRIBE / UNSUBSCRIBE (kept in `subscribed`), RENAME (the folder and the
 // ones under it; like the measured live server it does NOT carry a subscription along), NOOP, LOGOUT; every other
 // command answers OK. Enough for a LIST + STATUS + a sync, so a test sees what imapflow's own list() makes of a folder
-// set (its SPECIAL-USE from the name, its pick between two names). A folder's `mail` ([{ uid, flags }]) are messages
-// with UID and flags only (no envelope, no body): an app whose index already holds rows with these UIDs (a seeded data
+// set (its SPECIAL-USE from the name, its pick between two names). A folder's `mail` ([{ uid, flags, source? }]) are
+// messages with UID and flags (no envelope): an app whose index already holds rows with these UIDs (a seeded data
 // folder) syncs their flags and can STORE on them; a sync that sees a NEW UID would ask for its envelope, which this
-// server does not have.
+// server does not have. A message with a `source` (a Buffer) also answers UID FETCH BODY.PEEK[] / BODY[] with it (the
+// non-PEEK form sets \Seen, as a real server does).
 // Every command line is kept in `log` (the tests check that the sync only reads: no SELECT, STORE, APPEND, ...).
 import net from 'node:net'
 
@@ -52,6 +53,7 @@ export async function startImapWire({ folders, delimiter = '.', specialUse = fal
   const DEFAULT_PERMANENT = ['\\Answered', '\\Flagged', '\\Deleted', '\\Seen', '\\Draft', '\\*']
   // the messages per folder path: Map uid -> Set of flags
   const boxes = new Map(folders.map(f => [f.path, new Map((f.mail || []).map(m => [m.uid, new Set(m.flags || [])]))]))
+  const sources = new Map(folders.map(f => [f.path, new Map((f.mail || []).filter(m => m.source).map(m => [m.uid, m.source]))]))
   const uidsOf = path => [...boxes.get(path).keys()].sort((a, b) => a - b)
   const inSet = (set, uids) => {
     const max = uids.length ? uids[uids.length - 1] : 0
@@ -151,7 +153,19 @@ export async function startImapWire({ folders, delimiter = '.', specialUse = fal
         } else if (c === 'FETCH' && selected) {
           const uids = uidsOf(selected.path)
           const set = rest.split(' ')[0]
-          for (const u of inSet(set, uids)) socket.write(`* ${uids.indexOf(u) + 1} FETCH (UID ${u} FLAGS ${flagList(boxes.get(selected.path).get(u))})\r\n`)
+          const body = /BODY(\.PEEK)?\[\]/i.exec(rest)
+          for (const u of inSet(set, uids)) {
+            const flags = boxes.get(selected.path).get(u)
+            const src = body && sources.get(selected.path).get(u)
+            if (!src) {
+              socket.write(`* ${uids.indexOf(u) + 1} FETCH (UID ${u} FLAGS ${flagList(flags)})\r\n`)
+              continue
+            }
+            if (!body[1] && !selected.readOnly) flags.add('\\Seen')
+            socket.write(`* ${uids.indexOf(u) + 1} FETCH (UID ${u} FLAGS ${flagList(flags)} BODY[] {${src.length}}\r\n`)
+            socket.write(src)
+            socket.write(')\r\n')
+          }
           ok('FETCH done')
         } else if (c === 'STORE' && selected) {
           const sm = /^(\S+) ([+-])FLAGS(\.SILENT)? \(([^)]*)\)$/i.exec(rest)

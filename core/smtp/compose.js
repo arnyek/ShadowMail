@@ -49,7 +49,8 @@ export async function composeMessage({ from, to = [], cc = [], bcc = [], subject
     subject,
     date,
     messageId: id,
-    text: text ?? (html ? htmlToPlain(html) : ''),
+    // a table as TAB-separated lines (the composer keeps a table a table: rich)
+    text: text ?? (html ? htmlToPlain(html, { tables: true }) : ''),
     html: html || undefined,
     // an attachment with a cid is an inline part of the HTML (the signature image): nodemailer then builds multipart/related
     attachments: attachments.map(a => ({ filename: a.filename, content: a.content, contentType: a.contentType || undefined, ...(a.cid ? { cid: a.cid, contentDisposition: 'inline' } : {}) })),
@@ -199,16 +200,13 @@ function checkText(text, locale) {
   }
 }
 
-/** "<date>, <sender> wrote:" (in the given words) + the original in a blockquote. The composer sanitizes it. */
-export function quoteHtml(original, text, locale) {
+function replyParts(original, text, locale) {
   checkText(text, locale)
   const when = original.date ? dateFmt(locale).format(new Date(original.date)) : ''
   const who = fmtList(original.from) || ''
-  return `<p>${text.wrote(escapeHtml([when, who].filter(Boolean).join(', ')))}</p><blockquote>${bodyHtml(original)}</blockquote>`
+  return { before: `<p>${text.wrote(escapeHtml([when, who].filter(Boolean).join(', ')))}</p><blockquote>`, body: bodyHtml(original), after: '</blockquote>' }
 }
-
-/** The forwarded block: the original's header lines (the given labels), then its body. */
-export function forwardHtml(original, text, locale) {
+function forwardParts(original, text, locale) {
   checkText(text, locale)
   const l = text.labels
   const lines = [
@@ -218,8 +216,23 @@ export function forwardHtml(original, text, locale) {
     [l.to, fmtList(original.to)],
     [l.cc, fmtList(original.cc)],
   ].filter(([, v]) => v)
-  return `<p>${text.forwarded}<br>${lines.map(([k, v]) => `${k}: ${escapeHtml(v)}`).join('<br>')}</p>${bodyHtml(original)}`
+  return { before: `<p>${text.forwarded}<br>${lines.map(([k, v]) => `${k}: ${escapeHtml(v)}`).join('<br>')}</p>`, body: bodyHtml(original), after: '' }
 }
+/**
+ * A reply's ('reply') or a forward's ('forward') quote in three parts: our own markup before and after it, and the
+ * original's body between them (as given, the composer sanitizes it). The composer and Claude's quote make the body ready
+ * alone, so the original's own <style> never reaches our header lines; before + body + after is quoteHtml / forwardHtml.
+ */
+export function quoteParts(mode, original, text, locale) {
+  return mode === 'forward' ? forwardParts(original, text, locale) : replyParts(original, text, locale)
+}
+export const joinQuote = p => p.before + p.body + p.after
+
+/** "<date>, <sender> wrote:" (in the given words) + the original in a blockquote. The composer sanitizes it. */
+export const quoteHtml = (original, text, locale) => joinQuote(replyParts(original, text, locale))
+
+/** The forwarded block: the original's header lines (the given labels), then its body. */
+export const forwardHtml = (original, text, locale) => joinQuote(forwardParts(original, text, locale))
 
 // mailto: links: limits of what a link may put into the composer
 export const MAILTO_MAX = Object.freeze({ href: 200_000, address: 20_000, subject: 2000, body: 100_000 })

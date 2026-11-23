@@ -33,7 +33,9 @@ export const LIST_SORTS = Object.freeze({
 })
 // + preview (one line of the text under the subject; empty until the body is indexed)
 // + the recipients (the Sent and Drafts lists show them in the sender's place)
-export const LIST_COLUMNS = 'm.id, m.uid, m.folder, m.from_name, m.from_addr, m.to_addrs, m.cc_addrs, m.bcc_addrs, m.subject, m.date, m.flags, m.has_attachments, m.preview'
+// stored and size: the list's drag decides at once whether a row can go out as a file (its source is here, the size
+// within the limit); the main process measures the real bytes again
+export const LIST_COLUMNS = 'm.id, m.uid, m.folder, m.from_name, m.from_addr, m.to_addrs, m.cc_addrs, m.bcc_addrs, m.subject, m.date, m.flags, m.has_attachments, m.preview, m.store_path IS NOT NULL AS stored, m.size'
 
 // the folder list's filter (since 0.10.1). The list, its count and every id (the "select all") are built
 // from this one function, so they always see the same set. Whitelisted fields, every value a parameter.

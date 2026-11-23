@@ -936,6 +936,7 @@ composeAttachmentsLabel (2);Mellékletek (2);Attachments (2)
 composeKeptAsDraft;A levél megmaradt a Piszkozatok között.;The message was kept in Drafts.
 composeImageError (1);"A kép nagyobb 10 MB-nál, nem illeszthető be.";The image is over 10 MB and cannot go into the text.
 composeImageError (2);"A kép nagyobb 10 MB-nál, nem illeszthető be.";The image is over 10 MB and cannot go into the text.
+composePastePlain;"A beillesztett rész túl összetett volt, ezért formázás nélkül került be.";"The pasted part was too complex, so it went in without formatting."
 composeImageAttached (1);A kép mellékletként csatolódott: ez a formátum nem illeszthető a szövegbe.;The image was attached as a file: this format cannot go into the text.
 composeImageAttached (2);2 kép mellékletként csatolódott: ez a formátum nem illeszthető a szövegbe.;2 images were attached as files: this format cannot go into the text.
 composeImageMenu.label;Kép mérete;Image size
@@ -1153,6 +1154,16 @@ fileFilterText;Szöveg;Text
 fileFilterContacts;"Névjegyek (.vcf, .csv)";"Contacts (.vcf, .csv)"
 contactsExportBase;ShadowMail-cimlista;ShadowMail-contacts
 sourceFileFallback;level;message
+dragOut.tooMany (1);"Egyszerre legfeljebb 50 levél húzható ki más programba, most 1 van kijelölve. Mappára most is áthelyezheted.";"At most 50 messages can be dragged into another program at once, 1 are selected. Moving them onto a folder still works."
+dragOut.tooMany (2);"Egyszerre legfeljebb 50 levél húzható ki más programba, most 2 van kijelölve. Mappára most is áthelyezheted.";"At most 50 messages can be dragged into another program at once, 2 are selected. Moving them onto a folder still works."
+dragOut.notice (1);"Egyszerre legfeljebb 50 levél húzható ki más programba, most 1 van kijelölve. Mappára most is áthelyezheted.";"At most 50 messages can be dragged into another program at once, 1 are selected. Moving them onto a folder still works."
+dragOut.notice (2);"Egyszerre legfeljebb 50 levél húzható ki más programba, most 2 van kijelölve. Mappára most is áthelyezheted.";"At most 50 messages can be dragged into another program at once, 2 are selected. Moving them onto a folder still works."
+dragOut.error (1);"A levél még nincs letöltve; letöltöm, egy pillanat múlva húzd újra.";"The message is not downloaded yet; downloading it now, drag it again in a moment."
+dragOut.error (2);"A levél még nincs letöltve; letöltöm, egy pillanat múlva húzd újra.";"The message is not downloaded yet; downloading it now, drag it again in a moment."
+dragOut.errors.motw_failed;"A másolat nem jelölhető meg biztonságosan; mentsd el az olvasó „Mentés .eml-ként” menüpontjával.";"The copy cannot be marked safely; save it with the reader's ""Save as .eml"" menu item instead."
+dragOut.errors.write_failed;A másolatot nem sikerült lemezre írni.;The copy could not be written to disk.
+dragOut.errors.disk_full;Nincs elég hely a lemezen a másolathoz.;There is not enough space on the disk for the copy.
+dragOut.errors.not_writable;A data\tmp mappa nem írható.;The data\tmp folder is not writable.
 attachmentFallback;melleklet;attachment
 resetConfirmWord;TÖRLÉS;DELETE
 outgoingQuote.wrote (1);"05/03/2026, 09:07, Anna <a@example.invalid> írta:";"05/03/2026, 09:07, Anna <a@example.invalid> wrote:"

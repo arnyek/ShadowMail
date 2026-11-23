@@ -6,10 +6,6 @@
 // the composer page's free style attribute it is clean in the nested cases too (a colour around a bold, part of a word,
 // the start or end of a paragraph, a list item, a quote), and one Ctrl+Z takes it back.
 
-// the composer's own clipboard mark: a copy or cut in this window carries this type with the window's random value; a paste
-// that brings the same value back keeps the palette colours (sanitizeCompose `colors`), any other paste does not
-export const CLIP_TYPE = 'application/x-shadowmail-compose'
-
 // the inline elements whose formatting a copied piece keeps when it is cut out of the middle of one
 const INLINE_FORMAT = new Set(['FONT', 'SPAN', 'B', 'STRONG', 'I', 'EM', 'U', 'S'])
 const BLOCK = /^(P|DIV|LI|UL|OL|BLOCKQUOTE|PRE|H1|H2|H3)$/

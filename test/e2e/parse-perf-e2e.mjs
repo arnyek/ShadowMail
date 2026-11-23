@@ -7,8 +7,10 @@
 // A POP3 account (fake POP3 server) with a 4 MB table message (4000 cells of 1000 characters), a 5.3 MB one (200 000
 // cells of 10) and a short one. mailparser's HTML -> text used to take 3 s and 89 s on these, on the main process. Measured,
 // with the main process pinged every 250 ms: the POP3 download (the unlock's first fetch), opening each big message, and
-// its Reply (the shape check asks; answered with Cancel): the longest gap <= 500 ms each time; after an open the short
-// message opens within 500 ms; the big messages get a non-empty preview (the worker's, later); no error in main.log.
+// its Reply: the longest gap <= 500 ms each time; after an open the short message opens within 500 ms; the big messages
+// get a non-empty preview (the worker's, later); no error in main.log. The Reply on the 5.3 MB one asks (the shape check;
+// answered with Cancel); on the 4 MB one it does not (every table cell is a block of its own, 1000 characters each): the
+// composer opens with the whole quote within 3 s, and a letter typed into it shows within 1 s.
 // Playwright: PW=<path of the playwright package> (default: the repo's playwright-core devDependency).
 import fs from 'node:fs'
 import os from 'node:os'
@@ -32,10 +34,13 @@ const sleep = ms => new Promise(r => setTimeout(r, ms))
 const table = (cells, chars) => `<html><body><table>${Array.from({ length: cells }, () => `<tr><td>${'x'.repeat(chars)}</td></tr>`).join('')}</table></body></html>`
 const message = (subject, minutes, type, body) =>
   Buffer.from(`From: Teszt <t@example.invalid>\r\nTo: m@example.invalid\r\nSubject: ${subject}\r\nDate: ${new Date(Date.now() - minutes * 60_000).toUTCString()}\r\nMessage-ID: <${subject}@example.invalid>\r\nMIME-Version: 1.0\r\nContent-Type: ${type}; charset=utf-8\r\nContent-Transfer-Encoding: 8bit\r\n\r\n${body}`)
+// [subject, html, does the Reply ask]
 const BIG = [
-  ['Tabla4M', table(4000, 1000)],
-  ['Tabla5M', table(200_000, 10)],
+  ['Tabla4M', table(4000, 1000), false],
+  ['Tabla5M', table(200_000, 10), true],
 ]
+const QUOTE_MS = 3000
+const TYPED_MS = 1000
 const server = await new FakePop3Server().listen()
 server.add(message('Rovid', 1, 'text/plain', 'Szia, holnap 10-kor jó?'))
 BIG.forEach(([subject, html], i) => server.add(message(subject, 2 + i, 'text/html', html)))
@@ -123,7 +128,7 @@ try {
     if (!(await row(s).isVisible())) await page.keyboard.press('Escape')
     await row(s).click()
   }
-  for (const [subject] of BIG) {
+  for (const [subject, , asks] of BIG) {
     const p1 = pinger(app)
     const t1 = performance.now()
     await openRow(subject)
@@ -142,16 +147,49 @@ try {
     const before = await app.evaluate(() => globalThis.__pm1.asked)
     const p2 = pinger(app)
     const t3 = performance.now()
+    const winP = asks ? null : app.waitForEvent('window', { timeout: 30_000 }).catch(() => null)
     await page.locator('.reader-tools').getByRole('button', { name: t.replyModes.reply, exact: true }).click()
-    let askMs = null
-    for (const end = performance.now() + 15_000; performance.now() < end; await sleep(50)) {
-      if ((await app.evaluate(() => globalThis.__pm1.asked)) > before) {
-        askMs = Math.round(performance.now() - t3)
-        break
+    if (asks) {
+      let askMs = null
+      for (const end = performance.now() + 15_000; performance.now() < end; await sleep(50)) {
+        if ((await app.evaluate(() => globalThis.__pm1.asked)) > before) {
+          askMs = Math.round(performance.now() - t3)
+          break
+        }
+      }
+      const replyGap = await p2.stop()
+      check(`${subject}: Reply, the shape check's question, the main process's longest gap <= ${GAP_MS} ms`, askMs !== null && replyGap <= GAP_MS, `question after ${askMs} ms, gap ${replyGap} ms`)
+      continue
+    }
+    const cw = await winP
+    let quoteMs = null
+    let typedMs = null
+    if (cw) {
+      // the headless composer window has no size of its own (as in compose-e2e)
+      await cw.setViewportSize({ width: 900, height: 700 })
+      for (const end = performance.now() + 30_000; performance.now() < end; await sleep(50)) {
+        const n = await cw.evaluate(() => (document.querySelector('.editor')?.textContent || '').length).catch(() => -1)
+        if (n >= 4_000_000) {
+          quoteMs = Math.round(performance.now() - t3)
+          break
+        }
+      }
+      await cw.locator('.editor').click({ position: { x: 10, y: 10 } })
+      const t4 = performance.now()
+      await cw.keyboard.type('Q')
+      for (const end = performance.now() + 10_000; performance.now() < end; await sleep(20)) {
+        if (await cw.evaluate(() => (document.querySelector('.editor')?.textContent || '').includes('Q'))) {
+          typedMs = Math.round(performance.now() - t4)
+          break
+        }
       }
     }
+    const asked = (await app.evaluate(() => globalThis.__pm1.asked)) - before
     const replyGap = await p2.stop()
-    check(`${subject}: Reply, the shape check's question, the main process's longest gap <= ${GAP_MS} ms`, askMs !== null && replyGap <= GAP_MS, `question after ${askMs} ms, gap ${replyGap} ms`)
+    check(`${subject}: Reply, no question, the composer with the whole quote within ${QUOTE_MS} ms, the main process's longest gap <= ${GAP_MS} ms`, cw && asked === 0 && quoteMs !== null && quoteMs <= QUOTE_MS && replyGap <= GAP_MS, `window ${cw ? 'yes' : 'no'}, asked ${asked}, quote after ${quoteMs} ms, gap ${replyGap} ms`)
+    check(`${subject}: a letter typed into the quote shows within ${TYPED_MS} ms`, typedMs !== null && typedMs <= TYPED_MS, `${typedMs} ms`)
+    // the composer closed directly, so no close path of its own runs between the measured steps
+    if (cw) await app.evaluate(({ BrowserWindow }) => { for (const w of BrowserWindow.getAllWindows()) if (/compose\.html/.test(w.webContents.getURL())) w.destroy() })
   }
 
   check('no command error and no failure in main.log', !fs.readFileSync(mainLog, 'utf8').split('\n').some(l => /(failed|error)/i.test(l) && !/no password|connection_refused/.test(l)))

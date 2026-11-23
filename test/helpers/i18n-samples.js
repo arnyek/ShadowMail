@@ -167,6 +167,9 @@ export const SAMPLES = {
   searchPop3Done: n => [[{ hits: n }], [{ hits: n, cancelled: true, skipped: n, error: true }]],
   readerError: () => each(syncCodes(), c => [c]),
   sizeKb: n => [[n], [n * 1024], [n * 1024 * 1024 + 512 * 1024]],
+  'dragOut.tooMany': n => [[n, 50]],
+  'dragOut.notice': n => [['tooMany', { n, max: 50 }], ['tooLarge', { bytes: n * 1024 * 1024 + 512 * 1024, max: 100 * 1024 * 1024 }], ['noSize'], ['notYet'], ['notYet', {}]],
+  'dragOut.error': n => [['not_yet', {}], ['too_large', { bytes: n * 1024 * 1024 + 512 * 1024, max: 100 * 1024 * 1024 }], ['too_large'], ...each([...Object.keys(en.dragOut.errors), ...Object.keys(en.readerErrors), 'no_such_code'], c => [c, {}])],
   'outgoingQuote.wrote': () => [['05/03/2026, 09:07, Anna <a@example.invalid>'], ['']],
 }
 

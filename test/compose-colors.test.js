@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// The composer's colours on the way out (core/smtp/text-colors.js, sanitize.js sanitizeCompose `colors`): a coloured and
+// The composer's colours on the way out (core/smtp/text-colors.js, sanitize.js sanitizeCompose `rich`): a coloured and
 // highlighted text goes out with its <font color> and its highlight style in the HTML part, the text part has the text
 // without colour; a draft saved, opened again and sent keeps them; a reply or a forward of a coloured message quotes it
 // without colour (as before). Against a local SMTP server and the fake IMAP server; the editor's sanitizer runs on jsdom
-// with the options the composer page gives it (Composer.jsx: form() with colors, writeBody with colors only for a saved
-// body; that choice itself: test/compose-colors-ui.test.js).
+// with the options the composer page gives it (Composer.jsx: form() rich, writeBody rich only for a saved body, table rows
+// otherwise; that choice itself: test/compose-colors-ui.test.js).
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import path from 'node:path'
@@ -79,8 +79,8 @@ async function setup(t) {
   })
   const messageId = index.getByUid(row.id, 'INBOX', uid).id
   // the composer page: writeBody's sanitizer over the starting body, form()'s over the editor's text
-  const startBody = (sid, html, saved) => sanitizeCompose(purify, html, { sessionId: sid, tableRows: true, colors: saved })
-  const formOf = (sid, f, html) => ({ accountId: f.accountId ?? row.id, to: f.to || 'Valaki <valaki@example.invalid>', cc: '', bcc: '', subject: f.subject || 'Színek', html: sanitizeCompose(purify, html, { sessionId: sid, colors: true }), inReplyTo: f.inReplyTo, references: f.references })
+  const startBody = (sid, html, saved) => sanitizeCompose(purify, html, saved ? { sessionId: sid, rich: true } : { sessionId: sid, tableRows: true })
+  const formOf = (sid, f, html) => ({ accountId: f.accountId ?? row.id, to: f.to || 'Valaki <valaki@example.invalid>', cc: '', bcc: '', subject: f.subject || 'Színek', html: sanitizeCompose(purify, html, { sessionId: sid, rich: true }), inReplyTo: f.inReplyTo, references: f.references })
   return { row, imap, composer, messageId, received, startBody, formOf }
 }
 
@@ -100,14 +100,14 @@ test('sent: the HTML part keeps the palette colour (font color) and the highligh
   assert.ok(!/#[0-9a-f]{6}|rgb\(|color/i.test(text), text)
 })
 
-test('sent: a colour the toolbar does not make (pasted into the editor, or another form) does not go out', async t => {
+test('sent: a colour the toolbar does not make goes out too (rich: a checked colour), what loads or breaks out does not', async t => {
   const s = await setup(t)
   const sid = s.composer.open()
-  const html = '<p><font color="#ff0000">idegen</font> <span style="background-color: yellow;">sárga</span> <span style="color: red; background-color: rgb(255, 245, 157);">kettő</span></p>'
+  const html = '<p><font color="#ff0000">idegen</font> <span style="background-color: yellow;">sárga</span> <span style="color: red; background-color: rgb(255, 245, 157);">kettő</span> <span style="background: url(https://evil.invalid/t.png); position: fixed;">kép</span></p>'
   await s.composer.sendNow(sid, s.formOf(sid, {}, html))
   const out = await htmlPart(s.received[0])
-  assert.ok(!/<font|style=|color=/i.test(out), out)
-  assert.match(out, /idegen <span>sárga<\/span> <span>kettő<\/span>/)
+  assert.match(out, /<font color="#ff0000">idegen<\/font> <span style="background-color: yellow;">sárga<\/span> <span style="color: red; background-color: rgb\(255, 245, 157\);">kettő<\/span> kép<\/p>/)
+  assert.ok(!/url\(|evil|position/i.test(out), out)
 })
 
 test('a draft saved, opened again, sent: the colours are there at each step', async t => {
@@ -148,3 +148,49 @@ for (const mode of ['reply', 'forward']) {
     assert.ok(!html.includes(YELLOW) && !html.includes(GREEN) && !html.includes('#ff0000'), html)
   })
 }
+
+// the rich mode on the way out (core/smtp/rich-style.js): a table with its grid, a background, a colspan, a coloured and a
+// font-faced text; the HTML part is the sanitized body, the text part a line per row with TABs
+const RICH = '<p>Ajánlat: <font color="#1f497d" face="Calibri">kék Calibri</font> és <span style="font-size: 14pt; font-weight: bold;">nagy</span>.</p>' +
+  '<table border="1" cellpadding="4" style="border-collapse: collapse; border: 1px solid #999999; position: absolute; background: url(https://evil.invalid/t.png);">' +
+  '<caption>Árlista</caption><tr><th colspan="2" bgcolor="#eeeeee" style="text-align: left;" class="x" onclick="x()">Termék és darab</th></tr>' +
+  '<tr><td style="border: 1px solid #999999; padding: 2px 6px;">Kazán A</td><td align="right" style="background-color: rgb(255, 245, 157);">1</td></tr>' +
+  '<tr><td>Kazán B</td><td align="right">2</td></tr></table><p>Üdv</p>'
+const RICH_OUT = '<p>Ajánlat: <font color="#1f497d" face="Calibri">kék Calibri</font> és <span style="font-size: 14pt; font-weight: bold;">nagy</span>.</p>' +
+  '<table border="1" cellpadding="4" style="border-collapse: collapse; border: 1px solid #999999;"><caption>Árlista</caption><tbody>' +
+  '<tr><th colspan="2" bgcolor="#eeeeee" style="text-align: left;">Termék és darab</th></tr>' +
+  '<tr><td style="border: 1px solid #999999; padding: 2px 6px;">Kazán A</td><td align="right" style="background-color: rgb(255, 245, 157);">1</td></tr>' +
+  '<tr><td>Kazán B</td><td align="right">2</td></tr></tbody></table><p>Üdv</p>'
+const RICH_TEXT = 'Ajánlat: kék Calibri és nagy.\n\nÁrlista\nTermék és darab\nKazán A\t1\nKazán B\t2\n\nÜdv'
+
+test('sent, rich: the HTML part is the sanitized body (the grid, the background, the colspan, the font, the size); the text part a line per row, the cells TAB apart', async t => {
+  const s = await setup(t)
+  const sid = s.composer.open()
+  const form = s.formOf(sid, {}, RICH)
+  assert.equal(form.html, RICH_OUT, 'what form() sends')
+  assert.equal((await s.composer.sendNow(sid, form)).sent, true)
+  const got = await simpleParser(s.received[0])
+  assert.equal(got.html, RICH_OUT)
+  assert.equal(got.text.trim(), RICH_TEXT)
+  assert.ok(!/evil|position|onclick|class=/.test(s.received[0].toString()), 'nothing of what goes')
+})
+
+test('rich: a draft saved, opened again, sent gives the same HTML and text part as sending it at once', async t => {
+  const s = await setup(t)
+  const sid = s.composer.open()
+  await s.composer.saveDraft(sid, s.formOf(sid, { subject: 'Gazdag piszkozat' }, RICH))
+  const drafts = [...s.imap.mailboxes.get('Drafts').messages.values()]
+  assert.equal(drafts.length, 1)
+  const row = { id: 9999, account_id: s.row.id, folder: 'Drafts', message_id: null }
+  s.composer.reader = { source: async () => ({ row, source: drafts[0].source }) }
+  const sid2 = s.composer.open()
+  const f = await s.composer.prepare(sid2, { mode: 'draft', messageId: 9999 })
+  assert.equal(f.draftHtml, RICH_OUT, 'the saved body is the sent body')
+  // the composer page writes the saved body rich (a table stays a table) and sends what the editor holds
+  const editor = s.startBody(sid2, f.draftHtml, true)
+  assert.equal(editor, RICH_OUT)
+  await s.composer.sendNow(sid2, s.formOf(sid2, f, editor))
+  const got = await simpleParser(s.received[0])
+  assert.equal(got.html, RICH_OUT)
+  assert.equal(got.text.trim(), RICH_TEXT)
+})

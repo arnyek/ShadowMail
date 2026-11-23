@@ -347,3 +347,20 @@ test('a pasted image goes out with a scheduled message: carried in the sealed pa
   assert.ok(got.html.includes(`src="cid:${parts[0].cid}"`) && got.html.includes('width="800"'), got.html)
   assert.ok(!got.html.includes('inl-img'))
 })
+
+test('a rich body (the composer\'s form(): a table with its grid, a colour, a font) goes out at its time byte for byte as scheduled; the text part a line per row with TABs', async t => {
+  const s = setup(t)
+  const html = '<p><font color="#1f497d" face="Calibri">kék</font></p><table border="1" style="border-collapse: collapse;"><tbody><tr><th colspan="2" bgcolor="#eeeeee">Fej</th></tr><tr><td style="border: 1px solid #999999;">Kazán A</td><td align="right">1</td></tr></tbody></table>'
+  const sid = s.composer.open()
+  const { id } = await s.composer.schedule(sid, s.form({ html }), NOW + 10 * MIN)
+  s.composer.close(sid)
+  s.scheduler.start()
+  s.clock.now = NOW + 11 * MIN
+  await s.scheduler.tick()
+  assert.equal(s.sent.length, 1)
+  assert.equal(s.scheduled.get(id), null)
+  const { simpleParser } = await import('mailparser')
+  const got = await simpleParser(s.sent[0].raw)
+  assert.equal(got.html, html)
+  assert.equal(got.text.trim(), 'kék\n\nFej\nKazán A\t1')
+})

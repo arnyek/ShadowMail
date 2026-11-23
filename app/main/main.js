@@ -24,6 +24,8 @@ import { registerMailIpc, MAIL_CHANNELS } from './ipc/mail.js'
 import { SyncManager } from './sync-manager.js'
 import { MessageReader } from './reader.js'
 import { registerReaderIpc, emptyTmpDir, READER_CHANNELS } from './ipc/reader.js'
+import { registerDragOutIpc, DRAG_OUT_CHANNELS } from './ipc/drag-out.js'
+import { createDragOut, envelopeBitmap } from './drag-out.js'
 import { fallbackTmpDir } from './motw.js'
 import { registerSearchIpc, SEARCH_CHANNELS } from './ipc/search.js'
 import { MailActions } from './actions.js'
@@ -124,6 +126,7 @@ let db = null
 let vault = null
 let syncManager = null
 let reader = null
+let dragOut = null // messages dragged out of the list as .eml files (drag-out.js); its timers stop on lock
 // the composer's sig-img:// images, of the open session (null when locked)
 let signatureSource = null
 // the composer's pasted inl-img:// images, of the open session (null when locked)
@@ -449,7 +452,7 @@ function main() {
     })
     vault = new Vault(vaultPath(dataDir))
     routed = createRoutedIpc(ipcMain)
-    routed.reserve([...ACCOUNT_CHANNELS, ...MAIL_CHANNELS, ...ACTION_CHANNELS, ...LABEL_CHANNELS, ...FOLDER_CHANNELS, ...COMPOSE_CHANNELS, ...SEARCH_CHANNELS, ...READER_CHANNELS, ...MCP_CHANNELS, ...CONTACTS_CHANNELS, ...TASKBAR_CHANNELS, ...SCHEDULED_CHANNELS])
+    routed.reserve([...ACCOUNT_CHANNELS, ...MAIL_CHANNELS, ...ACTION_CHANNELS, ...LABEL_CHANNELS, ...FOLDER_CHANNELS, ...COMPOSE_CHANNELS, ...SEARCH_CHANNELS, ...READER_CHANNELS, ...DRAG_OUT_CHANNELS, ...MCP_CHANNELS, ...CONTACTS_CHANNELS, ...TASKBAR_CHANNELS, ...SCHEDULED_CHANNELS])
     // the message frame's schemes live as long as the app; they ask the reader of the open session
     handleMailProtocols({
       protocol,
@@ -579,7 +582,9 @@ function closeSession({ now = false } = {}) {
   // POP3 message not written is not marked seen, so it comes again
   if (sealedStore) sealedStore.close()
   sealedStore = null
-  // the attachments opened with "Megnyitás" do not wait for the quit
+  // the attachments opened with "Megnyitás" and the dragged-out messages do not wait for the quit
+  if (dragOut) dragOut.dispose()
+  dragOut = null
   emptyTmpDir(paths.temp, log)
   emptyTmpDir(fallbackTmpDir(dataDir), log)
   // the waiting confirmations are rejected (M3B), the pipe closes, endpoint.json goes, the key is wiped
@@ -910,6 +915,16 @@ function buildServices(ipcMain) {
     copyText: text => clipboard.writeText(text),
   })
   registerReaderIpc({ ipcMain, reader, tmpDir: paths.temp, fallbackDir: fallbackTmpDir(dataDir), dialog, shell, getWindow: () => mainWindow, labels, isTrustedSender, log })
+  // a message dragged out of the list: <subject>.eml in data\tmp\drag-<random>, gone after 10 minutes and at lock
+  dragOut = createDragOut({
+    reader,
+    tmpDir: paths.temp,
+    fallbackDir: fallbackTmpDir(dataDir),
+    icon: nativeImage.createFromBitmap(envelopeBitmap(32), { width: 32, height: 32 }),
+    fallback: () => t.sourceFileFallback,
+    log,
+  })
+  registerDragOutIpc({ ipcMain, dragOut, isTrustedSender, log })
   // the unread badge: counts now, then after every write of this connection (TEMP triggers)
   taskbar = startTaskbarBadge({ db, settings: openSettings(db), apply: applyOverlay, log })
   registerTaskbarIpc({ ipcMain, taskbar, isTrustedSender, log })

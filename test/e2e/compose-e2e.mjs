@@ -159,7 +159,8 @@ try {
   await win.getByRole('button', { name: t.composeTools.bold }).click()
   await win.keyboard.press('End')
   await win.keyboard.press('Enter')
-  // a paste with a script, an image and a style: only plain formatting may survive
+  // a paste with a script, an image and a style: the script, the image and the javascript: link go; the readable
+  // text colour stays (the rich paste keeps it), and nothing else rides on a style
   await win.locator('.editor').evaluate(el => {
     el.focus()
     const dt = new DataTransfer()
@@ -167,7 +168,8 @@ try {
     el.dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }))
   })
   const editorHtml = await win.locator('.editor').innerHTML()
-  check('paste: no script, image, style or javascript: link', !/<script|<img|style=|javascript:/i.test(editorHtml) && /Beillesztve/.test(editorHtml) && /href="https:\/\/example\.com\/"/.test(editorHtml), editorHtml.slice(0, 300))
+  const pastedStyles = [...editorHtml.matchAll(/style="([^"]*)"/gi)].map(m => m[1].trim())
+  check('paste: no script, image or javascript: link; the only style is the text colour', !/<script|<img|javascript:/i.test(editorHtml) && pastedStyles.length > 0 && pastedStyles.every(s => /^color:\s*red;?$/i.test(s)) && /Beillesztve/.test(editorHtml) && /href="https:\/\/example\.com\/"/.test(editorHtml) && !(await win.evaluate(() => window.__pwned)), editorHtml.slice(0, 300))
   await win.getByRole('button', { name: t.composeAttach }).click()
   await win.locator('.compose-attachments li').nth(1).waitFor()
   check('attachments listed', (await win.locator('.compose-attachments li').count()) === 2)

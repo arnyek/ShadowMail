@@ -106,6 +106,11 @@ test('the .eml file name: Windows-forbidden characters -> _, at most 100 charact
   assert.equal(SFN('vége...', safeFileName), 'vége.eml')
   // zero-width and direction marks do not hide part of the name
   assert.equal(SFN('x\u200bpdf\u200e\u200f\ufeff', safeFileName), 'xpdf.eml')
+  // the 100-character cut never splits a pair: an emoji on the edge goes whole; a lone half elsewhere is U+FFFD
+  assert.equal(SFN(`${'a'.repeat(99)}\u{1F600} tail`, safeFileName), `${'a'.repeat(99)}.eml`)
+  assert.equal(SFN(`${'a'.repeat(98)}\u{1F600} tail`, safeFileName), `${'a'.repeat(98)}\u{1F600}.eml`)
+  assert.equal(SFN('x\ud800y\udc00z', safeFileName), 'x\ufffdy\ufffdz.eml')
+  for (const n of [97, 98, 99, 100]) assert.ok(SFN(`${'a'.repeat(n)}\u{1F600}\u{1F600}`, safeFileName).isWellFormed(), String(n))
 })
 
 test('IPC on the fake IMAP: mail:source leaves the message unread; mail:saveSource writes it byte for byte, marked; no content in the log', async t => {

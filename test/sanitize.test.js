@@ -7,7 +7,7 @@ import fs from 'node:fs'
 import { JSDOM } from 'jsdom'
 import createDOMPurify from 'dompurify'
 import { parseMessage } from '../core/mime/message.js'
-import { sanitizeMail, sanitizeCompose, tableToLines } from '../app/renderer/src/sanitize.js'
+import { sanitizeMail, sanitizeCompose, tableToLines, INSERT_WRAP_NODES } from '../app/renderer/src/sanitize.js'
 
 const window = new JSDOM('').window
 const purify = createDOMPurify(window)
@@ -189,4 +189,28 @@ test('a big copied table is linear: 4000 rows take at most 6 times 1000 rows (be
   const small = best(1000)
   const big = best(4000)
   assert.ok(big <= small * 6, `1000 rows ${Math.round(small)} ms, 4000 rows ${Math.round(big)} ms`)
+})
+
+test('insert (a paste): no bare span on either way, many top-level nodes in one bare div; without it the output as before', () => {
+  const ins = (html, o = {}) => sanitizeCompose(purify, html, { insert: true, ...o })
+  const span = '<p><span>a<span>b</span></span><span style="color: red;">c</span><b>d</b></p>'
+  // the plain way: every span is bare; without insert they stay (the old output), with it they are unwrapped
+  assert.equal(sanitizeCompose(purify, span), '<p><span>a<span>b</span></span><span>c</span><b>d</b></p>')
+  assert.equal(ins(span), '<p>abc<b>d</b></p>')
+  // the rich way keeps the styled one
+  assert.equal(ins(span, { rich: true }), '<p>ab<span style="color: red;">c</span><b>d</b></p>')
+  const blocks = n => '<p>x</p>'.repeat(n)
+  assert.equal(INSERT_WRAP_NODES, 50)
+  for (const rich of [false, true]) {
+    assert.equal(ins(blocks(49), { rich }), blocks(49))
+    assert.equal(ins(blocks(50), { rich }), `<div>${blocks(50)}</div>`)
+    // text nodes are top-level nodes too
+    const mixed = '<b>a</b> '.repeat(25)
+    assert.equal(ins(mixed, { rich }), `<div>${mixed}</div>`)
+    // one big block is one node: no wrapper
+    assert.equal(ins(`<div>${blocks(500)}</div>`, { rich }), `<div>${blocks(500)}</div>`)
+    assert.equal(ins('', { rich }), '')
+    // without insert: never wrapped
+    assert.equal(sanitizeCompose(purify, blocks(50), { rich }), blocks(50))
+  }
 })

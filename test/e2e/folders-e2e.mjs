@@ -22,6 +22,7 @@ import { createVaultedDatabase } from '../../core/vault/vaulted-db.js'
 import { AccountStore } from '../../core/accounts/model.js'
 import { newAccountDefaults } from '../../core/accounts/defaults.js'
 import { t, seedLanguage } from './lang.mjs'
+import { dragMessageTo } from './drag-env.mjs'
 
 const { values } = parseArgs({ options: { shot: { type: 'string' } } })
 const require = createRequire(import.meta.url)
@@ -132,7 +133,8 @@ try {
 
   // put a message into the subfolder, then delete it: the warning names the count
   await folder(pop, 'INBOX').click()
-  await page.locator('.msg-row', { hasText: 'POP 1' }).dragTo(folder(pop, 'Bejövő számlák/2026'))
+  // the row's drag goes out as files and comes back onto the folder (drag-env.mjs: headless has no OS drag)
+  await dragMessageTo(app, page, page.locator('.msg-row', { hasText: 'POP 1' }), folder(pop, 'Bejövő számlák/2026'))
   await page.locator('.msg-row', { hasText: 'POP 1' }).waitFor({ state: 'detached' })
   await folder(pop, 'Bejövő számlák').click({ button: 'right' })
   await page.getByRole('menuitem', { name: t.folderMenu.delete }).click()

@@ -6,7 +6,7 @@
 // Pure: the DOMPurify instance is passed in, so the same code runs in the renderer and, with jsdom,
 // in node:test.
 import { askedWidth } from '../../../core/smtp/image-width.js'
-import { isTextColor, isHighlightStyle } from '../../../core/smtp/text-colors.js'
+import { RICH_EXTRA_TAGS, RICH_ATTR_NAMES, richAttrs } from '../../../core/smtp/rich-style.js'
 
 // Tags that run code, load or submit something, or change how the document is read.
 const FORBID_TAGS = [
@@ -176,19 +176,39 @@ export function tableToLines(table) {
   table.replaceChildren(lines)
 }
 
-// With `colors` (the user's own text: what is sent or saved, and a saved draft opened again) the toolbar's colours stay too,
-// and only they (core/smtp/text-colors.js): a font's color when it is a palette text colour, written exactly as the editor
-// writes it, and a style on a span, a font or a b / strong / i / em / u / s / a / code when it is exactly one palette
-// highlight (the editor writes a highlight onto a bold inside a coloured font, and onto a whole link or code element). Every other colour, style and font
-// attribute goes, and a font left with neither is unwrapped (its content stays). Without it (a quote, a paste, a mailto
-// body, a signature) no colour stays, and the result is the same as before colours were added.
-const COLOR_TAGS = [...COMPOSE_TAGS, 'font']
-const STYLED_TAGS = new Set(['span', 'font', 'b', 'strong', 'i', 'em', 'u', 's', 'a', 'code'])
+// With `rich` (the user's own text: what is sent or saved, a saved draft opened again, a copy of the composer's own
+// text) the formatting stays too, by core/smtp/rich-style.js: the tags of RICH_TAGS (a table with its grid, font, sup / sub,
+// h4-h6, hr...), and on them only the attributes and CSS properties that module keeps, each value checked; every other
+// attribute and declaration goes, a font or a span left with no attribute is unwrapped (its content stays). The attributes are
+// written in one fixed order (the composer's own href / src / alt / width / signature mark first, then RICH_ATTRS, the style
+// last), so the main process's mirror (visible-text.js visibleComposeHtml `rich`) writes the same bytes. The palette
+// colours of the toolbar (core/smtp/text-colors.js) are a part of it. Without it (a quote, a paste, a mailto body, a
+// signature) no formatting stays, and the result is the same as before (test/fixtures/compose-colors-off.json).
+export const RICH_TAGS = Object.freeze([...COMPOSE_TAGS, ...RICH_EXTRA_TAGS])
 
-export function sanitizeCompose(purify, html, { sessionId = null, tableRows = false, colors = false } = {}) {
+// MEASURED (Electron 45, the planner's decision): the editor's insertHTML is quadratic in the top-level blocks it inserts
+// when the caret stands in an empty paragraph with a block after it (a new message: the signature block), a 1 MB web page
+// copy 36.5 s; the same HTML in ONE wrapping div is one block: 435 ms, the same text, one Ctrl+Z. And it is quadratic in
+// bare spans (2000 lines of 5 bare spans: 22 s), which the plain mode leaves on every span.
+export const INSERT_WRAP_NODES = 50
+// the sanitized tree as the editor's insertHTML gets it (`insert`): at INSERT_WRAP_NODES top-level nodes or more, in one bare
+// <div> (no attribute; it stays in the text and goes out as it is, harmless: unwrapping it would cost an undo step)
+const insertHtml = body => (body.childNodes.length >= INSERT_WRAP_NODES ? `<div>${body.innerHTML}</div>` : body.innerHTML)
+const OWN_ATTRS = ['href', 'src', 'alt', 'width', 'data-sm-signature']
+
+/**
+ * The composer's sanitizer. `insert`: the HTML goes into the editor's insertHTML (a paste): no bare span (the plain mode
+ * too) and many top-level nodes in one wrapping div (insertHtml), from the same tree, with no second parse.
+ */
+export function sanitizeCompose(purify, html, { sessionId = null, tableRows = false, rich = false, insert = false } = {}) {
   const ownImage = src => SIG_IMG_SRC.test(src) || isPastedImageOf(src, sessionId)
+  // a table made lines: in the rich mode (which keeps the table tag) unwrapped after the sanitizer, as the plain mode drops it
+  const lined = new Set()
   const tables = (node, data) => {
-    if (data.tagName === 'table' && node.rows) tableToLines(node)
+    if (data.tagName === 'table' && node.rows) {
+      tableToLines(node)
+      if (rich) lined.add(node)
+    }
   }
   const own = node => {
     const tag = node.nodeName ? node.nodeName.toLowerCase() : ''
@@ -202,14 +222,18 @@ export function sanitizeCompose(purify, html, { sessionId = null, tableRows = fa
     } else if (node.hasAttribute && node.hasAttribute('src')) node.removeAttribute('src')
     if (tag !== 'div' && node.hasAttribute && node.hasAttribute('data-sm-signature')) node.removeAttribute('data-sm-signature')
     if (tag !== 'img' && node.hasAttribute && node.hasAttribute('alt')) node.removeAttribute('alt')
-    if (tag !== 'img' && node.hasAttribute && node.hasAttribute('width')) node.removeAttribute('width')
+    // rich: a table's, a cell's or a column's width is the rich rule's (below)
+    if (tag !== 'img' && !rich && node.hasAttribute && node.hasAttribute('width')) node.removeAttribute('width')
     if (tag === 'a') {
       const href = node.getAttribute('href') || ''
       if (href && !/^(?:https?:|mailto:)/i.test(href)) node.removeAttribute('href')
     }
-    if (colors && node.hasAttribute) {
-      if (node.hasAttribute('color') && !(tag === 'font' && isTextColor(node.getAttribute('color')))) node.removeAttribute('color')
-      if (node.hasAttribute('style') && !(STYLED_TAGS.has(tag) && isHighlightStyle(node.getAttribute('style')))) node.removeAttribute('style')
+    if (rich && node.hasAttribute) {
+      // the composer's own attributes on their own tags only (a link's href, an image's width), as the mirror writes them
+      const keep = OWN_ATTRS.filter(n => (n !== 'width' || tag === 'img') && (n !== 'href' || tag === 'a')).flatMap(n => (node.hasAttribute(n) ? [[n, node.getAttribute(n)]] : []))
+      keep.push(...richAttrs(tag, n => node.getAttribute(n)))
+      for (const a of [...node.attributes]) node.removeAttribute(a.name)
+      for (const [n, v] of keep) node.setAttribute(n, v)
     }
   }
   purify.addHook('afterSanitizeAttributes', own)
@@ -226,22 +250,32 @@ export function sanitizeCompose(purify, html, { sessionId = null, tableRows = fa
       ALLOW_DATA_ATTR: false,
       KEEP_CONTENT: true,
     }
-    if (!colors) return purify.sanitize(html || '', config)
-    // style is "URI safe" in DOMPurify already; color is not (a palette hex value would fail the scheme check), so it is added
-    // the same way as width. The tree comes back (RETURN_DOM: the very body DOMPurify serializes otherwise), so a font
-    // that kept no colour can be unwrapped before it is serialized
+    if (!rich && !insert) return purify.sanitize(html || '', config)
+    if (!rich) {
+      const plain = purify.sanitize(html || '', { ...config, RETURN_DOM: true })
+      if (!plain) return ''
+      for (const span of [...plain.querySelectorAll('span')]) if (!span.attributes.length) span.replaceWith(...span.childNodes)
+      return insertHtml(plain)
+    }
+    // every rich attribute but style is "URI safe" in no DOMPurify list (a colour, a number would fail the scheme check), so
+    // they are added the same way as width; rich-style.js checks the values. The tree comes back (RETURN_DOM: the very body
+    // DOMPurify serializes otherwise), so a font that kept no attribute can be unwrapped before it is serialized
     const body = purify.sanitize(html || '', {
       ...config,
-      ALLOWED_TAGS: COLOR_TAGS,
-      ALLOWED_ATTR: [...config.ALLOWED_ATTR, 'color', 'style'],
-      ADD_URI_SAFE_ATTR: ['width', 'color'],
+      ALLOWED_TAGS: RICH_TAGS,
+      ALLOWED_ATTR: [...config.ALLOWED_ATTR, ...RICH_ATTR_NAMES],
+      ADD_URI_SAFE_ATTR: ['width', ...RICH_ATTR_NAMES],
       RETURN_DOM: true,
     })
     if (!body) return ''
-    for (const font of [...body.querySelectorAll('font')]) {
-      if (!font.hasAttribute('color') && !font.hasAttribute('style')) font.replaceWith(...font.childNodes)
+    for (const table of lined) table.replaceWith(...table.childNodes)
+    // a font or a span left with no attribute is unwrapped (its content stays): it formats nothing, and MEASURED (Electron
+    // 45) the editor's insertHTML is quadratic in bare spans (2000 lines of 5 bare spans: 22 s; with a style: 0.3 s), which a
+    // web page's copy makes once its noise styles are dropped
+    for (const el of [...body.querySelectorAll('font, span')]) {
+      if (!el.attributes.length) el.replaceWith(...el.childNodes)
     }
-    return body.innerHTML
+    return insert ? insertHtml(body) : body.innerHTML
   } finally {
     purify.removeHook('afterSanitizeAttributes', own)
     if (tableRows) purify.removeHook('uponSanitizeElement', tables)

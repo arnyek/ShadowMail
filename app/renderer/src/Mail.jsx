@@ -27,6 +27,7 @@ import { ScheduledList, useScheduledRows } from './Scheduled.jsx'
 import { LabelPicker, nextLabelColor } from './LabelPicker.jsx'
 import { labelsWithDeltas } from './label-chips.js'
 import { rangeSelect } from './range-select.js'
+import { createDragOut, DRAG_OUT_MAX, DRAG_TYPE } from './drag-out.js'
 
 // a stored label change the list has not shown yet is dropped after this at the latest
 const DELTA_TIMEOUT_MS = 5000
@@ -89,7 +90,6 @@ function changedFlags(flags, change) {
   for (const f of change.remove) set.delete(f)
   return [...set].join(' ')
 }
-const DRAG_TYPE = 'application/x-shadowmail-ids'
 // the manual order's own drags: never a message move, never a hierarchy change
 const FOLDER_DRAG_TYPE = 'application/x-shadowmail-folder'
 const ACCOUNT_DRAG_TYPE = 'application/x-shadowmail-account'
@@ -126,7 +126,7 @@ function folderLabel(node) {
  * Alt+Down on a folder or an account head steps it. onReorderFolders({ accountId, parentKey, paths, focus }),
  * onReorderAccounts(ids, focusId); the menus get the folder's / account's list to know their edges.
  */
-export function FolderTree({ accounts, selected, onSelect, onDropMessages, onFolderMenu, onNewFolder, onAccountMenu = () => {}, onReorderFolders = () => {}, onReorderAccounts = () => {}, onMoveFolder = () => {}, movedFolder = null, collapsed = false }) {
+export function FolderTree({ accounts, selected, onSelect, onDropMessages, ownFileDrag = () => false, onDropFiles = () => {}, onFolderMenu, onNewFolder, onAccountMenu = () => {}, onReorderFolders = () => {}, onReorderAccounts = () => {}, onMoveFolder = () => {}, movedFolder = null, collapsed = false }) {
   // the drag in progress (dragover cannot read the data, only its types): { kind: 'folder', accountId, path, label }
   // or { kind: 'account', id }; the mark: a line { key, after } (the manual order) or { key, into: true } (a move
   // under that folder, or to the top level on the account head)
@@ -362,6 +362,10 @@ export function FolderTree({ accounts, selected, onSelect, onDropMessages, onFol
                             if (selected && selected.accountId === a.id && selected.folder !== node.path && e.dataTransfer.types.includes(DRAG_TYPE)) {
                               e.preventDefault()
                               e.dataTransfer.dropEffect = 'move'
+                            } else if (selected && selected.accountId === a.id && selected.folder !== node.path && ownFileDrag() && e.dataTransfer.types.includes('Files')) {
+                              // the same messages dragged out as files (drag-out.js) and brought back: still a move; the
+                              // drop effect stays the native drag's own (it offers copy, a 'move' here would refuse the drop)
+                              e.preventDefault()
                             }
                           }}
                           onDrop={e => {
@@ -379,9 +383,15 @@ export function FolderTree({ accounts, selected, onSelect, onDropMessages, onFol
                               return
                             }
                             const raw = e.dataTransfer.getData(DRAG_TYPE)
-                            if (!raw) return
+                            if (raw) {
+                              e.preventDefault()
+                              onDropMessages(JSON.parse(raw), node.path)
+                              return
+                            }
+                            // our own files only (the main process checks the paths); a foreign file is no message
+                            if (!selected || selected.accountId !== a.id || selected.folder === node.path || !ownFileDrag() || !e.dataTransfer.types.includes('Files')) return
                             e.preventDefault()
-                            onDropMessages(JSON.parse(raw), node.path)
+                            onDropFiles(e.dataTransfer.files, node.path)
                           }}
                         >
                           <Icon name={folderIcon(node.role)} size="m" />
@@ -428,6 +438,8 @@ const MessageRow = memo(function MessageRow({ m, index, top, flags, labels, labe
       onMouseLeave={() => h.hover(id => (id === m.id ? null : id))}
       onDragStart={e => {
         const ids = h.selection.has(m.id) ? [...h.selection] : [m.id]
+        // out of the program as .eml files, and back onto a folder as a move (drag-out.js)
+        if (h.dragOut) return h.dragOut(e, ids, h.rowOf)
         e.dataTransfer.setData(DRAG_TYPE, JSON.stringify(ids))
         e.dataTransfer.effectAllowed = 'move'
       }}
@@ -550,7 +562,7 @@ function ListHeader({ ctx }) {
  * The virtual list. `version` changes when the main process reports a change in this folder: the
  * visible pages are re-read in place (no jump, no flash), the others when they come into view.
  */
-function MessageList({ accountId, folder, folders, version, openId, onOpen, selection, onSelection, overlay, onAction, onContextMenu, sort, dir, onSort, filter, keepRef, onRefresh, onClearFilters, idsRef = null, labelList = null, labelDeltas = [], onLabel = null, onDeltaSettled = () => {} }) {
+function MessageList({ accountId, folder, folders, version, openId, onOpen, selection, onSelection, overlay, onAction, onContextMenu, sort, dir, onSort, filter, keepRef, onRefresh, onClearFilters, idsRef = null, labelList = null, labelDeltas = [], onLabel = null, onDeltaSettled = () => {}, onDragOut = null }) {
   const [total, setTotal] = useState(null)
   const [folderTotal, setFolderTotal] = useState(null)
   const [loadError, setLoadError] = useState(null) // a refused list request: said, not an endless "busy"
@@ -791,6 +803,15 @@ function MessageList({ accountId, folder, folders, version, openId, onOpen, sele
   h.onSelection = onSelection
   h.onContextMenu = onContextMenu
   h.hover = setHoverId
+  h.dragOut = onDragOut
+  // a loaded row by id (the drag's decision: is the source here, how big): undefined when its page is not loaded
+  h.rowOf = id => {
+    for (const entry of pages.current.values()) {
+      const r = entry.rows.find(x => x && x.id === id)
+      if (r) return r
+    }
+    return undefined
+  }
 
   const rows = []
   for (let i = first; i < last; i++) {
@@ -1098,6 +1119,17 @@ export function Mail({ collapsed = false, readerPane = 'none', searchSlot = null
   const [confirm, setConfirm] = useState(null)
   const [actionError, setActionError] = useState(null)
   const [actionNotice, setActionNotice] = useState(null)
+  // a list row dragged out as .eml files (one controller for the page's life; its callbacks only set state)
+  const dragOutRef = useRef(null)
+  if (!dragOutRef.current) {
+    dragOutRef.current = createDragOut({
+      api: api.mail,
+      max: DRAG_OUT_MAX,
+      onError: res => setActionError(t.dragOut.error(res.error, res)),
+      onNotice: (kind, info = {}) => setActionNotice(t.dragOut.notice(kind, info)),
+    })
+  }
+  const dragOut = dragOutRef.current
   // folder management
   const [folderMenu, setFolderMenu] = useState(null)
   const [accountMenu, setAccountMenu] = useState(null)
@@ -1653,6 +1685,11 @@ export function Mail({ collapsed = false, readerPane = 'none', searchSlot = null
             selected={scheduledOpen ? null : selected}
             onSelect={navigate}
             onDropMessages={(ids, path) => runAction('move', ids, { target: path })}
+            ownFileDrag={dragOut.ownFiles}
+            onDropFiles={async (files, path) => {
+              const ids = await dragOut.drop(files)
+              if (ids) runAction('move', ids, { target: path })
+            }}
             onFolderMenu={setFolderMenu}
             onAccountMenu={setAccountMenu}
             onReorderFolders={reorderFolders}
@@ -1729,6 +1766,7 @@ export function Mail({ collapsed = false, readerPane = 'none', searchSlot = null
                 onLabel={openPicker}
                 onRefresh={refresh}
                 onClearFilters={() => setFilters(f => clearedFilters(f))}
+                onDragOut={dragOut.start}
               />
             </div>
           ) : (

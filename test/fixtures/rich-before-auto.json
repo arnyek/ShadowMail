@@ -1,0 +1,190 @@
+{
+ "a palette text colour": {
+  "rich": "<p>a <font color=\"#c62828\">piros</font> b</p>",
+  "mirror": "<p>a <font color=\"#c62828\">piros</font> b</p>"
+ },
+ "every text colour": {
+  "rich": "<font color=\"#c62828\">red</font> <font color=\"#bf360c\">orange</font> <font color=\"#2e7d32\">green</font> <font color=\"#1565c0\">blue</font> <font color=\"#6a1b9a\">purple</font> <font color=\"#616161\">gray</font>",
+  "mirror": "<font color=\"#c62828\">red</font> <font color=\"#bf360c\">orange</font> <font color=\"#2e7d32\">green</font> <font color=\"#1565c0\">blue</font> <font color=\"#6a1b9a\">purple</font> <font color=\"#616161\">gray</font>"
+ },
+ "a highlight on a span": {
+  "rich": "<p><span style=\"background-color: rgb(255, 245, 157);\">kiemelt</span></p>",
+  "mirror": "<p><span style=\"background-color: rgb(255, 245, 157);\">kiemelt</span></p>"
+ },
+ "every highlight on a span": {
+  "rich": "<span style=\"background-color: rgb(255, 245, 157);\">yellow</span> <span style=\"background-color: rgb(200, 230, 201);\">green</span> <span style=\"background-color: rgb(187, 222, 251);\">blue</span> <span style=\"background-color: rgb(248, 187, 208);\">pink</span> <span style=\"background-color: rgb(255, 224, 178);\">orange</span> <span style=\"background-color: rgb(224, 224, 224);\">gray</span>",
+  "mirror": "<span style=\"background-color: rgb(255, 245, 157);\">yellow</span> <span style=\"background-color: rgb(200, 230, 201);\">green</span> <span style=\"background-color: rgb(187, 222, 251);\">blue</span> <span style=\"background-color: rgb(248, 187, 208);\">pink</span> <span style=\"background-color: rgb(255, 224, 178);\">orange</span> <span style=\"background-color: rgb(224, 224, 224);\">gray</span>"
+ },
+ "a highlight on a font": {
+  "rich": "<p><font style=\"background-color: rgb(248, 187, 208);\">csak háttér</font></p>",
+  "mirror": "<p><font style=\"background-color: rgb(248, 187, 208);\">csak háttér</font></p>"
+ },
+ "colour and highlight on one font": {
+  "rich": "<p><font color=\"#1565c0\" style=\"background-color: rgb(255, 245, 157);\">mindkettő</font></p>",
+  "mirror": "<p><font color=\"#1565c0\" style=\"background-color: rgb(255, 245, 157);\">mindkettő</font></p>"
+ },
+ "nested: a coloured font in a highlight, bold inside": {
+  "rich": "<p><span style=\"background-color: rgb(255, 245, 157);\">x <font color=\"#c62828\">y <b>z</b></font></span> w</p>",
+  "mirror": "<p><span style=\"background-color: rgb(255, 245, 157);\">x <font color=\"#c62828\">y <b>z</b></font></span> w</p>"
+ },
+ "a colour not in the palette": {
+  "rich": "<p><font color=\"#d32f2f\">más piros</font> <font color=\"#000000\">fekete</font></p>",
+  "mirror": "<p><font color=\"#d32f2f\">más piros</font> <font color=\"#000000\">fekete</font></p>"
+ },
+ "upper case hex": {
+  "rich": "<p><font color=\"#C62828\">nagybetűs</font></p>",
+  "mirror": "<p><font color=\"#C62828\">nagybetűs</font></p>"
+ },
+ "rgb() and named colours": {
+  "rich": "<p><font color=\"rgb(198, 40, 40)\">rgb</font> <font color=\"red\">red</font></p>",
+  "mirror": "<p><font color=\"rgb(198, 40, 40)\">rgb</font> <font color=\"red\">red</font></p>"
+ },
+ "a value with space around it": {
+  "rich": "<p><font color=\"#c62828\">szóköz</font> <span style=\"background-color: rgb(255, 245, 157);\">szóköz</span></p>",
+  "mirror": "<p><font color=\"#c62828\">szóköz</font> <span style=\"background-color: rgb(255, 245, 157);\">szóköz</span></p>"
+ },
+ "a javascript: colour": {
+  "rich": "<p>js</p>",
+  "mirror": "<p>js</p>"
+ },
+ "face and size only: unwrapped": {
+  "rich": "<p><font face=\"Arial\" size=\"7\">face</font> üres</p>",
+  "mirror": "<p><font face=\"Arial\" size=\"7\">face</font> üres</p>"
+ },
+ "face next to a palette colour: the face goes": {
+  "rich": "<p><font color=\"#c62828\" face=\"Arial\" size=\"1\">piros</font></p>",
+  "mirror": "<p><font color=\"#c62828\" face=\"Arial\" size=\"1\">piros</font></p>"
+ },
+ "a highlight with another property": {
+  "rich": "<p><span style=\"background-color: rgb(255, 245, 157);\">pos</span> <span style=\"background-color: rgb(255, 245, 157);\">pos2</span></p>",
+  "mirror": "<p><span style=\"background-color: rgb(255, 245, 157);\">pos</span> <span style=\"background-color: rgb(255, 245, 157);\">pos2</span></p>"
+ },
+ "a highlight written in another way": {
+  "rich": "<p><span style=\"background-color: rgb(255,245,157);\">tömör</span> <span style=\"background-color: rgb(255, 245, 157);\">pontosvessző nélkül</span> <span style=\"background-color: #fff59d;\">hex</span> <span style=\"background-color: rgb(255, 245, 157);\">nagy</span> <span style=\"background-color: rgb(255, 245, 157);\">important</span></p>",
+  "mirror": "<p><span style=\"background-color: rgb(255,245,157);\">tömör</span> <span style=\"background-color: rgb(255, 245, 157);\">pontosvessző nélkül</span> <span style=\"background-color: #fff59d;\">hex</span> <span style=\"background-color: rgb(255, 245, 157);\">nagy</span> <span style=\"background-color: rgb(255, 245, 157);\">important</span></p>"
+ },
+ "a highlight not in the palette": {
+  "rich": "<p><span style=\"background-color: rgb(255, 0, 0);\">piros háttér</span></p>",
+  "mirror": "<p><span style=\"background-color: rgb(255, 0, 0);\">piros háttér</span></p>"
+ },
+ "a text colour as a style": {
+  "rich": "<p><span style=\"color: #c62828;\">color stílus</span> <span style=\"color: #c62828; background-color: rgb(255, 245, 157);\">kettő</span></p>",
+  "mirror": "<p><span style=\"color: #c62828;\">color stílus</span> <span style=\"color: #c62828; background-color: rgb(255, 245, 157);\">kettő</span></p>"
+ },
+ "a style with url() or expression()": {
+  "rich": "<p>url expr</p>",
+  "mirror": "<p>url expr</p>"
+ },
+ "a highlight on a bold, an italic, an underline inside a colour": {
+  "rich": "<p><font color=\"#c62828\"><b style=\"background-color: rgb(255, 245, 157);\">b</b> <i style=\"background-color: rgb(248, 187, 208);\">i</i> <u style=\"background-color: rgb(255, 245, 157);\">u</u> <s style=\"background-color: rgb(255, 245, 157);\">s</s> <strong style=\"background-color: rgb(255, 245, 157);\">st</strong> <em style=\"background-color: rgb(255, 245, 157);\">em</em></font></p>",
+  "mirror": "<p><font color=\"#c62828\"><b style=\"background-color: rgb(255, 245, 157);\">b</b> <i style=\"background-color: rgb(248, 187, 208);\">i</i> <u style=\"background-color: rgb(255, 245, 157);\">u</u> <s style=\"background-color: rgb(255, 245, 157);\">s</s> <strong style=\"background-color: rgb(255, 245, 157);\">st</strong> <em style=\"background-color: rgb(255, 245, 157);\">em</em></font></p>"
+ },
+ "a highlight on other elements": {
+  "rich": "<p style=\"background-color: rgb(255, 245, 157);\">p</p><div style=\"background-color: rgb(255, 245, 157);\">div</div><b style=\"background-color: rgb(255, 245, 157);\">b</b> <a href=\"https://example.invalid/\" style=\"background-color: rgb(255, 245, 157);\">a</a><blockquote style=\"background-color: rgb(255, 245, 157);\">idézet</blockquote>",
+  "mirror": "<p style=\"background-color: rgb(255, 245, 157);\">p</p><div style=\"background-color: rgb(255, 245, 157);\">div</div><b style=\"background-color: rgb(255, 245, 157);\">b</b> <a href=\"https://example.invalid/\" style=\"background-color: rgb(255, 245, 157);\">a</a><blockquote style=\"background-color: rgb(255, 245, 157);\">idézet</blockquote>"
+ },
+ "a colour attribute on other elements": {
+  "rich": "<p>span <b>b</b> <a href=\"https://example.invalid/\">a</a></p>",
+  "mirror": "<p>span <b>b</b> <a href=\"https://example.invalid/\">a</a></p>"
+ },
+ "an empty style": {
+  "rich": "<p>üres üres font</p>",
+  "mirror": "<p>üres üres font</p>"
+ },
+ "a coloured link and a link in a colour": {
+  "rich": "<p><a href=\"https://example.invalid/\"><font color=\"#c62828\">link</font></a> <font color=\"#1565c0\"><a href=\"mailto:a@example.invalid\">levél</a></font></p>",
+  "mirror": "<p><a href=\"https://example.invalid/\"><font color=\"#c62828\">link</font></a> <font color=\"#1565c0\"><a href=\"mailto:a@example.invalid\">levél</a></font></p>"
+ },
+ "colours in a table": {
+  "rich": "<table><tbody><tr><td><font color=\"#c62828\">A1</font></td><td><span style=\"background-color: rgb(255, 245, 157);\">B1</span></td></tr></tbody></table>",
+  "mirror": "<table><tbody><tr><td><font color=\"#c62828\">A1</font></td><td><span style=\"background-color: rgb(255, 245, 157);\">B1</span></td></tr></tbody></table>"
+ },
+ "a coloured font around a block": {
+  "rich": "<font color=\"#c62828\"><p>bekezdés</p><ul><li>elem</li></ul></font>",
+  "mirror": "<font color=\"#c62828\"><p>bekezdés</p><ul><li>elem</li></ul></font>"
+ },
+ "a hostile mix": {
+  "rich": "<p><font color=\"#c62828\" style=\"background-color: rgb(255, 245, 157);\">x</font><span style=\"color: red;\">y</span></p>",
+  "mirror": "<p><font color=\"#c62828\" style=\"background-color: rgb(255, 245, 157);\">x</font><span style=\"color: red;\">y</span></p>"
+ },
+ "a table with a border, a background and a colspan": {
+  "rich": "<table border=\"1\" cellpadding=\"4\" cellspacing=\"0\" width=\"100%\" style=\"border-collapse: collapse; border: 1px solid #999999;\"><tbody><tr><th colspan=\"2\" bgcolor=\"#eeeeee\" style=\"text-align: left;\">Fej</th></tr><tr><td width=\"30%\" style=\"border: 1px solid #999999; padding: 4px 8px;\">A1</td><td style=\"background-color: rgb(255, 245, 157);\">B1</td></tr></tbody></table>",
+  "mirror": "<table border=\"1\" cellpadding=\"4\" cellspacing=\"0\" width=\"100%\" style=\"border-collapse: collapse; border: 1px solid #999999;\"><tbody><tr><th colspan=\"2\" bgcolor=\"#eeeeee\" style=\"text-align: left;\">Fej</th></tr><tr><td width=\"30%\" style=\"border: 1px solid #999999; padding: 4px 8px;\">A1</td><td style=\"background-color: rgb(255, 245, 157);\">B1</td></tr></tbody></table>"
+ },
+ "a table with a caption, thead, tfoot, colgroup and a rowspan": {
+  "rich": "<table><caption>Ár</caption><colgroup><col span=\"2\" width=\"120\"></colgroup><thead><tr><th>Termék</th><th>Db</th></tr></thead><tbody><tr><td rowspan=\"2\" valign=\"top\">Kazán A</td><td align=\"right\">1</td></tr><tr><td align=\"right\">2</td></tr></tbody><tfoot><tr><td>Össz</td><td>3</td></tr></tfoot></table>",
+  "mirror": "<table><caption>Ár</caption><colgroup><col span=\"2\" width=\"120\"></colgroup><thead><tr><th>Termék</th><th>Db</th></tr></thead><tbody><tr><td rowspan=\"2\" valign=\"top\">Kazán A</td><td align=\"right\">1</td></tr><tr><td align=\"right\">2</td></tr></tbody><tfoot><tr><td>Össz</td><td>3</td></tr></tfoot></table>"
+ },
+ "a nested table": {
+  "rich": "<table><tbody><tr><td><table><tbody><tr><td>be1</td><td>be2</td></tr></tbody></table></td><td>jobb</td></tr></tbody></table>",
+  "mirror": "<table><tbody><tr><td><table><tbody><tr><td>be1</td><td>be2</td></tr></tbody></table></td><td>jobb</td></tr></tbody></table>"
+ },
+ "font face, size and colour": {
+  "rich": "<p><font color=\"#1f497d\" face=\"Times New Roman\" size=\"4\">betű</font> <font face=\"Arial\">arial</font> rossz méret</p>",
+  "mirror": "<p><font color=\"#1f497d\" face=\"Times New Roman\" size=\"4\">betű</font> <font face=\"Arial\">arial</font> rossz méret</p>"
+ },
+ "headings h4-h6, sup, sub, hr, mark, strike": {
+  "rich": "<h4 align=\"center\">h4</h4><h5>h5</h5><h6>h6</h6><p>x<sup>2</sup> H<sub>2</sub>O <mark>jel</mark> <strike>át</strike></p><hr style=\"border: 0; border-top: 1px solid #cccccc;\">",
+  "mirror": "<h4 align=\"center\">h4</h4><h5>h5</h5><h6>h6</h6><p>x<sup>2</sup> H<sub>2</sub>O <mark>jel</mark> <strike>át</strike></p><hr style=\"border: 0; border-top: 1px solid #cccccc;\">"
+ },
+ "a definition list": {
+  "rich": "<dl><dt style=\"font-weight: bold;\">Kifejezés</dt><dd style=\"margin-left: 20px;\">leírás</dd></dl>",
+  "mirror": "<dl><dt style=\"font-weight: bold;\">Kifejezés</dt><dd style=\"margin-left: 20px;\">leírás</dd></dl>"
+ },
+ "an ordered list with start and type": {
+  "rich": "<ol start=\"3\" type=\"a\" style=\"list-style-type: lower-alpha;\"><li value=\"5\">öt</li><li>hat</li></ol><ul style=\"list-style-position: inside;\"><li>pont</li></ul>",
+  "mirror": "<ol start=\"3\" type=\"a\" style=\"list-style-type: lower-alpha;\"><li value=\"5\">öt</li><li>hat</li></ol><ul style=\"list-style-position: inside;\"><li>pont</li></ul>"
+ },
+ "the toolbar palette (colour and highlight)": {
+  "rich": "<p><font color=\"#c62828\">piros</font> <span style=\"background-color: rgb(255, 245, 157);\">sárga</span> <font color=\"#1565c0\" style=\"background-color: rgb(248, 187, 208);\">mindkettő</font></p>",
+  "mirror": "<p><font color=\"#c62828\">piros</font> <span style=\"background-color: rgb(255, 245, 157);\">sárga</span> <font color=\"#1565c0\" style=\"background-color: rgb(248, 187, 208);\">mindkettő</font></p>"
+ },
+ "text styles": {
+  "rich": "<p style=\"font-family: Calibri, sans-serif; font-size: 11pt; line-height: 1.5; text-indent: -18pt; margin: 0cm 0cm 0cm 36pt;\"><span style=\"font-weight: 700; font-style: italic; text-decoration: underline;\">egy</span> <span style=\"letter-spacing: 1px; text-transform: uppercase; font-variant: small-caps;\">kettő</span> <span style=\"vertical-align: super; font-size: smaller;\">3</span> <span style=\"text-shadow: 1px 1px 2px #888888;\">árnyék</span></p>",
+  "mirror": "<p style=\"font-family: Calibri, sans-serif; font-size: 11pt; line-height: 1.5; text-indent: -18pt; margin: 0cm 0cm 0cm 36pt;\"><span style=\"font-weight: 700; font-style: italic; text-decoration: underline;\">egy</span> <span style=\"letter-spacing: 1px; text-transform: uppercase; font-variant: small-caps;\">kettő</span> <span style=\"vertical-align: super; font-size: smaller;\">3</span> <span style=\"text-shadow: 1px 1px 2px #888888;\">árnyék</span></p>"
+ },
+ "a Chromium copy with its noise": {
+  "rich": "<span style=\"color: rgb(32, 33, 36); font-family: Roboto, Arial, sans-serif; font-size: 14px; font-style: normal; font-variant-caps: normal; font-weight: 400; letter-spacing: normal; text-align: start; text-indent: 0px; text-transform: none; word-spacing: 0px; background-color: rgb(255, 255, 255);\">Chromium</span>",
+  "mirror": "<span style=\"color: rgb(32, 33, 36); font-family: Roboto, Arial, sans-serif; font-size: 14px; font-style: normal; font-variant-caps: normal; font-weight: 400; letter-spacing: normal; text-align: start; text-indent: 0px; text-transform: none; word-spacing: 0px; background-color: rgb(255, 255, 255);\">Chromium</span>"
+ },
+ "a dark page block (a light text on a dark background)": {
+  "rich": "<div style=\"background-color: rgb(18, 18, 18); color: rgb(232, 232, 232); padding: 8px;\">sötét</div>",
+  "mirror": "<div style=\"background-color: rgb(18, 18, 18); color: rgb(232, 232, 232); padding: 8px;\">sötét</div>"
+ },
+ "Word-like styles": {
+  "rich": "<p style=\"margin-bottom: 0.0001pt; line-height: normal;\"><span style=\"font-family: Symbol;\">·</span><span style=\"font-size: 7pt; font-family: 'Times New Roman', serif;\">   </span>elem</p><p style=\"border: none; border-bottom: solid windowtext 1.0pt; padding: 0cm 0cm 1.0pt 0cm;\">vonal</p>",
+  "mirror": "<p style=\"margin-bottom: 0.0001pt; line-height: normal;\"><span style=\"font-family: Symbol;\">·</span><span style=\"font-size: 7pt; font-family: 'Times New Roman', serif;\">   </span>elem</p><p style=\"border: none; border-bottom: solid windowtext 1.0pt; padding: 0cm 0cm 1.0pt 0cm;\">vonal</p>"
+ },
+ "what goes: code, loading, breaking out, cutting": {
+  "rich": "<p><span style=\"color: red;\">url</span> <span style=\"color: blue;\">expr</span> <span style=\"font-weight: bold;\">escape</span> <span style=\"color: green;\">pos</span> <span style=\"color: gray;\">float</span></p><div style=\"font-size: 12px;\">cut</div><p>attrs</p>",
+  "mirror": "<p><span style=\"color: red;\">url</span> <span style=\"color: blue;\">expr</span> <span style=\"font-weight: bold;\">escape</span> <span style=\"color: green;\">pos</span> <span style=\"color: gray;\">float</span></p><div style=\"font-size: 12px;\">cut</div><p>attrs</p>"
+ },
+ "limits on both sides": {
+  "rich": "<p><span style=\"font-size: 3px;\">3</span> <span style=\"font-size: 96px;\">96</span> 97 <span style=\"padding: 200px;\">neg</span></p><table width=\"100%\"><tbody><tr><td colspan=\"1000\" width=\"1200\">x</td><td>y</td></tr></tbody></table><table><tbody><tr><td>z</td></tr></tbody></table>",
+  "mirror": "<p><span style=\"font-size: 3px;\">3</span> <span style=\"font-size: 96px;\">96</span> 97 <span style=\"padding: 200px;\">neg</span></p><table width=\"100%\"><tbody><tr><td colspan=\"1000\" width=\"1200\">x</td><td>y</td></tr></tbody></table><table><tbody><tr><td>z</td></tr></tbody></table>"
+ },
+ "a link with a style, a highlight on a link": {
+  "rich": "<p><a href=\"https://example.invalid/x?a=1&amp;b=2\" style=\"color: rgb(26, 13, 171); text-decoration: none;\">link</a> <a style=\"color: red;\">js</a></p>",
+  "mirror": "<p><a href=\"https://example.invalid/x?a=1&amp;b=2\" style=\"color: rgb(26, 13, 171); text-decoration: none;\">link</a> <a style=\"color: red;\">js</a></p>"
+ },
+ "an empty and a bad style, a font with nothing left": {
+  "rich": "<p>üres semmi üres font pont</p>",
+  "mirror": "<p>üres semmi üres font pont</p>"
+ },
+ "a repeated property, !important, a background shorthand": {
+  "rich": "<p><span style=\"color: blue; margin: 0; margin-top: 4px; background-color: #ffff00;\">ismétlés</span> kép két tag</p>",
+  "mirror": "<p><span style=\"color: blue; margin: 0; margin-top: 4px; background-color: #ffff00;\">ismétlés</span> kép két tag</p>"
+ },
+ "quotes in a font family": {
+  "rich": "<p><span style=\"font-family: &quot;Segoe UI&quot;, 'Helvetica Neue', sans-serif;\">idézőjel</span> pontosvessző</p>",
+  "mirror": "<p><span style=\"font-family: &quot;Segoe UI&quot;, 'Helvetica Neue', sans-serif;\">idézőjel</span> pontosvessző</p>"
+ },
+ "a link target on another element, a src, an alt": {
+  "rich": "<p><span style=\"color: red;\">nem link</span> <b>b</b></p>",
+  "mirror": "<p><span style=\"color: red;\">nem link</span> <b>b</b></p>"
+ },
+ "entities and a non-breaking space": {
+  "rich": "<p style=\"font-family: Arial;\">a&nbsp;b &lt;c&gt; &amp;</p>",
+  "mirror": "<p style=\"font-family: Arial;\">a&nbsp;b &lt;c&gt; &amp;</p>"
+ }
+}

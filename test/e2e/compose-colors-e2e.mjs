@@ -9,8 +9,10 @@
 // colour around a bold, part of a word, a highlighted font, a quote) at a paragraph's start and end and in a list item;
 // two paragraphs / list items / a quote's paragraphs at once; bold, italic and underline on and off; the keyboard path
 // (Alt+F10, arrows, Enter, Esc); a colour at the caret; the text emptied by Ctrl+A + Delete; the window's own copy, cut
-// and paste (and a foreign or a faked paste without colours); a saved draft opened again; the writing surface light
-// under every theme. No console warning, no page exception, the main log clean.
+// and paste (and a foreign or a faked paste without colours); a saved draft opened again (with colours, and a rich one with a
+// table, a font face and size: the editor = what goes out); the writing surface light
+// under every theme. Automatic (the marker text-colors.js AUTO_COLOR) shown in the colour around it and never sent as a
+// colour, a pasted span's colour too. No console warning, no page exception, the main log clean.
 // Playwright: PW=<path of the playwright package> (default: the repo's playwright-core devDependency).
 import fs from 'node:fs'
 import os from 'node:os'
@@ -103,8 +105,8 @@ const csp = () => consoleLines.filter(l => /Content Security Policy/.test(l)).le
 // page, and style-src 'self' reports each one on the console; a coloured draft opened in the reader does it too
 const known = []
 
-// what goes out of the editor's HTML: the composer's own send sanitizer (Composer.jsx form(): colors on)
-const outgoing = html => sanitizeCompose(purify, html, { colors: true })
+// what goes out of the editor's HTML: the composer's own send sanitizer (Composer.jsx form(): rich)
+const outgoing = html => sanitizeCompose(purify, html, { rich: true })
 // the colour, background and weight a word has in an HTML document (the sent one): from its ancestors' markup
 function markupLook(html, word) {
   const doc = new JSDOM(`<body>${html}</body>`).window.document
@@ -120,12 +122,29 @@ function markupLook(html, word) {
   let bg = null
   let bold = false
   for (let e = n.parentElement; e && e !== doc.body; e = e.parentElement) {
-    if (!color && e.nodeName === 'FONT' && e.getAttribute('color')) color = RGB(e.getAttribute('color'))
+    if (!color && e.nodeName === 'FONT' && e.getAttribute('color')) color = e.getAttribute('color').startsWith('#') ? RGB(e.getAttribute('color')) : e.getAttribute('color')
     const m = /^background-color: (rgb\(\d+, \d+, \d+\));$/.exec(e.getAttribute('style') || '')
     if (!bg && m) bg = m[1]
     if (/^(B|STRONG)$/.test(e.nodeName)) bold = true
   }
   return { color, bg, bold }
+}
+// the "Automatic" marker (text-colors.js AUTO_COLOR) anywhere in an HTML text, in any form
+const MARKER_RE = /#010203|rgba?\(\s*0*1\s*[,\s]\s*0*2\s*[,\s]\s*0*3\b/i
+// whether a word has any text colour in an HTML document: a font's color or a color declaration on an ancestor
+function wordColored(html, word) {
+  const doc = new JSDOM(`<body>${html}</body>`).window.document
+  const at = doc.body.textContent.indexOf(word)
+  if (at < 0) return null
+  const w = doc.createTreeWalker(doc.body, 4)
+  let n
+  let left = at
+  while ((n = w.nextNode()) && left >= n.data.length) left -= n.data.length
+  for (let e = n && n.parentElement; e && e !== doc.body; e = e.parentElement) {
+    if (e.nodeName === 'FONT' && e.getAttribute('color')) return true
+    if (/(^|;)\s*color\s*:/i.test(e.getAttribute('style') || '')) return true
+  }
+  return false
 }
 
 try {
@@ -204,6 +223,17 @@ try {
           const y = document.createElement('template')
           y.innerHTML = b
           return x.content.isEqualNode(y.content)
+        },
+        // the same, the order of a style attribute's declarations aside (MEASURED: Chromium's undo of a colour taken off a
+        // styled span puts the colour back last: "font-family: Arial; color: ..." for "color: ...; font-family: Arial")
+        sameStyles(a, b) {
+          const norm = h => {
+            const x = document.createElement('template')
+            x.innerHTML = h
+            for (const el of x.content.querySelectorAll('[style]')) el.setAttribute('style', el.getAttribute('style').split(';').map(d => d.trim()).filter(Boolean).sort().join('; '))
+            return x.content
+          }
+          return norm(a).isEqualNode(norm(b))
         },
       }
     })
@@ -318,6 +348,7 @@ try {
     const pos = { start: ['', ' b'], mid: ['a ', ' b'], end: ['a ', ''] }
     let bad = []
     let n = 0
+    let styleForm = 0
     const before = csp()
     for (const [cx, w] of Object.entries(wrap)) for (const [cn, c] of Object.entries(content)) for (const [pn, [pre, post]] of Object.entries(pos)) for (const op of cn === 'whole link' ? ['yellow', 'none'] : ['blue', 'auto', 'yellow', 'none']) {
       const html = w(c(pre, post))
@@ -327,7 +358,10 @@ try {
       const c0 = csp()
       await choose(win, op)
       const ed = await look(win, 'SZÓ')
-      const out = markupLook(outgoing(await body(win)), 'SZÓ')
+      const edHtml = await body(win)
+      // the "Automatic" marker written as a style (the editor pushing a colour down) instead of a font's color
+      if (op === 'auto' && /style="[^"]*color:\s*rgb\(1, 2, 3\)/.test(edHtml)) styleForm++
+      const out = markupLook(outgoing(edHtml), 'SZÓ')
       const plain = (await look(win, 'után')).color
       const wantColor = op === 'blue' ? RGB(BLUE) : op === 'auto' ? plain : null
       const colorOk = wantColor ? ed.color === wantColor : true
@@ -340,6 +374,7 @@ try {
       if (!(colorOk && bgOk && sameOut && back && csp() === c0)) bad.push(`${cx}/${cn}/${pn}/${op}: ed ${JSON.stringify(ed)} out ${JSON.stringify(out)} back ${back} csp+${csp() - c0}`)
     }
     check(`3 nested structures, ${n} cases: the colour and highlight asked, the editor = what goes out, one Ctrl+Z back, no CSP line`, bad.length === 0 && csp() === before, bad.slice(0, 3).join(' || '))
+    console.log(`INFO 3: the Automatic marker written as a style (not a font color) in ${styleForm} case(s)`)
     // the commands' own nesting: colour, highlight, bold, then Blue and Automatic
     await setBody(win, '<p>a SZÓ b</p><p>után</p>')
     await select(win, 'SZÓ')
@@ -352,7 +387,38 @@ try {
     await choose(win, 'auto')
     const y = await look(win, 'SZÓ')
     const yo = markupLook(outgoing(await body(win)), 'SZÓ')
-    check('3b colour, highlight, bold by the commands, then Blue and Automatic: shown and sent alike, bold kept', x.color === RGB(BLUE) && xo.color === RGB(BLUE) && xo.bg === RGB(YELLOW.hex) && x.bold && xo.bold && !yo.color && yo.bg === RGB(YELLOW.hex) && y.bg === RGB(YELLOW.hex) && csp() === before, JSON.stringify({ x, xo, y, yo }))
+    check('3b colour, highlight, bold by the commands, then Blue and Automatic: shown and sent alike, bold kept', x.color === RGB(BLUE) && xo.color === RGB(BLUE) && xo.bg === RGB(YELLOW.hex) && x.bold && xo.bold && (!yo.color || yo.color === y.color) && yo.bg === RGB(YELLOW.hex) && y.bg === RGB(YELLOW.hex) && csp() === before, JSON.stringify({ x, xo, y, yo }))
+    // 3c Automatic means "no colour of its own": shown in the colour around it (a quote's grey in a quote), nothing goes
+    // out as a colour (no font color, no color declaration, no marker), the other formatting stays, one Ctrl+Z back
+    const autoCases = {
+      'a plain word': ['<p>a SZÓ b</p><p>után</p>', 'SZÓ', 'után'],
+      'the middle of a red word': [`<p>a <font color="${RED}">xxSZÓyy</font> b</p><p>után</p>`, 'SZÓ', 'után'],
+      'a red bold word': [`<p>a <font color="${RED}"><b>SZÓ</b></font> b</p><p>után</p>`, 'SZÓ', 'után'],
+      'a blue word in a quote': [`<blockquote><p>a <font color="${BLUE}">SZÓ</font> b</p><p>után</p></blockquote>`, 'SZÓ', 'után'],
+      'a red word in a list': [`<ul><li>a <font color="${RED}">SZÓ</font> b</li><li>után</li></ul>`, 'SZÓ', 'után'],
+      'a pasted span with a colour and a font': ['<p>a <span style="color: rgb(208, 0, 0); font-family: Arial;">SZÓ</span> b</p><p>után</p>', 'SZÓ', 'után'],
+    }
+    const autoBad = []
+    for (const [name, [html, word, around]] of Object.entries(autoCases)) {
+      await setBody(win, html)
+      await select(win, word)
+      const start = await body(win)
+      const c0 = csp()
+      await choose(win, 'auto')
+      const ed = await look(win, word)
+      const plain = (await look(win, around)).color
+      const edHtml = await body(win)
+      const out = outgoing(edHtml)
+      const fontKept = !name.startsWith('a pasted') || /font-family: Arial;/.test(out)
+      const boldKept = !name.includes('bold') || markupLook(out, word).bold
+      await win.keyboard.press('Control+Z')
+      const back = await win.evaluate(s => window.__t.sameStyles(document.querySelector('.editor').innerHTML, s), start)
+      const after = back ? '' : ` start ${start.slice(0, 160)} after ${(await body(win)).slice(0, 160)}`
+      if (!(ed.color === plain && wordColored(out, word) === false && !MARKER_RE.test(out) && fontKept && boldKept && back && csp() === c0)) {
+        autoBad.push(`${name}: ed ${ed.color} around ${plain} out ${out.slice(0, 160)} back ${back}${after} csp+${csp() - c0}`)
+      }
+    }
+    check(`3c Automatic on ${Object.keys(autoCases).length} texts: shown in the colour around it, sent without any colour or marker, the rest of the formatting kept, one Ctrl+Z back`, autoBad.length === 0, autoBad.slice(0, 2).join(' || '))
     await close(win)
   }
 
@@ -460,6 +526,8 @@ try {
     const a = await look(win, 'új')
     const plain = await win.locator('.editor').evaluate(el => getComputedStyle(el).color)
     check('8a Ctrl+A + Delete on a coloured text, then typing: no colour, no highlight', a.color === plain && a.bg === 'none', JSON.stringify(a))
+    const emptiedOut = outgoing(await body(win))
+    check('8c the same, sent: the typed text without a colour and without the marker', wordColored(emptiedOut, 'új') === false && !MARKER_RE.test(emptiedOut), emptiedOut.slice(0, 200))
     await setBody(win, `<p><font color="${RED}">színes</font></p>`)
     await win.locator('.editor').click()
     await win.keyboard.press('Control+A')
@@ -471,8 +539,8 @@ try {
     await close(win)
   }
 
-  // 9. the window's own copy, cut and paste keep the colours (a paragraph's start and end, a list item); a foreign
-  // paste and a faked mark do not
+  // 9. the window's own copy, cut and paste keep the colours (a paragraph's start and end, a list item); a foreign paste
+  // and one with a (former) mark come formatted too, through the paste step and the rich sanitizer only
   {
     const win = await newComposer()
     await setBody(win, `<p>a <font color="${RED}">piros</font> és <span style="${YELLOW.style}">sárga</span> vége</p><p>CÉL1 közép CÉL2</p><ul><li>CÉL3</li></ul>`)
@@ -483,7 +551,7 @@ try {
       const dt = new DataTransfer()
       const e = new ClipboardEvent(ty, { clipboardData: dt, bubbles: true, cancelable: true })
       document.querySelector('.editor').dispatchEvent(e)
-      return { types: [...dt.types], html: dt.getData('text/html'), text: dt.getData('text/plain'), mark: dt.getData('application/x-shadowmail-compose') }
+      return { types: [...dt.types], html: dt.getData('text/html'), text: dt.getData('text/plain') }
     }, [from, to, type])
     const paste = (data, where, how) => win.evaluate(([d, w, h]) => {
       if (h === 'before') {
@@ -495,10 +563,10 @@ try {
       document.querySelector('.editor').dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }))
     }, [data, where, how])
     const c = await copy('piros', 'sárga')
-    check('9a copy: the own HTML with the palette colours, the plain text, the window\'s mark (a target without the mark gets meaningful HTML)', c.html.includes(`<font color="${RED}">piros</font>`) && c.html.includes(YELLOW.style) && c.text === 'piros és sárga' && /^[0-9a-f-]{36}$/.test(c.mark), JSON.stringify(c))
+    check('9a copy: the own HTML with the palette colours and the plain text, no mark type', c.html.includes(`<font color="${RED}">piros</font>`) && c.html.includes(YELLOW.style) && c.text === 'piros és sárga' && c.types.join() === 'text/html,text/plain', JSON.stringify(c))
     const part = await copy('iro', 'iro')
     check('9b copy of a piece of one coloured word: still coloured', part.html === `<font color="${RED}">iro</font>`, part.html)
-    const data = { 'text/html': c.html, 'text/plain': c.text, 'application/x-shadowmail-compose': c.mark }
+    const data = { 'text/html': c.html, 'text/plain': c.text }
     const bad = []
     for (const [w, how] of [['CÉL1', 'before'], ['CÉL2', 'after'], ['CÉL3', 'after']]) {
       const start = await body(win)
@@ -523,14 +591,16 @@ try {
     const gone = !(await body(win)).includes('piros')
     await win.keyboard.press('Control+Z')
     const back = await win.evaluate(s => window.__t.same(document.querySelector('.editor').innerHTML, s), start)
-    check('9d cut: the selection deleted (one Ctrl+Z back), its HTML coloured with the mark', gone && back && x.html === `<font color="${RED}">piros</font>` && x.mark === c.mark, JSON.stringify({ gone, back, x }))
-    // foreign: a palette colour without the mark, or with another mark
-    for (const [name, d] of [['no mark', { 'text/html': `<font color="${RED}">IDEGEN</font>` }], ['another mark', { 'text/html': `<font color="${RED}">HAMIS</font>`, 'application/x-shadowmail-compose': '00000000-0000-4000-8000-000000000000' }]]) {
+    check('9d cut: the selection deleted (one Ctrl+Z back), its HTML coloured', gone && back && x.html === `<font color="${RED}">piros</font>`, JSON.stringify({ gone, back, x }))
+    // foreign, and with a (former) mark: formatted the same way, by the rich allow-list only (the position goes)
+    for (const [name, d] of [['no mark', { 'text/html': `<font color="${RED}">IDEGEN</font><span style="position: fixed; color: rgb(0, 128, 0);">ZÖLD1</span>` }], ['a former mark', { 'text/html': `<font color="${RED}">HAMIS</font><span style="position: fixed; color: rgb(0, 128, 0);">ZÖLD2</span>`, 'application/x-shadowmail-compose': '00000000-0000-4000-8000-000000000000' }]]) {
       await paste(d, 'CÉL3', 'after')
       const word = name === 'no mark' ? 'IDEGEN' : 'HAMIS'
+      const green = name === 'no mark' ? 'ZÖLD1' : 'ZÖLD2'
       const l = await look(win, word)
-      const plain = (await look(win, 'CÉL3')).color
-      check(`9e a paste with ${name}: the palette colour does not stay`, l.color === plain && !(await body(win)).includes(`<font color="${RED}">${word}`), JSON.stringify(l))
+      const g = await look(win, green)
+      const html = await body(win)
+      check(`9e a paste with ${name}: the colours stay, the position does not`, l.color === RGB(RED) && g.color === 'rgb(0, 128, 0)' && html.includes(`<font color="${RED}">${word}</font>`) && !/position/.test(html), JSON.stringify({ l, g }))
     }
     check('9f no CSP line while copying and pasting', csp() === before, `+${csp() - before}`)
     // the real keys too, where this headless window has a clipboard (it may not: then only said)
@@ -583,6 +653,67 @@ try {
     for (let i = 0; i < 50 && received.length === before; i++) await new Promise(r => setTimeout(r, 200))
     const out = received.length > before ? (await simpleParser(received[received.length - 1])).html || '' : ''
     check('10 a saved draft opened again: the colours shown, and sent', shown.red && shown.yellow && markupLook(out, 'piros')?.color === RGB(RED) && markupLook(out, 'kiemelt')?.bg === RGB(YELLOW.hex), `${JSON.stringify(shown)} ${out.replace(/\s+/g, ' ').slice(0, 200)}`)
+  }
+
+  // 10b. the rich mode (core/smtp/rich-style.js): a saved draft with a table (its grid, a background, a colspan), a font
+  // face and size opened again: the editor shows the grid and the formatting, the editor's HTML = what goes out (the rich
+  // sanitizer on the editor's text, byte for byte), what loads or breaks out is not there, no CSP line on the composer page
+  {
+    const win = await newComposer()
+    const before = csp()
+    const table = '<p>Ajánlat <font face="Times New Roman" size="5" color="#1f497d">kék Times</font> <span style="font-size: 14pt; font-weight: bold; letter-spacing: 1px;">nagy</span></p>' +
+      '<table border="1" cellpadding="4" style="border-collapse: collapse; border: 2px solid rgb(0, 128, 0); position: relative; z-index: 5; white-space: nowrap;"><tbody>' +
+      '<tr><th colspan="2" bgcolor="#eeeeee" style="text-align: left;">Termék és darab</th></tr>' +
+      '<tr><td style="border: 1px solid rgb(153, 153, 153); padding: 2px 6px; background-color: rgb(255, 245, 157);">Kazán A</td><td align="right">1</td></tr></tbody></table><p>Üdv</p>'
+    await setBody(win, table)
+    await win.locator('#compose-to').fill('Címzett <cimzett@example.invalid>')
+    await win.locator('#compose-subject').fill('Gazdag piszkozat')
+    await win.getByRole('button', { name: t.composeSaveDraft, exact: true }).click()
+    await win.locator('.hint[role="status"]').filter({ hasText: savedHint }).waitFor({ timeout: 15_000 })
+    const closed = win.waitForEvent('close', { timeout: 15_000 })
+    await win.getByRole('button', { name: t.composeCloseWindow, exact: true }).click({ noWaitAfter: true }).catch(() => {})
+    await closed
+    const pane = page.locator('.folder-tree section', { hasText: 'POP3-fiók' })
+    await pane.locator('.folder[data-path="Drafts"]').click()
+    const readerFrom = consoleLines.length
+    await page.locator('.msg-row', { hasText: 'Gazdag piszkozat' }).click()
+    await page.locator('.reader-tools .reader-edit-draft').waitFor({ timeout: 10_000 })
+    await page.waitForTimeout(300)
+    for (const l of consoleLines.splice(readerFrom)) {
+      if (/^main error: Applying inline style violates/.test(l)) known.push(l)
+      else consoleLines.push(l)
+    }
+    const c0 = csp()
+    const [again] = await Promise.all([app.waitForEvent('window', { timeout: 15_000 }), page.locator('.reader-tools .reader-edit-draft').click()])
+    watch(again)
+    await again.setViewportSize({ width: 900, height: 700 })
+    await again.waitForFunction(() => document.querySelector('.editor')?.textContent.includes('Ajánlat'))
+    const shown = await again.locator('.editor').evaluate(el => {
+      const table = el.querySelector('table')
+      const cell = el.querySelector('td')
+      const th = el.querySelector('th')
+      const font = el.querySelector('font')
+      const big = [...el.querySelectorAll('span')].find(x => x.textContent === 'nagy')
+      return {
+        table: Boolean(table), tableBorder: table && getComputedStyle(table).borderTopWidth, tablePos: table && getComputedStyle(table).position,
+        cellBorder: cell && getComputedStyle(cell).borderTopColor, cellBg: cell && getComputedStyle(cell).backgroundColor, colspan: th && th.colSpan, thBg: th && getComputedStyle(th).backgroundColor,
+        face: font && getComputedStyle(font).fontFamily, color: font && getComputedStyle(font).color, big: big && [getComputedStyle(big).fontSize, getComputedStyle(big).fontWeight],
+        html: el.innerHTML,
+      }
+    })
+    const editorOut = outgoing(shown.html)
+    const sent = received.length
+    const closing = again.waitForEvent('close', { timeout: 30_000 })
+    await again.getByRole('button', { name: t.composeSend, exact: true }).click({ noWaitAfter: true }).catch(() => {})
+    await closing
+    for (let i = 0; i < 50 && received.length === sent; i++) await new Promise(r => setTimeout(r, 200))
+    const mail = received.length > sent ? await simpleParser(received[received.length - 1]) : null
+    const out = mail ? mail.html || '' : ''
+    const look = shown.table && shown.tableBorder === '2px' && shown.tablePos === 'static' && shown.cellBorder === 'rgb(153, 153, 153)' && shown.cellBg === 'rgb(255, 245, 157)' && shown.colspan === 2 &&
+      shown.thBg === 'rgb(238, 238, 238)' && /Times New Roman/.test(shown.face) && shown.color === 'rgb(31, 73, 125)' && shown.big[0] === '18.6667px' && shown.big[1] === '700'
+    check('10b a rich saved draft opened again: the grid, the backgrounds, the colspan, the font shown', look, JSON.stringify({ ...shown, html: undefined }))
+    check('10b the editor = what goes out (byte for byte), nothing that loads or breaks out, the text part a line per row with a TAB', out === editorOut && !/position|z-index|white-space/.test(out) && /<td align="right">1<\/td>/.test(out) && /Termék és darab\nKazán A\t1/.test(mail?.text || ''), `${out.slice(0, 300)} || ${editorOut.slice(0, 300)} || ${JSON.stringify(mail?.text)}`)
+    check('10b no CSP line on the composer page', csp() === c0 && csp() >= before, `+${csp() - c0}`)
   }
 
   // 11. the writing surface is light under every theme; the bar and the menus follow the theme

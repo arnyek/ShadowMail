@@ -66,9 +66,20 @@ Windows írja, nem a program. A Windows „Legutóbbi fájlok” listájába a S
 - A **Szövegszín** és a **Kiemelés** (az Aláhúzott után) menüt nyit: elöl **Automatikus** / **Nincs kiemelés**, utána
   hat-hat szín. Billentyűvel: **Alt+F10**, a nyilakkal a gombra, az **Enter**, a **Szóköz** vagy a **Le** nyitja a menüt,
   a nyilak választanak, az **Enter** kiszínezi a kijelölt szöveget (kijelölés nélkül a következő begépelt szöveget), az
-  **Esc** visszavisz a szövegbe. Az írófelület minden témában világos, ahogy a címzett látja a levelet. Az ugyanabban a
-  levélíró ablakban kimásolt vagy kivágott és beillesztett színes szöveg megtartja a színét; máshonnan beillesztett
-  szöveg szín nélkül érkezik.
+  **Esc** visszavisz a szövegbe. Az írófelület minden témában világos, ahogy a címzett látja a levelet.
+- **Beillesztés (Ctrl+V)** böngészőből, Wordből, Excelből vagy a levélíróból: a formázás megmarad (táblázat rácsosan, szín,
+  kiemelés, betűtípus és -méret, listák, címsorok), és így is megy ki; csak az esik ki, ami hibát okozhat (kód, külső
+  kép, a levelet eltakaró vagy levágó elhelyezés, a rejtett szöveg, a háttere nélkül olvashatatlan szövegszín); a
+  beillesztett rész saját stíluslapjának szabályai is megmaradnak (a Word Normál stílusa és címsorai, az Excel cellakeretei és
+  kitöltése). A Wordből jövő felsorolás és számozás valódi lista lesz, a szintjeivel. Egy
+  nagyon nagy (20 000 cellánál több) vagy mélyen egymásba ágyazott táblázat soronként jön; egy túl összetett rész
+  formázás nélkül, egy sor jelzi. Ugyanez történik a szövegre húzott weboldal-részlettel.
+- **Ctrl+Shift+V:** beillesztés formázás nélkül (csak a szöveg).
+- **Válasz és továbbítás:** az idézet megtartja az eredeti levél formázását (táblázat rácsosan, kerettel és
+  háttérrel, szín, betűtípus és -méret, a levél saját stíluslapjának szabályai is), ugyanazzal a szűréssel, mint a
+  beillesztés: a rejtett szöveg (a háttérrel egyező színű is) kiesik, a sötét hátterű levél szövege az alap színnel
+  olvasható. A nagyon nagy vagy mélyen egymásba ágyazott táblázat soronként jön, a túl összetett levél idézete
+  formázás nélkül. Claude ugyanezt az idézetet kapja.
 - Képet a vágólapról (**Ctrl+V**) vagy fájlként a szövegre húzva lehet a levélbe tenni (PNG, JPEG; más képformátum
   mellékletként csatolódik). A kép mérete a képen jobb gombbal, vagy a kép mellett álló kurzornál a **Shift+F10**-zel
   állítható: Kicsi (320 px), Közepes (640 px), Nagy (800 px), Eredeti méret, vagy a kép eltávolítása. Csak a megjelenített
@@ -130,6 +141,20 @@ Egy megnyitott levél **További** menüjében:
   internetről származónak jelöli (lásd Biztonság röviden).
 
 ![A Fejlécek nézet: összefoglaló, SPF/DKIM/DMARC, nyers fejlécek](docs/screenshots/readme-headers.png)
+
+### Levél kihúzása más programba
+
+- Egy levelet (vagy a kijelölt leveleket) a listából egérrel **más programba húzhatsz**: a Claude asztali appba, az
+  Intézőbe, az Asztalra, egy másik levelezőbe. A levél ott `.eml` fájlként érkezik (a neve a tárgyból), a teljes,
+  eredeti forrásával, mellékletekkel együtt, mint a **Mentés .eml-ként** fájlja.
+- Ugyanez a mozdulat a program **saját mappájára** ejtve továbbra is áthelyezés.
+- A fájl egy titkosítatlan másolat a `data\tmp` mappában (ahol az nem tudja megjelölni: a gép ideiglenes mappájában,
+  `%TEMP%\ShadowMail`), internetről származónak jelölve. A program **10 perccel a húzás után** törli, és zároláskor,
+  kilépéskor, induláskor is.
+- Egy még le nem töltött levél (IMAP, soha nem nyitottad meg) első húzásra nem megy ki: a húzás a régi marad (mappára
+  áthelyez, letöltés nélkül). Ha nem mappára ejtetted, egy sor szól, és a program a háttérben letölti (az olvasottságán
+  nem változtat); egy pillanat múlva a második húzás már kiviszi.
+- Egyszerre legfeljebb 50 levél és együtt 100 MB húzható ki; több vagy nagyobb kijelölés mappára így is áthelyezhető.
 
 ### Megjelenés
 
@@ -215,6 +240,36 @@ színezhetsz, rendezhetsz és törölhetsz címkét.
   Message-ID és Date fejléce, egy újra letöltött példányán a címke nem látszik.
 - Claude (MCP) felteheti és leveheti a meglévő címkéket; létrehozni, átnevezni és törölni csak te tudsz.
 
+### Újdonságok a 0.19.0-ban, ismert korlátok
+
+- **Formázott beillesztés böngészőből, Wordből és Excelből:** a levélíróba beillesztett rész megtartja a formázását:
+  táblázat rácsosan, kerettel és kitöltéssel, szín, kiemelés, betűtípus és -méret, felsorolás és számozás (a Wordből
+  jövő lista valódi lista lesz, a szintjeivel), címsorok. A **Ctrl+Shift+V** formázás nélkül illeszt be. Részletek
+  fent, a „Billentyűk levélírásnál” alatt.
+- **A formázás így is megy ki:** az elküldött levél a levélíróban látott formázással megy; a szöveges részében a
+  táblázat soronként áll, a cellák tabulátorral elválasztva.
+- **Az idézet megtartja a formázást:** a válasz és a továbbítás idézetében az eredeti levél táblázata, színei, betűi
+  és a saját stíluslapjának szabályai is megmaradnak, ugyanazzal a szűréssel, mint a beillesztésnél. Claude ugyanezt
+  az idézetet kapja.
+- **Levél kihúzása más programba:** a listából egy vagy több levél `.eml` fájlként húzható a Claude asztali appba,
+  az Intézőbe, az Asztalra; a program saját mappájára ejtve továbbra is áthelyezés. Részletek fent, a „Levél kihúzása
+  más programba” alatt.
+- **Két biztonsági javítás a rejtett szöveg szűrésében:** a képernyőn kívülre tolt szöveget (negatív behúzás vagy
+  margó, eltolás, transzformáció) a szűrő most bármilyen egységben felismeri (`em`, `%`, `vw`, `calc()`, kitevős
+  vagy hosszú tizedes szám), és az ugyanígy megadott apró betűméretet is (például `font-size:1e-9px`). Az ilyen, a
+  levélben nem látszó szöveg eddig eljuthatott Claude-hoz és a keresőindexbe.
+
+A kiadás ismert korlátai:
+
+- Egy nagy, saját stíluslapos hírlevél (több száz szabály, több száz blokk) idézete formázás nélkül jön, mint a túl
+  összetett levélé: a program munka-korlátja előbb ér véget.
+- A rejtett szöveg szűrője néha látható szöveget is rejtettnek vesz: a negatív margóval vagy behúzással kijjebb tolt
+  szöveget akkor is, ha mellette nagy belső margó (padding) a helyén tartja. Az ilyen szöveg Claude-hoz, a
+  keresőindexbe, az idézetbe és a beillesztésbe nem kerül át.
+- Egy még le nem töltött levél (IMAP, soha nem nyitottad meg) első húzásra nem húzható ki, csak a második húzásra.
+- Valódi Word- és Edge-vágólappal nem mértük: a Word-beillesztést mesterséges mintán, az Excelét egy valódi
+  Excel-másolaton próbáltuk ki.
+
 ### Újdonságok a 0.18.0-ban, ismert korlátok
 
 - **Az eredeti levél képei a válaszban és a továbbításban:** az eredeti szövegében látható képek (PNG és JPEG) az
@@ -222,7 +277,7 @@ színezhetsz, rendezhetsz és törölhetsz címkét.
   ki. Továbbításkor ezek nem kerülnek még egyszer mellékletbe; minden más melléklet a régi módon jön.
 - **A táblázat megtartja a sorait:** a weboldalról beillesztett táblázat, és a válasz vagy a továbbítás idézetében álló
   táblázat soronként egy sorban jelenik meg, a cellák egymás mellett, a fejléc-cellák félkövéren; az elküldött levél
-  szöveges része is soronként.
+  szöveges része is soronként. (A 0.19.0 óta az idézetben a táblázat rácsosan marad, lásd fent.)
 - **A kézzel választott mappaszerep vándorol a mappával:** a fiókbeállításban kézzel kijelölt Archívum, Elküldött,
   Piszkozatok, Kuka vagy Levélszemét mappa átnevezhető, áthúzható és az **Áthelyezés…** paranccsal (billentyűvel is)
   áthelyezhető, és a fölötte álló mappa is; a szerep az új helyen marad. Az a szerep, amit a program maga talált (a
@@ -236,7 +291,8 @@ színezhetsz, rendezhetsz és törölhetsz címkét.
 - **Szövegszín és kiemelés a levélíróban:** az eszköztáron az Aláhúzott után **Szövegszín** és **Kiemelés** gomb,
   mindkettőben **Automatikus** / **Nincs kiemelés** és 6-6 szín. Az írófelület minden témában világos, mint a levél
   lapja. A levélírón belül kimásolt vagy kivágott szöveg megtartja a színét, a máshonnan beillesztett szöveg színtelen;
-  a mentett piszkozat színesen nyílik újra, a válasz és a továbbítás idézete színtelen.
+  a mentett piszkozat színesen nyílik újra, a válasz és a továbbítás idézete színtelen (a 0.19.0 óta az eredeti
+  színeivel).
 
 A kiadás ismert korlátai:
 
@@ -516,7 +572,7 @@ az egész `data` mappát** (például egy másik meghajtóra). Visszaállítás:
 
 - `data\mail.sqlite`: fiókok (titkosított jelszavakkal), levelek adatai, keresőindex
 - `data\store\`: a letöltött levelek (.eml, titkosítva)
-- `data\tmp\`: a megnyitott mellékletek; indításkor és kilépéskor kiürül
+- `data\tmp\`: a megnyitott mellékletek és a más programba húzott levelek; indításkor, zároláskor és kilépéskor kiürül
 - `data\electron\`: a program saját belső adatai és naplói
 
 ### Frissítés új verzióra

@@ -73,6 +73,14 @@ contextBridge.exposeInMainWorld('shadowMail', {
     source: id => ipcRenderer.invoke('mail:source', id),
     saveSource: id => ipcRenderer.invoke('mail:saveSource', id),
     openAttachment: (id, index) => ipcRenderer.invoke('mail:openAttachment', id, index),
+    // messages dragged out of the list as .eml files: dragOut(ids <= 50) -> { token, count, bytes } (the files are
+    // written, no path comes back); dragStart(token) starts the native drag; dragDrop(token, files) -> { ids } when the
+    // files dropped on a folder are that drag's own (not_own otherwise); dragFetch(ids <= 50) -> { stored, error }:
+    // the messages not here yet, downloaded for the next drag
+    dragFetch: ids => ipcRenderer.invoke('mail:dragFetch', ids),
+    dragOut: ids => ipcRenderer.invoke('mail:dragOut', ids),
+    dragStart: token => ipcRenderer.invoke('mail:dragStart', token),
+    dragDrop: (token, files) => ipcRenderer.invoke('mail:dragDrop', token, Array.from(files || [], f => webUtils.getPathForFile(f)).filter(Boolean)),
     // message actions. { ids, action: read|unread|star|unstar|move|delete|archive, target?, permanent? } -> { done, final, created? }
     action: request => ipcRenderer.invoke('mail:action', request),
     // { accountId, folder, sort, dir, seen?, filter? } -> { ids } (Ctrl+A; with filter: the filtered list's ids)
