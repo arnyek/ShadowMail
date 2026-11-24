@@ -18,6 +18,9 @@
 // 4. A table nested 1000 deep (past the reader's depth cut: the quote's old way, as lines): the reply's composer is ready
 //    with the innermost text within DEEP_MS (jsdom's sanitizing of deep nesting is superlinear, so its time is measured
 //    here, in this Chromium).
+// 5. The 2000-block stylesheet newsletter (test/helpers/newsletter.js, 300 rules ending in a tag under a class): the
+//    reply's composer is ready within NEWS_MS, the quote formatted (a link has its rule's colour and size from the sheet),
+//    the display:none preheader is not in it.
 // The composer's console has no error or warning (no CSP line), the main log no error line, the net-guard log is empty.
 // KNOWN (before this work, the project note): the MAIN window's reader writes a CSP line for each style attribute of the
 // message it shows; those are counted apart.
@@ -35,6 +38,7 @@ import { createVaultedDatabase } from '../../core/vault/vaulted-db.js'
 import { AccountStore } from '../../core/accounts/model.js'
 import { newAccountDefaults } from '../../core/accounts/defaults.js'
 import { MAX_PASTE_TABLE_DEPTH } from '../../core/mime/paste-prepare.js'
+import { newsletterHtml } from '../helpers/newsletter.js'
 import { t, seedLanguage } from './lang.mjs'
 
 const require = createRequire(import.meta.url)
@@ -49,6 +53,8 @@ const SUBJECT_MID = 'Harminc szint mély táblázat'
 const MID_LEVELS = 30
 const DEEP_MS = 3000
 const DEEP_LEVELS = Number(process.env.DEEP_LEVELS || 1000)
+const SUBJECT_NEWS = 'Stíluslapos hírlevél'
+const NEWS_MS = 1500
 
 const watchdog = setTimeout(() => {
   console.log('FAIL watchdog: the run took more than 4 minutes')
@@ -119,6 +125,17 @@ pop.add(
     date: new Date(Date.UTC(2026, 10, 19, 9, 0, 0)),
     html: `<p>Mély:</p>${'<table><tr><td>'.repeat(DEEP_LEVELS)}legbelso${'</td></tr></table>'.repeat(DEEP_LEVELS)}`,
     text: 'Mély',
+  }).compile().build(),
+)
+pop.add(
+  await new MailComposer({
+    from: 'Hírlevél <hir@example.invalid>',
+    to: `${ME.display} <${ME.email}>`,
+    subject: SUBJECT_NEWS,
+    messageId: '<tablas-4@example.invalid>',
+    date: new Date(Date.UTC(2026, 10, 19, 11, 0, 0)),
+    html: newsletterHtml({ blocks: 2000, hidden: 'hirlevelrejtett', visible: 'hirlevellathato' }),
+    text: 'Hírlevél',
   }).compile().build(),
 )
 pop.add(
@@ -269,6 +286,25 @@ try {
   check(`deep table (${DEEP_LEVELS} levels): the reply's composer ready with the innermost text within ${DEEP_MS} ms (past the depth cut: as lines)`,
     ready && ms <= DEEP_MS && dv && dv.tables === 0, `${Math.round(ms)} ms, ${JSON.stringify(dv)}`)
   if (!deep.isClosed()) await deep.close()
+
+  // 5. the stylesheet newsletter: formatted, in time
+  await openMessage(SUBJECT_NEWS)
+  const n0 = performance.now()
+  const [news] = await Promise.all([app.waitForEvent('window', { timeout: 15_000 }), page.locator('.reader-tools').getByRole('button', { name: t.replyModes.reply, exact: true }).click()])
+  news.on('console', m => (m.type() === 'error' || m.type() === 'warning') && consoleLines.push(`composer ${m.type()}: ${m.text()}`))
+  const newsReady = await news.waitForFunction(() => document.querySelector('.editor')?.innerText.includes('hirlevellathato'), null, { timeout: 15_000 }).then(() => true, () => false)
+  const newsMs = performance.now() - n0
+  // block 1: ".c1 td.x1 > a:first-child { color:#100f00; font-size:11px }" (the sheet's rule for it)
+  const nv = await news.evaluate(() => {
+    const ed = document.querySelector('.editor')
+    const a = [...ed.querySelectorAll('a')].find(x => x.textContent.startsWith('Termék 1 '))
+    const cs = a && getComputedStyle(a)
+    return { links: ed.querySelectorAll('a').length, color: cs?.color, size: cs?.fontSize, hidden: ed.textContent.includes('hirlevelrejtett') }
+  }).catch(e => ({ error: String(e).slice(0, 120) }))
+  check(`the 2000-block newsletter: the reply's composer ready within ${NEWS_MS} ms`, newsReady && newsMs <= NEWS_MS, `${Math.round(newsMs)} ms`)
+  check('the newsletter: the quote formatted (a link has its rule\'s colour and size), the preheader not in it', nv.links === 2000 && nv.color === 'rgb(16, 15, 0)' && nv.size === '11px' && nv.hidden === false, JSON.stringify(nv))
+  console.log(`INFO the newsletter's reply: ${Math.round(newsMs)} ms`)
+  if (!news.isClosed()) await news.close()
 } catch (err) {
   check('the run finished', false, err && err.stack ? err.stack.split('\n').slice(0, 4).join(' | ') : String(err))
 } finally {

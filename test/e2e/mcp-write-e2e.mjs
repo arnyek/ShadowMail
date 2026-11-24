@@ -8,7 +8,9 @@
 // own IPC reads); 501 ids change nothing, the for-good delete asks in the Modal (rejected: nothing changes); create_draft lands in the local Drafts with the
 // "Claude" mark, the app's notice comes, its Megnyitás opens the composer, Küldés sends it WITHOUT the
 // X-ShadowMail-Draft-Origin header (the smtp-server got nothing before that click); create_reply_draft has the
-// app's recipients and subject; prepare_account fills the editor (password empty, no account made) and a
+// app's recipients and subject; html (Claude's formatted body): create_draft opens in the composer with the kept
+// formatting only and goes out formatted with a plain text part, text + html is refused, send_message html shows plain
+// text and the link target in the Modal; prepare_account fills the editor (password empty, no account made) and a
 // password-like field refuses the call (no editor); test_account = the account's own "Kapcsolat próbája", no
 // password in the answer; no console problem, the net-guard log is empty.
 // The IMAP server side (Drafts on the server, the keyword, the server's folders) is in test/mcp-tools.test.js.
@@ -318,6 +320,47 @@ try {
   check('own: approved -> back in Drafts, not sent', !ownRes.isError && draftsOwn.rows.some(r => r.subject === 'Saját időzített') && !(await page.evaluate(() => window.shadowMail.scheduled.list())).rows.some(r => r.id === ownRow.id) && received.length === 1, ownRes.content[0].text)
   check('own: the main window says Claude cancelled it', await page.locator('.scheduled-notice', { hasText: t.scheduledNotice('claudeCancelled', 'Saját időzített') }).waitFor({ timeout: 5000 }).then(() => true, () => false))
   await page.locator('.folder-tree .folder[data-path="INBOX"]').click()
+
+  // html (Claude's formatted body): create_draft -> the composer shows the kept formatting and nothing else; Küldés
+  // sends it formatted with a plain text part; text + html together is refused; send_message html: the Modal shows plain
+  // text and the link target, rejected = nothing sent
+  const FORMATTED = '<h2>Ajánlat</h2><p>Szia <b>Anna</b>, <i>röviden</i>:</p><ul><li>első</li><li>második</li></ul><p><a href="https://example.invalid/ar">árlista</a></p><p style="color:red" onclick="x()">tiszta</p><script>alert(1)</script><img src="https://evil.invalid/t.gif">'
+  const draftsBeforeBoth = (await page.evaluate(id => window.shadowMail.mail.list({ accountId: id, folder: 'Drafts', limit: 50 }), accountId)).rows.length
+  const both = await c.tool('create_draft', { account_id: accountId, to: 'anna@example.invalid', subject: 'MCP-mindkettő', text: 'a', html: '<p>b</p>' })
+  const draftsAfterBoth = (await page.evaluate(id => window.shadowMail.mail.list({ accountId: id, folder: 'Drafts', limit: 50 }), accountId)).rows.length
+  check('create_draft with text and html: refused, nothing written', both.isError === true && both._meta['shadowmail/data'].error === 'bad_arguments' && draftsAfterBoth === draftsBeforeBoth, both.content[0].text)
+  const htmlDraft = await c.tool('create_draft', { account_id: accountId, to: 'anna@example.invalid', subject: 'MCP-formázott', html: FORMATTED })
+  check('create_draft html: saved, nothing sent', !htmlDraft.isError && htmlDraft._meta['shadowmail/data'].saved === true && received.length === 1, htmlDraft.content[0].text)
+  const htmlNotice = page.locator('.claude-draft-notice', { hasText: t.claudeDraftNotice('MCP-formázott') })
+  await htmlNotice.waitFor({ timeout: 10_000 })
+  const [hWin] = await Promise.all([app.waitForEvent('window', { timeout: 15_000 }), htmlNotice.getByRole('button', { name: t.claudeDraftOpen, exact: true }).click()])
+  await hWin.setViewportSize({ width: 1000, height: 760 }) // headless: a new window starts 0 x 0
+  await hWin.locator('#compose-subject').waitFor()
+  await hWin.waitForFunction(() => document.querySelector('#compose-subject').value === 'MCP-formázott')
+  const shape = await hWin.evaluate(() => {
+    const e = document.querySelector('.editor')
+    const ps = [...e.querySelectorAll('p')]
+    return {
+      h2: e.querySelector('h2')?.textContent, b: e.querySelector('b')?.textContent, i: e.querySelector('i')?.textContent,
+      li: [...e.querySelectorAll('ul > li')].map(x => x.textContent).join('|'), href: e.querySelector('a')?.getAttribute('href'),
+      clean: ps.find(p => p.textContent === 'tiszta')?.attributes.length, bad: e.querySelectorAll('script, img, [onclick], [style]').length,
+      text: e.innerText,
+    }
+  })
+  check('create_draft html: the composer shows the heading, bold, italic, list and link; no style, handler, script or image', shape.h2 === 'Ajánlat' && shape.b === 'Anna' && shape.i === 'röviden' && shape.li === 'első|második' && shape.href === 'https://example.invalid/ar' && shape.clean === 0 && shape.bad === 0 && shape.text.includes('Mérő Márta'), JSON.stringify(shape))
+  await Promise.all([hWin.waitForEvent('close', { timeout: 15_000 }), hWin.getByRole('button', { name: t.composeSend, exact: true }).click()])
+  for (let i = 0; i < 50 && received.length < 2; i++) await sleep(100)
+  const hSent = received[1] ? await simpleParser(received[1].raw) : null
+  check('Küldés: the formatted draft went out with its formatting', received.length === 2 && Boolean(hSent && hSent.html) && ['<h2>Ajánlat</h2>', '<b>Anna</b>', '<i>röviden</i>', '<li>első</li>', 'href="https://example.invalid/ar"'].every(x => hSent.html.includes(x)) && !/<script|onclick|style=|evil\.invalid|<img/.test(hSent.html), hSent ? hSent.html.slice(0, 400) : '')
+  check('Küldés: its text part is the plain text of the HTML', Boolean(hSent && hSent.text) && /AJÁNLAT\n[\s\S]*Szia Anna, röviden:[\s\S]*első[\s\S]*második/.test(hSent.text) && !/<b>|<li>/.test(hSent.text), hSent ? hSent.text.slice(0, 200) : '')
+  const htmlSendCall = c.tool('send_message', { account_id: accountId, to: 'anna@example.invalid', subject: 'MCP-formázott küldés', html: FORMATTED })
+  await page.locator('.claude-confirm[data-kind="send"] .claude-confirm-modal').waitFor({ timeout: 20_000 })
+  const htmlModal = await page.locator('.claude-confirm-modal').innerText()
+  const htmlLinks = await page.locator('.claude-confirm-modal .confirm-links').innerText().catch(() => '')
+  await page.locator('.claude-confirm-modal .confirm-reject').click()
+  const htmlSend = await htmlSendCall
+  check('send_message html: the Modal shows the plain text and the link target, no tags', htmlModal.includes('Szia Anna, röviden:') && !/<b>|<ul>|<h2>|<p>/.test(htmlModal) && htmlLinks.includes('https://example.invalid/ar'), htmlModal.slice(0, 300))
+  check('send_message html rejected: nothing more went out', htmlSend.isError === true && htmlSend._meta['shadowmail/data'].error === 'rejected' && received.length === 2, htmlSend.content[0].text)
 
   // prepare_account
   const accountsBefore = (await page.evaluate(() => window.shadowMail.accounts.list())).accounts.length

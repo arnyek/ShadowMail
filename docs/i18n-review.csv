@@ -799,6 +799,7 @@ claudeConfirm.titles.deleteAccount;Claude törölne egy fiókot;Claude would del
 claudeConfirm.titles.restartLogin;Claude újraindítaná egy fiók belépését;Claude would restart an account’s sign-in
 claudeConfirm.titles.updateDraft;Claude módosítana egy piszkozatot;Claude would change a draft
 claudeConfirm.titles.cancelScheduled;Claude visszavonná egy levél időzítését;Claude would cancel the schedule of a message
+claudeConfirm.titles.createDraft;"Claude piszkozatot írna, fájlok csatolásával";Claude would write a draft and attach files to it
 claudeConfirm.unknownTitle;Claude kérése;Claude’s request
 claudeConfirm.reject;Elutasítás;Reject
 claudeConfirm.approve;Jóváhagyás;Approve
@@ -825,6 +826,9 @@ claudeConfirm.showAll (1);A teljes szöveg megjelenítése (1 karakter);Show the
 claudeConfirm.showAll (2);A teljes szöveg megjelenítése (2 karakter);Show the full text (2 characters)
 claudeConfirm.showStart;Csak az eleje;Only the start
 claudeConfirm.attachments;Mellékletek;Attachments
+claudeConfirm.embeddedImages;Beágyazott képek;Embedded images
+claudeConfirm.embeddedImagesValue (1);"1 db, összesen 12 KB";"1 image, 12 KB in all"
+claudeConfirm.embeddedImagesValue (2);"2 db, összesen 12 KB";"2 images, 12 KB in all"
 claudeConfirm.links;Linkek a levélben (felirat -> valódi cél):;Links in the message (label -> real target):
 claudeConfirm.linksMore (1);… és még 1 link;… and 1 more link
 claudeConfirm.linksMore (2);… és még 2 link;… and 2 more links
@@ -849,6 +853,13 @@ claudeConfirm.restartReason (2);"A leállítás oka: megszakadt a kapcsolat, új
 claudeConfirm.restartWarning;"Ha a jelszó továbbra is rossz, a szerver ideiglenesen letilthatja a gépet. Jóváhagyás után egy belépési kísérlet történik.";"If the password is still wrong, the server may temporarily block this computer. After you approve, one sign-in attempt is made."
 claudeConfirm.newText;Az új saját szöveg (az aláírás és az idézet marad);Your new own text (the signature and the quote stay)
 claudeConfirm.draftNotSent;A piszkozat nem megy el: a küldéshez külön kérés és a küldés szabálya kell.;The draft is not sent: sending takes a request of its own and the sending rule.
+claudeConfirm.originalMessage;Erre a levélre;To this message
+claudeConfirm.draftText;"A piszkozat saját szövege (alá kerül az aláírás, válasznál és továbbításnál az idézet)";"The draft's own text (the signature goes below it, and the quote for a reply or a forward)"
+claudeConfirm.claudeFilesHead (1);Claude ezt a fájlt csatolná:;Claude would attach this file:
+claudeConfirm.claudeFilesHead (2);Claude ezt a 2 fájlt csatolná:;Claude would attach these 2 files:
+claudeConfirm.claudeFilesNote;"Nézd meg, honnan valók: csak akkor hagyd jóvá, ha tényleg ezeket akarod a levélbe tenni.";Check where they come from: approve only if you really want them in the message.
+claudeConfirm.claudeFileFromMessage (1);Melléklet: Offer / szamla.pdf;Attachment: Offer / szamla.pdf
+claudeConfirm.claudeFileFromMessage (2);Melléklet: Offer / szamla.pdf;Attachment: Offer / szamla.pdf
 actionErrors.server_refused;a szerver elutasította.;the server refused it.
 actionErrors.uidvalidity_changed;"a mappa a szerveren közben megváltozott (újra lett létrehozva), ezért nem nyúltam hozzá; frissítés után próbáld újra.";"the folder changed on the server in the meantime (it was created again), so it was left alone; refresh and try again."
 actionErrors.mixed_selection;egyszerre csak egy mappa leveleivel lehet dolgozni.;you can only work with the messages of one folder at a time.

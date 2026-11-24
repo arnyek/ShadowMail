@@ -26,6 +26,58 @@ export function cidRefsIn(html) {
   return refs
 }
 
+const IMG_TAG_RE = /<img\b(?:[^<>"']|"[^"<>]*"|'[^'<>]*')*>/gi
+const ATTR_RE = /(\s)([^\s=/>"']+)(?:(\s*=\s*)("[^"]*"|'[^']*'|[^\s"'>]+))?/g
+// a cid: URL as a whole src value (RFC 2392: the Content-ID without < >, %-encoded)
+const CID_SRC_RE = /^\s*cid:([^\s"'<>()]+)\s*$/i
+
+// every <img src> value of an HTML through `fn(value without quotes)`: a string is the new src, undefined keeps it
+function mapImgSrc(html, fn) {
+  return html.replace(IMG_TAG_RE, tag =>
+    tag.replace(ATTR_RE, (whole, space, name, eq, value) => {
+      if (!value || name.toLowerCase() !== 'src') return whole
+      const quote = value[0] === '"' || value[0] === "'" ? value[0] : ''
+      const src = fn(quote ? value.slice(1, -1) : value)
+      return src === undefined ? whole : `${space}${name}${eq}"${src}"`
+    }),
+  )
+}
+
+/**
+ * Every <img src="cid:..."> of an HTML through `fn(the cid as written)`: a string is the new src, undefined keeps it.
+ * Only an image's src: a cid: in a background, a link, a CSS url() or the text is left alone, because the editor's
+ * cleaning keeps only <img src>, and a part referred to only there must stay an attachment of a forward.
+ */
+export function mapImgCidSrc(html, fn) {
+  return mapImgSrc(html, value => {
+    const m = CID_SRC_RE.exec(value)
+    return m ? fn(m[1]) : undefined
+  })
+}
+
+// a cid: URL as an <img src> the reader's frame shows: its sanitizer takes the < > off too (cid:<a@x>)
+const CID_BRACKETS_RE = /cid:<([^\s"'<>()]*)>?/gi
+const FRAME_CID_SRC_RE = /^\s*cid:<?([^\s"'<>()]+)>?\s*$/i
+
+/**
+ * The cid: references of an HTML's <img src> as written (without < >), in one pass: the only references a message's
+ * frame shows (the reader's sanitizer drops a background attribute, the frame's policy a CSS url()), so the only parts
+ * the reader does not offer as files. A cid: in a background, a CSS url(), a link or the text is not among them.
+ */
+export function imgCidRefsIn(html) {
+  const refs = new Set()
+  if (html) {
+    // the < > after cid: off first, as the frame's sanitizer does (fixUrl): <img src="cid:<a@x>"> is then a tag the
+    // linear scan matches. Only for this set of references: the composer's mapImgCidSrc never sees it
+    mapImgSrc(html.replace(CID_BRACKETS_RE, 'cid:$1'), value => {
+      const m = FRAME_CID_SRC_RE.exec(value)
+      if (m) refs.add(m[1])
+      return undefined
+    })
+  }
+  return refs
+}
+
 /**
  * The part a cid: reference of a message shows, or null: the part whose Content-ID is written the same way first, and
  * only then the first one whose cidKey matches (another case, %-encoded). So two parts whose Content-IDs differ only in

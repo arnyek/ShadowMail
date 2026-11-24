@@ -238,3 +238,34 @@ test('IPC: the web-page-like files saved are counted (the parser\'s own save-onl
   assert.ok(failed.files.every(f => !f.ok), JSON.stringify(failed.files))
   assert.equal(failed.browserActive, 0)
 })
+
+test('the offered list: only an <img src> reference hides a part; a background, a CSS url(), a link or the text does not', () => {
+  const part = { index: 0, filename: 'a.png', inline: true, cid: '<a@x>' }
+  const offered = html => offeredAttachments({ html, attachments: [part] }).map(a => a.filename)
+  const cases = {
+    'img src': ['<img src="cid:a@x">', []],
+    'img src, no quotes, upper case scheme': ['<IMG alt=x SRC=CID:a@x>', []],
+    'td background': ['<table><tr><td background="cid:a@x">t</td></tr></table>', ['a.png']],
+    'inline CSS url()': ['<div style="background-image:url(cid:a@x)">t</div>', ['a.png']],
+    '<style> url()': ['<style>.h{background:url("cid:a@x")}</style><div class="h">t</div>', ['a.png']],
+    'link href': ['<a href="cid:a@x">kep</a>', ['a.png']],
+    'plain text': ['<p>lasd cid:a@x</p>', ['a.png']],
+    'no reference': ['<p>semmi</p>', ['a.png']],
+    'img src and background': ['<td background="cid:a@x"><img src="cid:a@x"></td>', []],
+  }
+  const got = Object.fromEntries(Object.entries(cases).map(([name, [html]]) => [name, offered(html)]))
+  assert.deepEqual(got, Object.fromEntries(Object.entries(cases).map(([name, [, want]]) => [name, want])))
+})
+
+test('the offered list: cid:<x> as an <img src> hides its part (the frame shows it); in a background, a CSS url(), a link or the text it does not', () => {
+  const part = { index: 0, filename: 'bg.png', inline: true, cid: '<bg@x>' }
+  const offered = html => offeredAttachments({ html, attachments: [part] }).map(a => a.filename)
+  const got = {
+    img: offered('<img src="cid:<bg@x>">'),
+    background: offered('<table><tr><td background="cid:<bg@x>">t</td></tr></table>'),
+    css: offered('<div style="background-image:url(cid:<bg@x>)">t</div>'),
+    link: offered('<a href="cid:<bg@x>">kep</a>'),
+    text: offered('<p>lasd cid:<bg@x></p>'),
+  }
+  assert.deepEqual(got, { img: [], background: ['bg.png'], css: ['bg.png'], link: ['bg.png'], text: ['bg.png'] })
+})

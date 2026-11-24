@@ -2399,6 +2399,23 @@ section.settings .form-actions-sticky { bottom: calc(-1 * var(--space-6)); }
   overflow-wrap: anywhere;
   font-family: var(--font-mono);
 }
+/* the files Claude asks to attach: the name on its own line, the full path wraps anywhere */
+.confirm-claude-file {
+  display: flex;
+  flex-direction: column;
+  margin-bottom: var(--space-1);
+}
+.confirm-file-name {
+  font-weight: var(--fw-strong);
+  overflow-wrap: anywhere;
+}
+.confirm-file-source {
+  overflow-wrap: anywhere;
+  font-family: var(--font-mono);
+}
+.confirm-file-meta {
+  color: var(--c-text-2);
+}
 
 /* the "Claude-hozzáférés" page */
 .claude-state strong {

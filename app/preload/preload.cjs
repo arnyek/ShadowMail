@@ -53,9 +53,12 @@ contextBridge.exposeInMainWorld('shadowMail', {
   mail: {
     // -> { accounts: [{ id, name, email, type, folders: [{ path, delimiter, special_use, count, unread }] }] }
     folders: () => ipcRenderer.invoke('mail:folders'),
-    // { accountId, folder, sort: date|from|subject, dir: asc|desc, offset, limit, filter? } -> { total, folderTotal, rows }
+    // { accountId, folder, sort: date|from|subject, dir: asc|desc, offset, limit, filter?, deferCount? } -> { total, folderTotal, rows }
+    // (deferCount: true and a filter on: total null, the count comes from mail:count)
     // filter (0.10.1): { unread?, flagged?, hasAttachment?, since?, before? (epoch ms), keepIds? (<= 500 ids kept in view) }
     list: query => ipcRenderer.invoke('mail:list', query),
+    // { accountId, folder, filter? } -> { total, folderTotal }: the count a list asked with deferCount: true left out
+    count: query => ipcRenderer.invoke('mail:count', query),
     status: () => ipcRenderer.invoke('mail:status'),
     sync: accountId => ipcRenderer.invoke('mail:sync', accountId),
     // reader. open -> { message: { id, subject, from, to, cc, date, html | text, hasExternalImages, attachments, seenError } }

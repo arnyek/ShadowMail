@@ -256,6 +256,8 @@ test('pop3 old text: missing and broken files are skipped and counted; cancel st
 test('filters on rows found outside the index; request parsing; word splitting', () => {
   const row = { account_id: 1, folder: 'INBOX', date: 1000, has_attachments: 0, flags: '\\Seen', from_name: 'Szabó Éva', from_addr: 'eva@x.invalid', to_addrs: 'en@x.invalid', cc_addrs: '' }
   const f = parseSearchRequest({ query: 'x' })
+  assert.equal(f.sort, 'date', 'a request without an order: by date')
+  assert.equal(parseSearchRequest({ query: 'x', sort: 'relevance' }).sort, 'relevance')
   assert.equal(matchesFilters(row, f), true)
   assert.equal(matchesFilters(row, { ...f, accountId: 2 }), false)
   assert.equal(matchesFilters(row, { ...f, from: 'szabo' }), true)

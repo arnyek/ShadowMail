@@ -60,9 +60,9 @@ const folderSel = p => `${sec} .folder[data-path="${p}"]`
 const toggleOf = (page, p) => page.locator(`${sec} li`, { has: page.locator(`.folder[data-path="${p}"]`) }).locator('.folder-fold')
 const shown = page => page.$$eval(`${sec} .folder[data-path]`, els => els.map(e => e.dataset.path))
 const until = async (fn, what, ms = 8000) => {
-  const t0 = Date.now()
+  const t0 = performance.now()
   while (!(await fn())) {
-    if (Date.now() - t0 > ms) throw new Error(`timed out: ${what}`)
+    if (performance.now() - t0 > ms) throw new Error(`timed out: ${what}`)
     await sleep(50)
   }
 }

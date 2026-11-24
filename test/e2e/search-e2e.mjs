@@ -107,10 +107,10 @@ try {
   const subjects = () => page.locator('.result .result-subject').allInnerTexts()
 
   // the search starts after ~300 ms; accent-free query, both accounts
-  const t0 = Date.now()
+  const t0 = performance.now()
   await box.fill('hoszivattyu')
   await page.locator('.result').first().waitFor()
-  const waited = Date.now() - t0
+  const waited = performance.now() - t0
   const both = (await subjects()).sort()
   check('accent-free query finds both accounts (IMAP + recent POP3), not the old ones', JSON.stringify(both) === JSON.stringify(['IMAP ajánlat', 'POP3 friss']), JSON.stringify(both))
   check('results appear after the 300 ms delay', waited >= 300, `${waited} ms`)
@@ -153,17 +153,17 @@ try {
   const progressText = await page.locator('.search-job[data-source="pop3Old"]').innerText()
   // the UI stays usable meanwhile: the account chip's menu opens and closes (without changing the
   // search, which would cancel the job on purpose)
-  const tUi = Date.now()
+  const tUi = performance.now()
   await accountChip.click()
   await page.getByRole('menu', { name: t.searchFilter.account }).waitFor()
   await page.keyboard.press('Escape')
   await page.getByRole('menu', { name: t.searchFilter.account }).waitFor({ state: 'detached' })
-  const uiMs = Date.now() - tUi
-  const tCancel = Date.now()
+  const uiMs = performance.now() - tUi
+  const tCancel = performance.now()
   const cancelBtn = page.locator('.search-job[data-source="pop3Old"]').getByRole('button', { name: t.searchCancel, exact: true })
   if (await cancelBtn.count()) await cancelBtn.click()
   await page.locator('.search-job.done[data-source="pop3Old"]').waitFor({ timeout: 5000 }).catch(() => {})
-  const cancelMs = Date.now() - tCancel
+  const cancelMs = performance.now() - tCancel
   const doneText = await page.locator('.search-job[data-source="pop3Old"]').innerText()
   check('progress shown while it runs', new RegExp(progressRe('\\d+')).test(progressText), progressText)
   check('UI usable during the job (filter toggled)', uiMs < 1500, `${uiMs} ms`)

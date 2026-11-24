@@ -118,6 +118,13 @@ export class Labels {
       keysOf: p(`SELECT DISTINCT m.account_id, m.label_key FROM json_each(?) j CROSS JOIN messages m ON m.id = j.value
         WHERE m.label_key IS NOT NULL`),
       foundIds: p('SELECT COUNT(DISTINCT m.id) AS n FROM json_each(?) j CROSS JOIN messages m ON m.id = j.value'),
+      // the picker's state reads the chosen rows ONCE (each pass over a 100 000-id list costs ~200 ms on the encrypted
+      // file, measured), each with its local bindings by the primary key: only what the chosen rows carry (reading the
+      // whole binding table made one chosen row cost as much as every binding: 300 000 of them ~300 ms, measured). The
+      // list comes without repeats; a row comes once per binding (once with label_id NULL without one), its lines in a run
+      stateRows: p(`SELECT m.id, m.account_id, m.flags, ml.label_id FROM json_each(?) j CROSS JOIN messages m ON m.id = j.value
+        LEFT JOIN message_labels ml ON ml.account_id = m.account_id AND ml.label_key = m.label_key`),
+      imapAccounts: p("SELECT id FROM accounts WHERE type = 'imap'"),
       bind: p('INSERT OR IGNORE INTO message_labels (account_id, label_key, label_id, created_at) VALUES (?, ?, ?, ?)'),
       unbind: p('DELETE FROM message_labels WHERE account_id = ? AND label_key = ? AND label_id = ?'),
       // every folder that shows one of the pairs: the other copy of the same message too. No DISTINCT (the caller's Set
@@ -321,9 +328,36 @@ export class Labels {
    */
   stateOf(ids) {
     const rows = idList(ids, MAX_STATE_IDS)
+    // the rule of labelsOfRows (local bindings + an IMAP row's keywords, each label once per row), in one pass
+    const ordered = this.s.ordered.all()
+    const rank = new Map(ordered.map((l, i) => [l.id, i]))
+    const byKeyword = new Map(ordered.filter(l => l.keyword).map(l => [l.keyword, l.id]))
+    const imap = new Set(this.s.imapAccounts.pluck().all())
     const counts = new Map()
-    for (const labels of this.labelsOfRows(rows).values()) for (const label of labels) counts.set(label, (counts.get(label) || 0) + 1)
-    return { total: this.s.foundIds.get(JSON.stringify(rows)).n, counts }
+    // the lowest row carrying each label: the counts come in labelsOfRows' order (rows by id, a row's labels by rank)
+    const firstRow = new Map()
+    const row = new Set()
+    let total = 0
+    let cur = null
+    const flush = () => {
+      for (const label of row) {
+        counts.set(label, (counts.get(label) || 0) + 1)
+        if (!(firstRow.get(label) <= cur)) firstRow.set(label, cur)
+      }
+      row.clear()
+    }
+    for (const { id, account_id: acc, flags, label_id: label } of this.s.stateRows.all(JSON.stringify(rows))) {
+      if (id !== cur) {
+        flush()
+        cur = id
+        total++
+        if (byKeyword.size && flags && imap.has(acc)) for (const k of keywordLabelIds(flags, byKeyword)) row.add(k)
+      }
+      if (label !== null) row.add(label)
+    }
+    flush()
+    const order = [...counts.keys()].sort((a, b) => firstRow.get(a) - firstRow.get(b) || rank.get(a) - rank.get(b))
+    return { total, counts: new Map(order.map(label => [label, counts.get(label)])) }
   }
 
   /** The rows with a `labels: [label id]` field each (one query for the whole page); the rows' own objects stay as they are. */

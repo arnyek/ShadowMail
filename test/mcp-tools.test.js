@@ -4,6 +4,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import path from 'node:path'
+import crypto from 'node:crypto'
 import { memoryIndex, addAccount, DAY, sealedStore } from './helpers/fixtures.js'
 import { FakeImapServer } from './helpers/fake-imap.js'
 import { onCleanup, tempDir } from './helpers/tmp.js'
@@ -14,7 +15,7 @@ import { MailActions } from '../app/main/actions.js'
 import { FolderActions } from '../app/main/folders.js'
 import { testAccountConnection } from '../app/main/ipc/accounts.js'
 import { accountEditorForm } from '../core/accounts/defaults.js'
-import { Composer, CLAUDE_HEADER, CLAUDE_KEYWORD } from '../app/main/compose.js'
+import { Composer, CLAUDE_HEADER, CLAUDE_KEYWORD, MAX_ATTACHMENTS_BYTES } from '../app/main/compose.js'
 import { Contacts } from '../core/db/contacts.js'
 import { DRAFT_SAVED_TEXT, PREPARED_ACCOUNT_TEXT } from '../app/main/mcp/tools.js'
 import { parseMessage } from '../core/mime/message.js'
@@ -25,13 +26,15 @@ import { People } from '../core/db/people.js'
 import { Scheduled } from '../core/db/scheduled.js'
 import { Labels } from '../core/db/labels.js'
 import { CONFIRM_OPS } from '../app/main/mcp/confirm-policy.js'
-import { parseSendAt, localIso } from '../app/main/mcp/tools.js'
+import { parseSendAt, localIso, CAPS } from '../app/main/mcp/tools.js'
 import { createConfirmPolicy } from '../app/main/mcp/confirm-policy.js'
 import { hu } from '../app/renderer/i18n/hu.js'
 import { en } from '../app/renderer/i18n/en.js'
 import { TEXT_COLORS, HIGHLIGHT_COLORS } from '../core/smtp/text-colors.js'
 import { visibleComposeHtml } from '../core/mime/visible-text.js'
 import { htmlToPlain } from '../core/mime/text.js'
+import { pngFile, headerDecode } from './helpers/inline-images.js'
+import { signatureHtml } from '../core/smtp/signature.js'
 
 const NOW = Date.UTC(2026, 10, 12, 9, 0, 0)
 const sleep = ms => new Promise(r => setTimeout(r, ms))
@@ -1508,7 +1511,8 @@ test('searchConditions directly: the search box\'s shape, trimmed, defaults; acc
   const { searchConditions, indexSearchOf } = await import('../app/main/mcp/tools.js')
   const exists = id => id === 4
   const { conditions: c } = searchConditions({ to: ' bence ', account_id: 4, has_attachment: true }, { accountExists: exists })
-  assert.deepEqual(c, { text: '', accountId: 4, folder: '', from: '', to: 'bence', since: '', until: '', hasAttachment: true, unread: false, flagged: false, sort: 'relevance' })
+  assert.deepEqual(c, { text: '', accountId: 4, folder: '', from: '', to: 'bence', since: '', until: '', hasAttachment: true, unread: false, flagged: false, sort: 'date' }, 'without a sort: by date')
+  assert.equal(searchConditions({ query: 'x', sort: 'relevance' }, { accountExists: exists }).conditions.sort, 'relevance')
   assert.throws(() => searchConditions({ query: 'x', account_id: 5 }, { accountExists: exists }), e => e.code === 'not_found')
   assert.throws(() => searchConditions({ query: 'x', limit: 3 }, { accountExists: exists }), e => e.code === 'bad_arguments')
   assert.equal(searchConditions({ query: 'x', limit: 3 }, { accountExists: exists, extra: { limit: 'int' } }).args.limit, 3)
@@ -1808,12 +1812,101 @@ test('the confirmation policy: all ON by default, a damaged value is ON, an unkn
   assert.deepEqual(p.decide('send_message', { recipients: ['a@known.invalid'] }), { ask: false, unknown: [] })
   assert.deepEqual(p.decide('send_draft', { recipients: ['a@known.invalid', 'B@x.invalid'] }), { ask: true, unknown: ['b@x.invalid'] })
   assert.deepEqual(p.decide('send_message', { recipients: [] }), { ask: true, unknown: [] }, 'no recipients known: ask')
+  // any attachment asks, the address book notwithstanding; the unknown ones are still named
+  assert.deepEqual(p.decide('send_message', { recipients: ['a@known.invalid'], attachments: 0 }), { ask: false, unknown: [] })
+  assert.deepEqual(p.decide('send_message', { recipients: ['a@known.invalid'], attachments: 1 }), { ask: true, unknown: [] }, 'an attachment: ask')
+  assert.deepEqual(p.decide('send_draft', { recipients: ['a@known.invalid'], attachments: 3 }), { ask: true, unknown: [] }, 'a draft\'s attachments: ask')
+  assert.deepEqual(p.decide('send_draft', { recipients: ['a@known.invalid', 'B@x.invalid'], attachments: 1 }), { ask: true, unknown: ['b@x.invalid'] }, 'unknown + attachment: named')
   assert.deepEqual(p.decide('delete_folder'), { ask: true, unknown: [] }, 'another switch still ON')
   assert.deepEqual(p.decide('some_new_tool'), { ask: true, unknown: [] }, 'an unknown tool always asks')
   const noBook = createConfirmPolicy({ settings })
   assert.deepEqual(noBook.decide('send_message', { recipients: ['a@known.invalid'] }), { ask: true, unknown: [] }, 'no address book: a send asks')
   for (const op of ['deleteMessages', 'deleteFolder', 'updateAccount', 'deleteAccount', 'restartLogin']) p.set(op, false)
   for (const tool of ['trash_messages', 'delete_folder', 'update_account', 'delete_account', 'sync_account']) assert.equal(p.decide(tool).ask, false, tool)
+})
+
+// a send with an attachment always asks (a hidden instruction must not send a file out unseen)
+const knownSendOff = s => {
+  s.people.save({ displayName: 'Anna', emails: ['anna@example.invalid'] })
+  s.confirmPolicy.set('send', false)
+  s.policy.decide = () => null // nobody decides: a Modal leaves the call pending
+}
+const savedDraft = async (s, sid, subject, html = '<p>x</p>') => {
+  await s.composer.saveDraft(sid, { accountId: s.row.id, to: 'Anna <anna@example.invalid>', cc: '', bcc: '', subject, html, inReplyTo: null, references: [] })
+  s.composer.close(sid)
+  s.manager.syncNow(s.row.id)
+  await until(() => draftRow(s, subject))
+  return draftRow(s, subject).id
+}
+
+test('the send switch OFF, every recipient known: send_message forward of a message WITH attachments brings the Modal (listing them); one without goes at once', async t => {
+  const s = await attachedSetup(t, { confirmWaitMs: 50 })
+  knownSendOff(s)
+  const plain = await s.call('send_message', { reply_to: s.idBySubject('Olvasott levél'), mode: 'forward', to: 'anna@example.invalid', text: 'Továbbítom.' })
+  assert.equal(plain.isError, false, plain.content[0].text)
+  assert.deepEqual([plain._meta['shadowmail/data'].status, plain._meta['shadowmail/data'].sent], ['auto', true])
+  assert.equal(s.requests.length, 0, 'no attachment: no Modal (as before)')
+  assert.equal(s.box.sent.length, 1)
+
+  const fwd = await s.call('send_message', { reply_to: s.idBySubject('Mellékletes'), mode: 'forward', to: 'anna@example.invalid', text: 'Továbbítom.' })
+  assert.equal(fwd._meta['shadowmail/data'].status, 'pending_confirmation', fwd.content[0].text)
+  assert.equal(s.requests.length, 1, 'the Modal')
+  assert.deepEqual(s.requests[0].view.attachments.map(a => a.name), ['dokumentum.docx', 'makro.docm', 'archivum.zip', 'jegyzet.txt', 'szamla.pdf.exe'])
+  assert.equal(s.requests[0].view.unknown, undefined, 'every recipient known: no unknown list')
+  assert.equal(s.box.sent.length, 1, 'nothing more sent while it waits')
+  assert.deepEqual(s.autoRuns, [{ tool: 'send_message', result: 'ok', count: 1 }], 'only the plain one ran without the Modal')
+
+  // an unknown recipient too: the Modal names it, as before
+  const mixed = await s.call('send_message', { reply_to: s.idBySubject('Mellékletes'), mode: 'forward', to: 'anna@example.invalid, idegen@example.invalid', text: 'x' })
+  assert.equal(mixed._meta['shadowmail/data'].status, 'pending_confirmation')
+  assert.deepEqual(s.requests[1].view.unknown, ['idegen@example.invalid'])
+  // scheduled ("Küldés később") the same
+  const later = await s.call('send_message', { reply_to: s.idBySubject('Mellékletes'), mode: 'forward', to: 'anna@example.invalid', text: 'x', send_at: new Date(NOW + 2 * DAY).toISOString() })
+  assert.equal(later._meta['shadowmail/data'].status, 'pending_confirmation', later.content[0].text)
+  assert.equal(s.scheduled.list().length, 0, 'nothing scheduled')
+})
+
+test('the send switch OFF, every recipient known: send_draft of a draft WITH an attachment brings the Modal; a draft with none, or with only a pasted image, goes at once', async t => {
+  const s = await confirmedSetup(t, { withPolicy: true, confirmWaitMs: 50 })
+  s.composer.decodeImage = headerDecode
+  knownSendOff(s)
+  const dir = tempDir(t)
+  fs.writeFileSync(path.join(dir, 'ajanlat.pdf'), Buffer.from('%PDF-1.4 ajanlat'))
+
+  const sidFile = s.composer.open()
+  s.composer.addFiles(sidFile, [path.join(dir, 'ajanlat.pdf')])
+  const withFile = await savedDraft(s, sidFile, 'Mellékletes piszkozat')
+  const plain = await savedDraft(s, s.composer.open(), 'Sima piszkozat')
+  // a pasted image is embedded in the text: no attachment (measured on the session, and on the reopened draft)
+  const sidImg = s.composer.open()
+  const img = s.composer.addImage(sidImg, pngFile(30, 30))
+  assert.deepEqual(s.composer.attachmentDigests(sidImg), [], 'a pasted image is not among the digests')
+  const withImage = await savedDraft(s, sidImg, 'Képes piszkozat', `<p>Kép:</p><p><img src="inl-img://session/${sidImg}/${img.id}" alt=""></p>`)
+
+  const a = await s.call('send_draft', { draft_id: withFile })
+  assert.equal(a._meta['shadowmail/data'].status, 'pending_confirmation', a.content[0].text)
+  assert.equal(s.requests.length, 1)
+  assert.deepEqual(s.requests[0].view.attachments, [{ name: 'ajanlat.pdf', size: 16 }])
+  assert.equal(s.box.sent.length, 0)
+
+  const b = await s.call('send_draft', { draft_id: plain })
+  assert.deepEqual([b._meta['shadowmail/data'].status, b._meta['shadowmail/data'].sent], ['auto', true], b.content[0].text)
+  const c = await s.call('send_draft', { draft_id: withImage })
+  assert.deepEqual([c._meta['shadowmail/data'].status, c._meta['shadowmail/data'].sent], ['auto', true], c.content[0].text)
+  assert.equal(s.requests.length, 1, 'no Modal for these two')
+  assert.equal(s.box.sent.length, 2)
+})
+
+test('the send switch ON: a send with or without an attachment asks as before', async t => {
+  const s = await attachedSetup(t, { confirmWaitMs: 50 })
+  s.people.save({ displayName: 'Anna', emails: ['anna@example.invalid'] })
+  s.policy.decide = () => null
+  for (const subject of ['Olvasott levél', 'Mellékletes']) {
+    const r = await s.call('send_message', { reply_to: s.idBySubject(subject), mode: 'forward', to: 'anna@example.invalid', text: 'x' })
+    assert.equal(r._meta['shadowmail/data'].status, 'pending_confirmation', subject)
+  }
+  assert.equal(s.requests.length, 2)
+  assert.equal(s.box.sent.length, 0)
 })
 
 test('the updateAccount switch OFF: a plain field runs without the Modal; a sign-in field (server, port, security, user, certificate check) always asks', async t => {
@@ -1924,10 +2017,10 @@ async function forwardDraft(s, text = 'Továbbítom.') {
   await until(() => draftRow(s, subject))
   return { id: draftRow(s, subject).id, subject }
 }
-const attachedSetup = t => {
+const attachedSetup = (t, opts = {}) => {
   const source = fs.readFileSync(new URL('./fixtures/mail/openable-attachments.eml', import.meta.url))
   const raw = source.toString('utf8').replace(/^Subject: .*$/m, 'Subject: Mellékletes')
-  return confirmedSetup(t, { withPolicy: true, extra: [{ source: Buffer.from(raw), subject: 'Mellékletes', from: 'k@example.invalid', to: 'sajat@example.invalid', messageId: '<upd1@x>', date: NOW - 50, idate: NOW - 50, body: '' }] })
+  return confirmedSetup(t, { withPolicy: true, extra: [{ source: Buffer.from(raw), subject: 'Mellékletes', from: 'k@example.invalid', to: 'sajat@example.invalid', messageId: '<upd1@x>', date: NOW - 50, idate: NOW - 50, body: '' }], ...opts })
 }
 
 test('update_draft: only the given fields change; the own text is replaced above the signature, the quote and the attachments stay; Claude-marked; nothing sent; OFF by default: no Modal, listed as run without it', async t => {
@@ -2642,3 +2735,419 @@ test('label_messages on IMAP: a folder whose server does not allow the keyword k
   assert.ok(!s.logs.some(l => l.includes('Számla') || l.includes(invoice.keyword)), 'no label name or keyword in the log')
 })
 
+// --- attachments on the draft tools: the user always decides, the files are read at the call -----------------------
+const sha256hex = b => crypto.createHash('sha256').update(b).digest('hex')
+// the attachments of the (one) draft with this subject (the subject decoded: an accented one is MIME-encoded in the source)
+const draftParts = async (s, subject) => {
+  const { simpleParser } = await import('mailparser')
+  const all = await Promise.all(serverMessages(s, 'Drafts').map(m => simpleParser(m.source)))
+  const found = all.filter(x => x.subject === subject)
+  assert.equal(found.length, 1, `one draft "${subject}" in Drafts`)
+  return found[0].attachments.filter(x => x.contentDisposition !== 'inline' || !x.cid).map(x => [x.filename, sha256hex(x.content)])
+}
+const localFiles = t => {
+  const dir = tempDir(t)
+  const put = (name, content) => {
+    const p = path.join(dir, name)
+    fs.writeFileSync(p, content)
+    return p
+  }
+  return { dir, put }
+}
+const offeredOf = async (s, subject) => (await parseMessage(sourceOf(serverMessages(s, 'INBOX').find(x => sourceOf(x).includes(`Subject: ${subject}`))))).attachments.filter(x => !x.inline)
+
+test('create_draft with two local files and a message\'s attachment: always the Modal (name, full path, size, hash); approved: the three in the draft byte for byte, Claude-marked; nothing sent', async t => {
+  const s = await attachedSetup(t, { confirmWaitMs: 50 })
+  s.policy.decide = () => null
+  const f = localFiles(t)
+  const a = f.put('ajánlat é.pdf', Buffer.from('%PDF-1.4 ajánlat'))
+  const b = f.put('jegyzet.txt', 'első sor\n')
+  const offered = await offeredOf(s, 'Mellékletes')
+  const r = await s.call('create_draft', { account_id: s.row.id, to: 'anna@example.invalid', subject: 'Csatolt', text: 'Szia,\nküldöm.', attachments: [{ path: a }, { path: b }, { message_id: s.idBySubject('Mellékletes'), attachment: 2 }] })
+  assert.equal(r.isError, false, r.content[0].text)
+  assert.equal(r._meta['shadowmail/data'].status, 'pending_confirmation')
+  assert.equal(s.requests.length, 1)
+  const v = s.requests[0].view
+  assert.equal(v.kind, 'createDraft')
+  assert.deepEqual([v.to, v.subject, v.text, v.original, v.attachments], [['anna@example.invalid'], 'Csatolt', 'Szia,\nküldöm.', null, []])
+  assert.deepEqual(v.claudeFiles, [
+    { name: 'ajánlat é.pdf', size: fs.statSync(a).size, sha256: sha256hex(fs.readFileSync(a)), path: fs.realpathSync(a) },
+    { name: 'jegyzet.txt', size: fs.statSync(b).size, sha256: sha256hex(fs.readFileSync(b)), path: fs.realpathSync(b) },
+    { name: offered[1].filename, size: offered[1].content.length, sha256: sha256hex(offered[1].content), message: { subject: 'Mellékletes' } },
+  ])
+  assert.equal(serverMessages(s, 'Drafts').length, 0, 'nothing written while it waits')
+  await s.queue.approve(r._meta['shadowmail/data'].confirmation_id)
+  const st = await s.call('confirmation_status', { confirmation_id: r._meta['shadowmail/data'].confirmation_id })
+  assert.equal(st._meta['shadowmail/data'].status, 'approved', st.content[0].text)
+  assert.deepEqual(await draftParts(s, 'Csatolt'), [['ajánlat é.pdf', sha256hex(fs.readFileSync(a))], ['jegyzet.txt', sha256hex(fs.readFileSync(b))], [offered[1].filename, sha256hex(offered[1].content)]])
+  const src = sourceOf(serverMessages(s, 'Drafts').at(-1))
+  assert.match(src, new RegExp(`^${CLAUDE_HEADER}:`, 'mi'), 'Claude-marked')
+  assert.equal(s.drafted.length, 1)
+  assert.equal(s.box.sent.length, 0, 'nothing sent')
+  assert.equal(s.composer.sessions.size, 0, 'the session is closed')
+  assert.ok(!s.logs.some(l => l.includes('ajánlat') || l.includes(f.dir)), 'no file name or path in the log')
+})
+
+test('create_draft with attachments: rejected or expired, nothing is written; without attachments the old path (no Modal)', async t => {
+  const s = await attachedSetup(t, { confirmWaitMs: 50 })
+  const f = localFiles(t)
+  const a = f.put('a.txt', 'a')
+  s.policy.decide = () => 'reject'
+  const r = await s.call('create_draft', { account_id: s.row.id, to: 'anna@example.invalid', subject: 'Elutasított', attachments: [{ path: a }] })
+  assert.equal(r._meta['shadowmail/data'].error, 'rejected', r.content[0].text)
+  assert.equal(serverMessages(s, 'Drafts').length, 0)
+  assert.equal(s.composer.sessions.size, 0)
+  const plain = await s.call('create_draft', { account_id: s.row.id, to: 'anna@example.invalid', subject: 'Sima', text: 'x' })
+  assert.equal(plain.isError, false, plain.content[0].text)
+  assert.equal(plain._meta['shadowmail/data'].saved, true)
+  assert.equal(s.requests.length, 1, 'no Modal without attachments')
+})
+
+test('create_draft with attachments asks whatever the switches say (send and updateDraft OFF, every recipient known)', async t => {
+  const s = await attachedSetup(t, { confirmWaitMs: 50 })
+  s.people.save({ displayName: 'Anna', emails: ['anna@example.invalid'] })
+  s.confirmPolicy.set('send', false)
+  assert.equal(s.confirmPolicy.isOn('updateDraft'), false)
+  s.policy.decide = () => null
+  const a = localFiles(t).put('a.txt', 'a')
+  for (const [tool, extra] of [['create_draft', { account_id: s.row.id, to: 'anna@example.invalid' }], ['create_reply_draft', { message_id: s.idBySubject('Mellékletes'), mode: 'reply' }]]) {
+    const r = await s.call(tool, { ...extra, attachments: [{ path: a }] })
+    assert.equal(r._meta['shadowmail/data'].status, 'pending_confirmation', `${tool}: ${r.content[0].text}`)
+  }
+  assert.equal(s.requests.length, 2)
+  assert.equal(s.autoRuns.length, 0)
+})
+
+test('create_reply_draft forward + a file of Claude\'s: the original\'s attachments AND the new one in the draft; the Modal lists both kinds apart', async t => {
+  const s = await attachedSetup(t)
+  s.policy.decide = () => 'approve'
+  const a = localFiles(t).put('sajat.pdf', '%PDF saját')
+  const offered = await offeredOf(s, 'Mellékletes')
+  const r = await s.call('create_reply_draft', { message_id: s.idBySubject('Mellékletes'), mode: 'forward', text: 'Továbbítom.', attachments: [{ path: a }] })
+  assert.equal(r.isError, false, r.content[0].text)
+  assert.equal(r._meta['shadowmail/data'].status, 'approved', r.content[0].text)
+  const v = s.requests[0].view
+  assert.deepEqual([v.kind, v.original], ['createDraft', { mode: 'forward', subject: 'Mellékletes' }])
+  assert.deepEqual(v.attachments.map(x => x.name), offered.map(x => x.filename))
+  assert.deepEqual(v.claudeFiles.map(x => x.name), ['sajat.pdf'])
+  const subject = (await parseMessage(serverMessages(s, 'Drafts').at(-1).source)).subject
+  assert.deepEqual(await draftParts(s, subject), [...offered.map(x => [x.filename, sha256hex(x.content)]), ['sajat.pdf', sha256hex(Buffer.from('%PDF saját'))]])
+})
+
+test('update_draft attachments: the old ones stay, the new one is added; the Modal even with its switch OFF; draft_open as before; the 25 MB counts the ones already in it', async t => {
+  const s = await attachedSetup(t, { confirmWaitMs: 50 })
+  s.policy.decide = () => null
+  const f = localFiles(t)
+  const a = f.put('uj.txt', 'új melléklet')
+  const { id, subject } = await forwardDraft(s)
+  const offered = await offeredOf(s, 'Mellékletes')
+  // open in a composer: refused before anything is read
+  const open = s.composer.open()
+  await s.composer.prepare(open, { mode: 'draft', messageId: id })
+  assert.equal((await s.call('update_draft', { draft_id: id, attachments: [{ path: a }] }))._meta['shadowmail/data'].error, 'draft_open')
+  s.composer.close(open)
+  // one byte over 25 MB only with the draft's own attachments: too_large, nothing asked
+  const own = offered.reduce((n, x) => n + x.content.length, 0)
+  const big = f.put('nagy.bin', Buffer.alloc(MAX_ATTACHMENTS_BYTES - own + 1, 1))
+  const tooBig = await s.call('update_draft', { draft_id: id, attachments: [{ path: big }] })
+  assert.equal(tooBig._meta['shadowmail/data'].error, 'too_large', tooBig.content[0].text)
+  assert.match(tooBig.content[0].text, /^1\. melléklet: .*25 MB.*Semmi nem íródott\./)
+  assert.equal(s.requests.length, 0)
+  const r = await s.call('update_draft', { draft_id: id, attachments: [{ path: a }] })
+  assert.equal(r._meta['shadowmail/data'].status, 'pending_confirmation', r.content[0].text)
+  assert.deepEqual(s.requests[0].view.claudeFiles.map(x => x.name), ['uj.txt'])
+  assert.deepEqual(s.requests[0].view.changes, [])
+  await s.queue.approve(r._meta['shadowmail/data'].confirmation_id)
+  const st = await s.call('confirmation_status', { confirmation_id: r._meta['shadowmail/data'].confirmation_id })
+  assert.equal(st._meta['shadowmail/data'].status, 'approved', st.content[0].text)
+  assert.deepEqual(await draftParts(s, subject), [...offered.map(x => [x.filename, sha256hex(x.content)]), ['uj.txt', sha256hex(Buffer.from('új melléklet'))]])
+})
+
+test('the bytes approved are the ones read at the call: a file changed on the disk while the Modal waits goes in as it was read', async t => {
+  const s = await attachedSetup(t, { confirmWaitMs: 50 })
+  s.policy.decide = () => null
+  const f = localFiles(t)
+  const p = f.put('ajanlat.txt', 'REGI tartalom')
+  const r = await s.call('create_draft', { account_id: s.row.id, to: 'anna@example.invalid', subject: 'Csere', attachments: [{ path: p }] })
+  fs.writeFileSync(p, 'UJ, MAS tartalom')
+  await s.queue.approve(r._meta['shadowmail/data'].confirmation_id)
+  await s.call('confirmation_status', { confirmation_id: r._meta['shadowmail/data'].confirmation_id })
+  assert.deepEqual(await draftParts(s, 'Csere'), [['ajanlat.txt', sha256hex(Buffer.from('REGI tartalom'))]])
+})
+
+test('attachments refused before any Modal, nothing written: a bad shape, too many, a relative or share path, a missing file, a folder, a wrong message attachment; the bad item is named', async t => {
+  const s = await attachedSetup(t, { confirmWaitMs: 50 })
+  s.policy.decide = () => null
+  const f = localFiles(t)
+  const good = f.put('jo.txt', 'jó')
+  const call = attachments => s.call('create_draft', { account_id: s.row.id, to: 'anna@example.invalid', subject: 'Rossz', attachments })
+  for (const shape of [[], [{}], [{ path: good, extra: 1 }], [{ path: '' }], [{ message_id: 1 }], [{ message_id: '1', attachment: 1 }], [{ path: good, message_id: 1, attachment: 1 }], 'x', [good], Array.from({ length: 51 }, () => ({ path: good }))]) {
+    const r = await call(shape)
+    assert.equal(r._meta['shadowmail/data'].error, 'bad_arguments', JSON.stringify(shape).slice(0, 80))
+  }
+  const cases = [
+    [[{ path: good }, { path: 'relativ.txt' }], 'bad_path', 2],
+    [[{ path: '\\\\szerver\\megosztas\\a.txt' }], 'bad_path', 1],
+    [[{ path: path.join(f.dir, 'nincs.txt') }], 'not_found', 1],
+    [[{ path: f.dir }], 'not_a_file', 1],
+    [[{ path: good }, { path: good }, { message_id: s.idBySubject('Mellékletes'), attachment: 99 }], 'not_found', 3],
+    [[{ message_id: 999999, attachment: 1 }], 'not_found', 1],
+  ]
+  for (const [items, code, item] of cases) {
+    const r = await call(items)
+    assert.equal(r._meta['shadowmail/data'].error, code, r.content[0].text)
+    assert.equal(r._meta['shadowmail/data'].item, item)
+    assert.match(r.content[0].text, new RegExp(`^${item}\\. melléklet: .*Semmi nem íródott\\.`))
+  }
+  assert.equal(s.requests.length, 0, 'no Modal')
+  assert.equal(serverMessages(s, 'Drafts').length, 0)
+  assert.equal(s.composer.sessions.size, 0)
+})
+
+test('the Modal shows a bidi or control character of a file name and path as its code, not as what it does', async t => {
+  const s = await attachedSetup(t, { confirmWaitMs: 50 })
+  s.policy.decide = () => null
+  const name = 'szamla\u202Efdp.exe'
+  const f = localFiles(t)
+  const p = f.put(name, 'x')
+  const r = await s.call('create_draft', { account_id: s.row.id, to: 'anna@example.invalid', subject: 'Bidi', attachments: [{ path: p }] })
+  assert.equal(r._meta['shadowmail/data'].status, 'pending_confirmation', r.content[0].text)
+  const [file] = s.requests[0].view.claudeFiles
+  assert.equal(file.name, 'szamla_fdp.exe', 'the attachment name itself is cleaned (safeFileName)')
+  assert.ok(file.path.endsWith('szamla[U+202E]fdp.exe') && !file.path.includes('\u202E'), file.path)
+})
+
+test('the three draft tools carry the attachments schema (one of path / message_id + attachment, at most 50); the descriptions say the user is always asked', async t => {
+  const s = await setup(t)
+  const list = s.tools.list()
+  for (const name of ['create_draft', 'create_reply_draft', 'update_draft']) {
+    const x = list.find(y => y.name === name)
+    const att = x.inputSchema.properties.attachments
+    assert.deepEqual([att.type, att.minItems, att.maxItems, att.items.oneOf.map(o => o.required.join('+'))], ['array', 1, CAPS.attachments, ['path', 'message_id+attachment']], name)
+    assert.ok(!x.inputSchema.required.includes('attachments'), name)
+    assert.match(x.description, /always asked in the app/, name)
+    assert.doesNotMatch(x.description, /No attachment\./, name)
+  }
+  for (const name of ['send_message', 'send_draft']) assert.equal(list.find(y => y.name === name).inputSchema.properties.attachments, undefined, name)
+})
+
+// --- send_draft: the draft's own images go out (a pasted one, the signature image) ------------------------------------
+const ownImagesDraft = async (s, subject) => {
+  s.composer.decodeImage = headerDecode
+  const sig = pngFile(40, 20, { seed: 5 })
+  const getRow = s.store.getRow
+  s.store.getRow = id => ({ ...getRow(id), signature: 'Üdv, Képes Kázmér', has_signature_image: 1 })
+  s.store.signatureImage = id => (id === s.row.id ? { type: 'image/png', bytes: sig } : null)
+  // the user's own draft, written in a composer: a pasted image with a size chosen, and the account's signature block
+  const sid = s.composer.open()
+  const img = s.composer.addImage(sid, pngFile(30, 30, { seed: 3 }))
+  const pastedBytes = Buffer.from(s.composer.inlineImageOf(sid, img.id).bytes)
+  const html = `<p>Szia <b>Anna</b></p><p><img src="inl-img://session/${sid}/${img.id}" width="20" alt=""></p>${signatureHtml('Üdv, Képes Kázmér', `sig-img://account/${s.row.id}`)}`
+  await s.composer.saveDraft(sid, { accountId: s.row.id, to: 'anna@example.invalid', cc: '', bcc: '', subject, html, inReplyTo: null, references: [] })
+  s.composer.close(sid)
+  s.manager.syncNow(s.row.id)
+  await until(() => s.index.db.prepare("SELECT id FROM messages WHERE folder = 'Drafts' AND subject = ?").get(subject))
+  return { id: s.index.db.prepare("SELECT id FROM messages WHERE folder = 'Drafts' AND subject = ?").get(subject).id, sig, pastedBytes }
+}
+const imageParts = async raw => {
+  const { simpleParser } = await import('mailparser')
+  const got = await simpleParser(raw, { keepCidLinks: true })
+  return { got, parts: got.attachments.filter(a => a.cid) }
+}
+
+test('send_draft sends the draft\'s own images: the pasted one with its width and the signature image, multipart/related, the bytes the composer holds; the Modal counts them', async t => {
+  const s = await confirmedSetup(t)
+  const { id, sig, pastedBytes } = await ownImagesDraft(s, 'Képes saját piszkozat')
+  s.policy.decide = () => 'approve'
+  const r = await s.call('send_draft', { draft_id: id })
+  assert.equal(r.isError, false, r.content[0].text)
+  assert.equal(r._meta['shadowmail/data'].status, 'approved')
+  const v = s.requests[0].view
+  assert.deepEqual(v.images, { count: 2, size: pastedBytes.length + sig.length })
+  assert.deepEqual(v.attachments, [], 'an embedded image is no attachment')
+  assert.match(s.box.sent[0].raw, /Content-Type: multipart\/related/i)
+  const { got, parts } = await imageParts(s.box.sent[0].raw)
+  assert.equal(parts.length, 2)
+  const byBytes = b => parts.find(p => p.content.equals(b))
+  assert.ok(byBytes(pastedBytes), 'the pasted image, byte for byte')
+  assert.ok(byBytes(sig), 'the signature image, byte for byte')
+  assert.ok(got.html.includes(`<img src="cid:${byBytes(pastedBytes).cid}" alt="" width="20">`), got.html)
+  assert.ok(got.html.includes(`cid:${byBytes(sig).cid}`), got.html)
+  assert.ok(!/inl-img|sig-img|data-sm-signature/.test(got.html), 'no own scheme and no marker goes out')
+  assert.match(got.text, /Képes Kázmér/)
+})
+
+test('send_draft: an embedded image changed after the request -> hash_mismatch, nothing sent', async t => {
+  const s = await confirmedSetup(t, { confirmWaitMs: 50 })
+  const { id } = await ownImagesDraft(s, 'Képcsere')
+  s.policy.decide = () => null
+  const r = await s.call('send_draft', { draft_id: id })
+  assert.equal(r._meta['shadowmail/data'].status, 'pending_confirmation', r.content[0].text)
+  // the waiting request's session: its pasted image's bytes change
+  const [session] = [...s.composer.sessions.values()]
+  const [img] = [...session.inlineImages.values()]
+  img.bytes[img.bytes.length - 1] ^= 0xff
+  await s.queue.approve(r._meta['shadowmail/data'].confirmation_id)
+  const st = await s.call('confirmation_status', { confirmation_id: r._meta['shadowmail/data'].confirmation_id })
+  assert.equal(st._meta['shadowmail/data'].error, 'hash_mismatch', st.content[0].text)
+  assert.equal(s.box.sent.length, 0)
+})
+
+test('send_draft without images: no images key in the request and its view (as before)', async t => {
+  const s = await confirmedSetup(t)
+  await s.call('create_draft', { account_id: s.row.id, to: 'anna@example.invalid', subject: 'Kép nélkül', text: 'szöveg' })
+  s.manager.syncNow(s.row.id)
+  await until(() => s.index.db.prepare("SELECT id FROM messages WHERE folder = 'Drafts' AND subject = 'Kép nélkül'").get())
+  s.policy.decide = () => 'approve'
+  await s.call('send_draft', { draft_id: s.index.db.prepare("SELECT id FROM messages WHERE folder = 'Drafts' AND subject = 'Kép nélkül'").get().id })
+  assert.equal(s.requests[0].view.images, undefined)
+})
+
+test('update_draft and send_draft with send_at keep the draft\'s own images (checked, as the card asks)', async t => {
+  const s = await confirmedSetup(t)
+  const { id, sig, pastedBytes } = await ownImagesDraft(s, 'Képes frissítés')
+  // update_draft (its switch OFF by default: no Modal): the re-saved draft still holds both images
+  const u = await s.call('update_draft', { draft_id: id, text: 'Új szöveg' })
+  assert.equal(u.isError, false, u.content[0].text)
+  const saved = serverMessages(s, 'Drafts').find(m => m.envelope.subject === 'Képes frissítés')
+  const { parts } = await imageParts(saved.source)
+  assert.ok(parts.some(p => p.content.equals(pastedBytes)) && parts.some(p => p.content.equals(sig)), `the update kept both: ${parts.length}`)
+  // send_draft with send_at: the scheduled message holds both, and sent from it they go out
+  s.manager.syncNow(s.row.id)
+  await until(() => {
+    const row = s.index.db.prepare("SELECT id FROM messages WHERE folder = 'Drafts' AND subject = 'Képes frissítés'").get()
+    return row && row.id !== id ? row : null
+  }).catch(() => {})
+  const draftId = s.index.db.prepare("SELECT id FROM messages WHERE folder = 'Drafts' AND subject = 'Képes frissítés'").get().id
+  s.policy.decide = () => 'approve'
+  const r = await s.call('send_draft', { draft_id: draftId, send_at: new Date(NOW + 2 * DAY).toISOString() })
+  assert.equal(r._meta['shadowmail/data'].status, 'approved', r.content[0].text)
+  assert.equal(s.requests.at(-1).view.images.count, 2)
+  const row = s.scheduled.list()[0]
+  const sid = s.composer.open()
+  const form = s.composer.openScheduled(sid, row.id)
+  await s.composer.sendNow(sid, { accountId: form.accountId, to: form.to, cc: form.cc, bcc: form.bcc, subject: form.subject, html: form.draftHtml, inReplyTo: form.inReplyTo, references: form.references }, { addPeople: false })
+  const out = await imageParts(s.box.sent.at(-1).raw)
+  assert.ok(out.parts.some(p => p.content.equals(pastedBytes)) && out.parts.some(p => p.content.equals(sig)), `the scheduled one sent both: ${out.parts.length}`)
+})
+
+// --- html: Claude's formatted body on the four writing tools --------------------------------------------------------
+const CLAUDE_HTML = '<h2>Ajánlat</h2><p>Szia <b>Anna</b>, <i>röviden</i>:</p><ul><li>első</li><li>második</li></ul><p><a href="https://example.invalid/ar">árlista</a></p><p style="color:red" onclick="x()">tiszta</p><script>alert(1)</script><img src="https://evil.invalid/t.gif">'
+const CLEAN_HTML = '<h2>Ajánlat</h2><p>Szia <b>Anna</b>, <i>röviden</i>:</p><ul><li>első</li><li>második</li></ul><p><a href="https://example.invalid/ar">árlista</a></p><p>tiszta</p>'
+const draftHtmlOf = async (s, subject) => {
+  const { simpleParser } = await import('mailparser')
+  const all = await Promise.all(serverMessages(s, 'Drafts').map(m => simpleParser(m.source)))
+  const found = all.filter(x => x.subject === subject)
+  assert.equal(found.length, 1, `one draft "${subject}"`)
+  return found[0]
+}
+
+test('create_draft html: the composer\'s own tags stay, the rest goes; the signature after it; no Modal; the text part from the HTML', async t => {
+  const s = await confirmedSetup(t)
+  const getRow = s.store.getRow
+  s.store.getRow = id => ({ ...getRow(id), signature: 'Üdv, Html Hanna' })
+  const r = await s.call('create_draft', { account_id: s.row.id, to: 'anna@example.invalid', subject: 'Formázott', html: CLAUDE_HTML })
+  assert.equal(r.isError, false, r.content[0].text)
+  assert.equal(r._meta['shadowmail/data'].saved, true)
+  assert.equal(s.requests.length, 0)
+  const got = await draftHtmlOf(s, 'Formázott')
+  assert.ok(got.html.includes(CLEAN_HTML), got.html)
+  assert.ok(!/<script|onclick|style=|evil\.invalid|<img/.test(got.html), got.html)
+  assert.match(got.html, /data-sm-signature/, 'the signature block after it')
+  // the text part is htmlToPlain's, as for the composer: a heading comes in capitals
+  assert.match(got.text, /AJÁNLAT\n[\s\S]*Szia Anna, röviden:[\s\S]*első[\s\S]*második[\s\S]*Html Hanna/)
+})
+
+test('create_reply_draft html: the own part above the app\'s quote; the quote as with text', async t => {
+  const s = await confirmedSetup(t)
+  const r = await s.call('create_reply_draft', { message_id: s.idBySubject('Olvasatlan számla'), mode: 'reply', html: '<p><b>Köszönöm</b>, megkaptam.</p>' })
+  assert.equal(r.isError, false, r.content[0].text)
+  const viaText = await s.call('create_reply_draft', { message_id: s.idBySubject('Olvasatlan számla'), mode: 'reply', text: 'Köszönöm, megkaptam.' })
+  assert.equal(viaText.isError, false)
+  const drafts = await Promise.all(serverMessages(s, 'Drafts').map(async m => (await import('mailparser')).simpleParser(m.source)))
+  const [withHtml, withText] = drafts
+  assert.ok(withHtml.html.startsWith('<p><b>Köszönöm</b>, megkaptam.</p>') || withHtml.html.includes('<body><p><b>Köszönöm</b>, megkaptam.</p>'), withHtml.html.slice(0, 300))
+  // everything after the own part is the same bytes as the text one's
+  const tail = h => h.slice(h.indexOf('</p>') + 4)
+  assert.equal(tail(withHtml.html), tail(withText.html))
+})
+
+test('update_draft html: replaces the own part only (the quote and the attachments stay), as text does', async t => {
+  const s = await attachedSetup(t)
+  s.policy.decide = () => null
+  const { id, subject } = await forwardDraft(s, 'RÉGI-SZÖVEG')
+  const r = await s.call('update_draft', { draft_id: id, html: '<p><u>ÚJ</u> szöveg</p><ol><li>pont</li></ol>' })
+  assert.equal(r.isError, false, r.content[0].text)
+  assert.equal(r._meta['shadowmail/data'].status, 'auto')
+  const got = await draftHtmlOf(s, subject)
+  assert.ok(got.html.includes('<p><u>ÚJ</u> szöveg</p><ol><li>pont</li></ol>'), got.html.slice(0, 400))
+  assert.ok(!got.html.includes('RÉGI-SZÖVEG'))
+  assert.match(got.html, /Mellékletes/, 'the forwarded part stays')
+  assert.equal(got.attachments.filter(a => !a.cid).length, 5, 'the attachments stay')
+  // with its switch ON the Modal shows the new own text as plain text
+  s.confirmPolicy.set('updateDraft', true)
+  const ask = await s.call('update_draft', { draft_id: s.index.db.prepare("SELECT id FROM messages WHERE folder = 'Drafts'").get().id, html: '<p>harmadik <b>változat</b></p>' })
+  assert.equal(ask._meta['shadowmail/data'].status, 'pending_confirmation', ask.content[0].text)
+  assert.equal(s.requests.at(-1).view.text, 'harmadik változat')
+})
+
+test('send_message html: the Modal shows the plain text and the link targets; the sent message carries the formatting, its text part from the HTML', async t => {
+  const s = await confirmedSetup(t)
+  s.policy.decide = () => 'approve'
+  const r = await s.call('send_message', { account_id: s.row.id, to: 'anna@example.invalid', subject: 'Formázott küldés', html: CLAUDE_HTML })
+  assert.equal(r.isError, false, r.content[0].text)
+  const v = s.requests[0].view
+  assert.match(v.text, /AJÁNLAT\n[\s\S]*Szia Anna, röviden:[\s\S]*első[\s\S]*második/)
+  assert.ok(!/<b>|<ul>/.test(v.text), 'the Modal text is plain')
+  assert.deepEqual(v.links.map(l => [l.text, l.href]), [['árlista', 'https://example.invalid/ar']])
+  const { simpleParser } = await import('mailparser')
+  const got = await simpleParser(s.box.sent[0].raw)
+  assert.ok(got.html.includes(CLEAN_HTML), got.html)
+  assert.match(got.text, /Szia Anna, röviden:/)
+  assert.ok(!/<b>|evil/.test(got.text))
+})
+
+test('html refused, nothing written or sent: with text together, nothing visible left, too complex; text keeps its old bytes', async t => {
+  const s = await confirmedSetup(t, { confirmWaitMs: 50 })
+  s.policy.decide = () => null
+  const cases = [
+    [{ text: 'a', html: '<p>b</p>' }, 'bad_arguments'],
+    [{ html: '<img src="https://x.invalid/a.png"><script>x</script>' }, 'empty_html'],
+    [{ html: '<p style="display:none">rejtett</p>' }, 'empty_html'],
+    [{ html: `${'<div>'.repeat(5000)}x` }, 'too_complex'],
+  ]
+  for (const [body, code] of cases) {
+    for (const [tool, extra] of [['create_draft', { account_id: s.row.id, subject: 'Rossz html' }], ['send_message', { account_id: s.row.id, to: 'anna@example.invalid', subject: 'Rossz html' }], ['create_reply_draft', { message_id: s.idBySubject('Olvasatlan számla'), mode: 'reply' }]]) {
+      const r = await s.call(tool, { ...extra, ...body })
+      assert.equal(r._meta['shadowmail/data'].error, code, `${tool} ${JSON.stringify(body).slice(0, 60)}: ${r.content[0].text}`)
+    }
+  }
+  assert.equal(serverMessages(s, 'Drafts').length, 0)
+  assert.equal(s.requests.length, 0)
+  assert.equal(s.box.sent.length, 0)
+  assert.equal(s.composer.sessions.size, 0, 'no session left open')
+  // text: the same draft HTML as before (escaped, line breaks)
+  await s.call('create_draft', { account_id: s.row.id, subject: 'Sima szöveg', text: 'a <b>\nb' })
+  assert.match(sourceOf(serverMessages(s, 'Drafts').at(-1)), /<p>a &lt;b&gt;<br>b<\/p>/)
+})
+
+test('create_draft html with attachments: the Modal\'s text is the plain text of the html', async t => {
+  const s = await attachedSetup(t, { confirmWaitMs: 50 })
+  s.policy.decide = () => null
+  const a = localFiles(t).put('a.txt', 'a')
+  const r = await s.call('create_draft', { account_id: s.row.id, to: 'anna@example.invalid', subject: 'Html melléklettel', html: '<p><b>Szia</b>, csatolom.</p>', attachments: [{ path: a }] })
+  assert.equal(r._meta['shadowmail/data'].status, 'pending_confirmation', r.content[0].text)
+  assert.equal(s.requests[0].view.text, 'Szia, csatolom.')
+})
+
+test('the html parameter on the four writing tools (not send_draft), its description names what stays', async t => {
+  const s = await setup(t)
+  const list = s.tools.list()
+  for (const name of ['create_draft', 'create_reply_draft', 'update_draft', 'send_message']) {
+    const p = list.find(x => x.name === name).inputSchema.properties.html
+    assert.equal(p.type, 'string', name)
+    assert.match(p.description, /p, br, div, span, b, strong, i, em, u, s, ul, ol, li, blockquote, pre, code, h1, h2, h3/, name)
+    assert.match(p.description, /Not together with text/, name)
+  }
+  assert.equal(list.find(x => x.name === 'send_draft').inputSchema.properties.html, undefined)
+})

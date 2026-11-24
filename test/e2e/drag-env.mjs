@@ -37,7 +37,7 @@ export async function startRowDrag(app, row, { ms = 5000 } = {}) {
     return { cancelled: ev.defaultPrevented, types: [...dt.types] }
   })
   if (!cancelled) return { cancelled, drag: null, types }
-  for (const end = Date.now() + ms; Date.now() < end; await new Promise(r => setTimeout(r, 25))) {
+  for (const end = performance.now() + ms; performance.now() < end; await new Promise(r => setTimeout(r, 25))) {
     const drags = await startedDrags(app)
     if (drags.length > before) return { cancelled, drag: drags.at(-1) }
   }

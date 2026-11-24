@@ -65,9 +65,9 @@ const lockBarText = (a => {
   return a.slice(a.length - i)
 })(t.lockDraftsFailed(1))
 const until = async (fn, ms = 10_000) => {
-  const t0 = Date.now()
+  const t0 = performance.now()
   while (!(await fn())) {
-    if (Date.now() - t0 > ms) return false
+    if (performance.now() - t0 > ms) return false
     await new Promise(r => setTimeout(r, 100))
   }
   return true

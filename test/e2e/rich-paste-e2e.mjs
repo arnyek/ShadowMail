@@ -17,8 +17,10 @@
 // (e) Ctrl+Shift+V (pasteAndMatchStyle): the text only;
 // (f) a piece of a web page dragged onto the text: the same as pasted; nothing of a foreign style stays raw;
 // (g) a clipboard too complex: no formatting, the informing line;
-// (h) the paste's own 500 ms net: a 1 MB web page copy comes formatted within 1.5 s, a stylesheet-heavy newsletter falls
-//     back within 900 ms (the planner's limits for the whole paste), in a new message and in the middle of a paragraph, one Ctrl+Z back (the many-block wrapper).
+// (h) the paste's own 500 ms net: a 1 MB web page copy comes formatted within 1.5 s, a newsletter over the work ceiling
+//     (its rules all in one class list) falls back within 900 ms (the planner's limits for the whole paste), the 2000-block
+//     newsletter (rules ending in a tag) comes formatted within 1.5 s, in a new message and in the middle of a paragraph,
+//     one Ctrl+Z back (the many-block wrapper).
 // No new CSP line on the composer's console (no image load either; the fallback's known line of the old HTML path, a
 // <style> on the clipboard, counted apart as KNOWN), no page exception, the main log clean.
 // Playwright: PW=<path of the playwright package> (default: the repo's playwright-core devDependency).
@@ -32,7 +34,7 @@ import { simpleParser } from 'mailparser'
 import { JSDOM } from 'jsdom'
 import createDOMPurify from 'dompurify'
 import { FakePop3Server } from '../helpers/fake-pop3.js'
-import { newsletterHtml } from '../helpers/newsletter.js'
+import { newsletterHtml, complexNewsletterHtml } from '../helpers/newsletter.js'
 import { createVaultedDatabase } from '../../core/vault/vaulted-db.js'
 import { AccountStore } from '../../core/accounts/model.js'
 import { newAccountDefaults } from '../../core/accounts/defaults.js'
@@ -451,8 +453,9 @@ try {
     await close(win)
   }
 
-  // (h) the paste's own time net (500 ms): a 1 MB web page copy formatted within 1.5 s; the newsletter on the old way, within
-  // 900 ms (the whole paste; MEASURED 1.2-1.3 s / 0.74-0.78 s: the sanitizer and the step are most of it)
+  // (h) the paste's own time net (500 ms): a 1 MB web page copy formatted within 1.5 s; the newsletter over the ceiling on
+  // the old way, within 900 ms (the whole paste; MEASURED 1.2-1.3 s / 0.74-0.78 s: the sanitizer and the step are most of
+  // it); the 2000-block newsletter formatted (the ancestor-keyed rule index), within 1.5 s
   {
     const block = '<p style="margin: 0px 0px 10px; line-height: 1.5; color: rgb(32, 33, 36);">Bekezdés <span style="font-weight: 700;">vastag</span> <span style="color: rgb(198, 40, 40);">piros</span> <a href="https://example.invalid/" style="color: rgb(26, 13, 171);">link</a></p>'
     const web = block.repeat(Math.ceil((1024 * 1024) / block.length))
@@ -474,14 +477,15 @@ try {
       dt.setData('text/html', h)
       const t0 = performance.now()
       el.dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }))
-      return { ms: performance.now() - t0, red: el.querySelectorAll('span[style*="198, 40, 40"]').length, links: el.querySelectorAll('a').length, sig: Boolean(el.querySelector('[data-sm-signature]')) }
+      return { ms: performance.now() - t0, red: el.querySelectorAll('span[style*="198, 40, 40"]').length, links: el.querySelectorAll('a').length, sig: Boolean(el.querySelector('[data-sm-signature]')), text: el.textContent.includes('lathatotermek'), hidden: el.textContent.includes('rejtettpreheader') }
     }, [html, at])
     // one Ctrl+Z takes the whole paste back (the wrapper is one insert)
     const undoneOnce = async win => {
       await win.locator('.editor').press('Control+Z')
       return win.locator('.editor').evaluate(el => el.innerHTML === window.__before)
     }
-    const news = newsletterHtml({ blocks: 2000 })
+    const news = complexNewsletterHtml()
+    const formatted = newsletterHtml({ blocks: 2000 })
     for (const at of ['new', 'mid']) {
       let win = await newComposer()
       const w = await timed(win, web, at)
@@ -500,9 +504,17 @@ try {
       // line for that (MEASURED; the rich way drops the <style> first: none): the old HTML path's known line, counted apart
       known.push(...consoleLines.splice(from).filter(l => /Applying inline style violates/.test(l) || (consoleLines.push(l), false)))
       const ninfo = await win.locator('.compose-info[role="status"]').textContent()
-      check(`h2 a stylesheet-heavy newsletter (${where}): the old way with the informing line, the signature kept, one Ctrl+Z back`, ninfo === t.composePastePlain && n.sig && (await undoneOnce(win)), `${JSON.stringify(n)} "${ninfo}"`)
+      check(`h2 a newsletter over the work ceiling (${where}): the old way with the informing line, the signature kept, one Ctrl+Z back`, ninfo === t.composePastePlain && n.sig && (await undoneOnce(win)), `${JSON.stringify(n)} "${ninfo}"`)
       check(`h2t the newsletter (${where}) within 900 ms (the whole paste)`, n.ms <= 900, `${Math.round(n.ms)} ms`)
       console.log(`INFO the newsletter (${at}): ${Math.round(n.ms)} ms`)
+      await close(win)
+      win = await newComposer()
+      const f = await timed(win, formatted, at)
+      await win.waitForTimeout(300)
+      const finfo = await win.locator('.compose-info[role="status"]').count()
+      check(`h3 the 2000-block newsletter (${where}) comes formatted (links kept, no informing line, the hidden preheader left out), the signature kept, one Ctrl+Z back`, f.links === 2000 && f.text && !f.hidden && finfo === 0 && f.sig && (await undoneOnce(win)), `${JSON.stringify(f)} info ${finfo}`)
+      check(`h3t the 2000-block newsletter (${where}) within 1.5 s (the whole paste)`, f.ms <= 1500, `${Math.round(f.ms)} ms`)
+      console.log(`INFO the formatted newsletter (${at}): ${Math.round(f.ms)} ms`)
       await close(win)
     }
   }

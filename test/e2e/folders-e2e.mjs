@@ -193,14 +193,14 @@ try {
   await box.waitFor({ state: 'detached' })
 
   const quietSection = page.locator('.folder-tree section', { hasText: 'IMAP néma' })
-  const t0 = Date.now()
+  const t0 = performance.now()
   box = await askDelete(quietSection, 'Csend')
   const first = await box.locator('.confirm-text').innerText()
   const note = await box.locator('.confirm-note').innerText()
-  const shownMs = Date.now() - t0
+  const shownMs = performance.now() - t0
   check('a silent server: the dialog opens at once, "at least" with the checking note', shownMs < 3000 && first === t.confirmFolderDelete('Csend', 2, true) && note === t.folderDeleteChecking, `${shownMs} ms, ${first} / ${note}`)
   text = await settled(box, 20000)
-  const waited = Date.now() - t0
+  const waited = performance.now() - t0
   check('a silent server: after the wait the note goes, the "at least" text stays (about 8 s)', text === first && waited >= 7000 && waited < 20000, `${waited} ms`)
   await box.getByRole('button', { name: t.confirmCancel, exact: true }).click()
   await box.waitFor({ state: 'detached' })

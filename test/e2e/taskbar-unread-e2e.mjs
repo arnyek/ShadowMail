@@ -71,12 +71,15 @@ seedLanguage(dataDir)
 
 // the overlay log: every call so far
 const calls = () => (fs.existsSync(overlayLog) ? fs.readFileSync(overlayLog, 'utf8').trim().split('\n').filter(Boolean).map(l => JSON.parse(l)) : [])
-// waits for an overlay call (after the first `from` calls) showing `n` (null = no badge); -> ms from `t0`, or null
+// waits for an overlay call (after the first `from` calls) showing `n` (null = no badge); -> ms from `t0`
+// (performance.now()) until this process saw the call, or null. Not the call's own `at`: that is the app's
+// wall clock, which steps back on WSL, and another process's performance.now() has another origin; seeing
+// it here is at most one poll later, so the figure can only come out longer, never shorter.
 async function waitOverlay(n, from, t0, timeout = 2000) {
   for (;;) {
     const hit = calls().slice(from).find(c => c.n === n)
-    if (hit) return hit.at - t0
-    if (Date.now() - t0 > timeout + 500) return null
+    if (hit) return performance.now() - t0
+    if (performance.now() - t0 > timeout + 500) return null
     await sleep(50)
   }
 }
@@ -121,7 +124,7 @@ const launch = async () => {
 }
 const unlock = async page => {
   await page.locator('#vault-unlock').fill(MASTER)
-  const t0 = Date.now()
+  const t0 = performance.now()
   await page.getByRole('button', { name: t.vaultUnlockButton, exact: true }).click()
   return t0
 }
@@ -134,7 +137,7 @@ const row = (page, subject) => page.locator('.msg-row', { hasText: subject })
 // one step: do it, then the badge must show the sidebar's total within 2 s
 async function follows(page, name, step, expected) {
   const from = calls().length
-  const t0 = Date.now()
+  const t0 = performance.now()
   await step()
   const ms = await waitOverlay(expected, from, t0)
   const side = await sidebarTotal(page)
@@ -163,7 +166,7 @@ try {
   {
     const from = calls().length
     const ids = (await page.evaluate(id => window.shadowMail.mail.ids({ accountId: id, folder: 'INBOX' }), accB.id)).ids
-    const t0 = Date.now()
+    const t0 = performance.now()
     const r = await page.evaluate(ids => window.shadowMail.mail.action({ ids, action: 'read' }), ids)
     const ms = await waitOverlay(3, from, t0, 5000)
     await sleep(1000)
@@ -213,7 +216,7 @@ try {
   // 9. lock and unlock
   {
     const from = calls().length
-    const t0 = Date.now()
+    const t0 = performance.now()
     await page.evaluate(() => window.shadowMail.vault.lock())
     const ms = await waitOverlay(null, from, t0, 1000)
     check('lock: the badge goes within 1 s', ms !== null && ms <= 1000, `${ms} ms`)
@@ -246,7 +249,7 @@ try {
   if (vp) await page.setViewportSize(vp)
   {
     const from = calls().length
-    const t0 = Date.now()
+    const t0 = performance.now()
     await page.locator('label', { has: sw }).click()
     const ms = await waitOverlay(null, from, t0, 1000)
     const unchecked = await page.waitForFunction(() => !document.querySelector('#taskbar-unread-switch').checked, null, { timeout: 2000 }).then(() => true, () => false)
@@ -259,12 +262,12 @@ try {
     await page.evaluate(id => window.shadowMail.mail.action({ ids: [id], action: 'read' }), negy.id)
     await sleep(1500)
     check('off: a new message and a read call no overlay', Boolean(await byName('Talca ot')) && calls().length === quiet, `${calls().length - quiet} call(s)`)
-    const t1 = Date.now()
+    const t1 = performance.now()
     await page.locator('label', { has: sw }).click()
     const ms2 = await waitOverlay(1, quiet, t1)
     check('switched on: the right number within 2 s', ms2 !== null && ms2 <= 2000 && (await sidebarTotal(page)) === 1, `${ms2} ms`)
     await page.locator('label', { has: sw }).click()
-    await waitOverlay(null, calls().length - 1, Date.now() - 1000)
+    await waitOverlay(null, calls().length - 1, performance.now() - 1000)
   }
   {
     await page.evaluate(() => window.shadowMail.vault.lock())

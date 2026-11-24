@@ -10,10 +10,17 @@ import { RowText } from './RowText.jsx'
 import { Icon } from './Icon.jsx'
 import { assignRoles } from '../../../core/imap/folders.js'
 import { RECIPIENT_ROLES } from '../../../core/mime/recipient-label.js'
+import { getPref, setPref } from './prefs.js'
 
 const api = window.shadowMail
 export const SEARCH_DELAY_MS = 300
-export const EMPTY_FILTERS = Object.freeze({ accountId: null, folder: '', from: '', to: '', since: '', until: '', hasAttachment: false, unread: false, flagged: false, label: null, sort: 'relevance' })
+export const EMPTY_FILTERS = Object.freeze({ accountId: null, folder: '', from: '', to: '', since: '', until: '', hasAttachment: false, unread: false, flagged: false, label: null, sort: 'date' })
+
+// The search's order, as the user last chose it on the Sort chip (kept across restarts); new or a broken value: by date
+export const SEARCH_SORT_KEY = 'searchSort'
+export function storedSearchSort() {
+  return getPref(SEARCH_SORT_KEY, 'date') === 'relevance' ? 'relevance' : 'date'
+}
 
 const hasFlag = (flags, flag) => (flags || '').split(' ').includes(flag)
 
@@ -88,7 +95,7 @@ export function fromConditions(c) {
     unread: c.unread === true,
     flagged: c.flagged === true,
     label: null,
-    sort: c.sort === 'date' ? 'date' : 'relevance',
+    sort: c.sort === 'relevance' ? 'relevance' : 'date',
   }
 }
 
@@ -99,11 +106,12 @@ export function listFilterOn(f) {
 
 /**
  * Esc in the search field leaves the SEARCH only: the query's own fields go
- * (sender, recipient, the account / folder scope, the relevance order); the folder filters stay, they
+ * (sender, recipient, the account / folder scope; the order goes back to the user's stored choice, so an order Claude
+ * asked for ends with its search); the folder filters stay, they
  * end only when switched off or with "Szűrők törlése".
  */
 export function leftSearch(f) {
-  return { ...f, from: '', to: '', accountId: null, folder: '', sort: EMPTY_FILTERS.sort }
+  return { ...f, from: '', to: '', accountId: null, folder: '', sort: storedSearchSort() }
 }
 
 /** Every filter off, the search's own order kept (Szűrők törlése). */
@@ -261,10 +269,14 @@ export function SearchChips({ accounts, filters, onChange, searching = true, vie
             value={filters.sort}
             showValue
             options={[
-              { value: 'relevance', label: t.searchSort.relevance },
               { value: 'date', label: t.searchSort.date },
+              { value: 'relevance', label: t.searchSort.relevance },
             ]}
-            onChange={v => set({ sort: v })}
+            onChange={v => {
+              // only the user's own choice is kept (an order Claude's show_search asked for is not)
+              setPref(SEARCH_SORT_KEY, v)
+              set({ sort: v })
+            }}
           />
         )}
       </span>

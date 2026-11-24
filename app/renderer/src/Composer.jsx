@@ -139,15 +139,17 @@ const BLOCK_COMMANDS = new Set(['formatBlock', 'insertUnorderedList', 'insertOrd
  * typed character: the browser keeps the deleted text's b/i/u and its quote or list, and a bold or italic toggled over
  * them is written as a style attribute, which the page's CSP blocks. So the first typed character starts from a clean
  * paragraph, with only what the user chose since. Everything goes through editing commands, so the undo stack keeps it:
- * Ctrl+Z right after the delete brings the text back at once (nothing is changed before the first character).
- *   watch(el, e) on every beforeinput and input event of the editor; choose(cmd) for a command of the formatting bar (a
- *   command fires no beforeinput, and its input event can not be told apart reliably).
+ * Ctrl+Z right after the delete brings the text back at once (nothing is changed before the first character, or before
+ * a quote, list, colour or highlight chosen into the emptied text: then the plain start comes before the choice).
+ *   watch(el, e) on every beforeinput, input and compositionstart event of the editor; choose(cmd, el) for a command of the formatting bar (a
+ *   command fires no beforeinput, and its input event can not be told apart reliably); beforePaste(el) right before a
+ *   paste inserts its text (the paste's own command fires no beforeinput either).
  */
 export function createEmptyTextGuard() {
-  // { toggles: { bold, italic, underline } (odd = the user turned it on), block: a quote/list chosen, color / highlight: a
-  // text colour / highlight chosen }
+  // { toggles: { bold, italic, underline } (odd = the user turned it on), color / highlight: a text colour / highlight
+  // chosen, reset: the plain start already made (before a quote, list, colour or highlight chosen since) }
   let emptied = null
-  const fresh = () => ({ toggles: { bold: 0, italic: 0, underline: 0 }, block: false, color: false, highlight: false })
+  const fresh = () => ({ toggles: { bold: 0, italic: 0, underline: 0 }, color: false, highlight: false, reset: false })
   let cleaning = false // the clean-up's own commands fire input events too: not the user's choice
   // the delete took a selection (not a single character): only that starts the text again; one Backspace keeps the
   // formatting (Ctrl+B, x, Backspace, y = bold y)
@@ -171,13 +173,57 @@ export function createEmptyTextGuard() {
     for (; n && n !== el; n = n.parentNode) if (n.nodeType === 1 && /^(BLOCKQUOTE|UL|OL|LI)$/.test(n.tagName)) return true
     return false
   }
+  // the emptied block can still carry the deleted text's own style (a pasted <div style>, which formatBlock copies onto
+  // the new block; the editor's remembered font size of a pasted span): one delete over the editor's content, so the
+  // next text starts in a new block. When the signature block is still there, only the caret's block is emptied: a delete
+  // up to the signature block pulls its first line up into the text
+  const clearBefore = el => {
+    const sel = window.getSelection()
+    if (!sel || !sel.rangeCount || !el.firstChild) return
+    const { top } = outsideSignature(el)
+    // the caret's top-level block, asked again after each command: a delete can replace the block with a new node
+    const caretBlock = () => {
+      if (!sel.rangeCount) return null
+      const { startContainer, startOffset } = sel.getRangeAt(0)
+      let b = startContainer === el ? el.childNodes[startOffset] || el.lastChild : startContainer
+      while (b && b.parentNode !== el) b = b.parentNode
+      return b
+    }
+    // a whole list deleted leaves its style behind as inline wrappers around the empty line (MEASURED): one more delete.
+    // Beside the signature block that delete keeps them, and the block's own style too (MEASURED): there an empty
+    // paragraph replaces what is left
+    for (let i = 0; i < 3; i++) {
+      const block = top ? caretBlock() : el
+      if (!block || block === top || !block.firstChild) return
+      if (i > 0 && ![...block.querySelectorAll('*')].some(n => n.tagName !== 'BR')) return
+      const r = document.createRange()
+      r.selectNodeContents(block)
+      sel.removeAllRanges()
+      sel.addRange(r)
+      if (i > 0 && top) {
+        document.execCommand('insertHTML', false, '<p><br></p>')
+        return
+      }
+      document.execCommand('delete')
+    }
+  }
+  // the plain start of the emptied text: its content deleted, out of a quote or list, one paragraph. Before a block
+  // command no paragraph: a list made in an empty paragraph lands inside it, <p><ul> (MEASURED, a plain one too), so
+  // before a list a paragraph left there (beside the signature block) becomes a div
+  const reset = (el, beforeCmd) => {
+    clearBefore(el)
+    for (let i = 0; i < 3 && blockAt(el); i++) document.execCommand('outdent')
+    if (!beforeCmd) {
+      if (document.queryCommandValue('formatBlock') !== 'p') document.execCommand('formatBlock', false, 'p')
+    } else if (/List$/.test(beforeCmd) && document.queryCommandValue('formatBlock') === 'p') {
+      document.execCommand('formatBlock', false, 'div')
+    }
+  }
   const clean = (el, state) => {
     cleaning = true
     try {
-      if (!state.block) {
-        for (let i = 0; i < 3 && blockAt(el); i++) document.execCommand('outdent')
-        if (document.queryCommandValue('formatBlock') !== 'p') document.execCommand('formatBlock', false, 'p')
-      }
+      // a block, colour or highlight chosen since had the plain start before it (choose)
+      if (!state.reset) reset(el)
       for (const f of ['bold', 'italic', 'underline']) if (document.queryCommandState(f) !== Boolean(state.toggles[f] % 2)) document.execCommand(f)
       // the deleted text's colour and highlight are kept for the next character too: back to none, unless chosen since
       // (no colour: the "Automatic" marker, which the editor shows in the colour around it and nothing sends)
@@ -202,6 +248,13 @@ export function createEmptyTextGuard() {
     if (!el) return
     const type = e.inputType || ''
     if (cleaning) return
+    // a composition (an IME, a dead key) as the first input: the clean-up runs at its start, before the composition
+    // writes anything, never while it is going on (a command there could break the IME's text)
+    if (e.type === 'compositionstart') {
+      if (emptied && isEmpty(el)) clean(el, emptied)
+      emptied = null
+      return
+    }
     if (e.type === 'input') {
       if (type.startsWith('delete')) emptied = selectedDelete && isEmpty(el) ? fresh() : null
       return
@@ -216,7 +269,14 @@ export function createEmptyTextGuard() {
       if (emptied) emptied.toggles[FORMATS[type]]++
       return
     }
-    if (type !== 'insertText') return
+    // Enter or Shift+Enter as the first input starts a clean paragraph too; the state lives on until the first character
+    // (the new paragraph can carry the old formatting again), whose clean-up then changes only what still differs
+    const lineBreak = type === 'insertParagraph' || type === 'insertLineBreak'
+    if (type === 'insertText' || lineBreak) begin(el, lineBreak)
+  }
+  // the first typed or pasted text (or a line break): a selection over the whole text is deleted first, then the emptied
+  // text starts clean
+  const begin = (el, lineBreak = false) => {
     if (coversAll(el)) {
       cleaning = true
       try {
@@ -227,16 +287,32 @@ export function createEmptyTextGuard() {
       emptied = isEmpty(el) ? fresh() : null
     }
     if (emptied && isEmpty(el)) clean(el, emptied)
-    emptied = null
+    // after a line break the state lives on with its plain start made: the first character's clean-up then changes only
+    // what still differs (a second reset would delete the new line)
+    if (!lineBreak) emptied = null
+    else if (emptied) emptied.reset = true
   }
-  const choose = cmd => {
+  // a paste inserts with its own command, which fires no beforeinput: the paste handler calls this before it
+  const beforePaste = el => {
+    if (el && !cleaning) begin(el)
+  }
+  const choose = (cmd, el) => {
     if (!emptied) return
+    // a block, colour or highlight chosen into the emptied text lands on the plain start, not on the deleted text's style
+    if ((BLOCK_COMMANDS.has(cmd) || cmd === 'foreColor' || cmd === 'hiliteColor') && !emptied.reset && el && isEmpty(el)) {
+      cleaning = true
+      try {
+        reset(el, BLOCK_COMMANDS.has(cmd) ? cmd : null)
+      } finally {
+        cleaning = false
+      }
+      emptied.reset = true
+    }
     if (INLINE_COMMANDS.has(cmd)) emptied.toggles[cmd]++
-    else if (BLOCK_COMMANDS.has(cmd)) emptied.block = true
     else if (cmd === 'foreColor') emptied.color = true
     else if (cmd === 'hiliteColor') emptied.highlight = true
   }
-  return { watch, choose }
+  return { watch, choose, beforePaste }
 }
 
 /**
@@ -679,9 +755,11 @@ export function Composer({ sessionId }) {
     }
     el.addEventListener('beforeinput', onEvent)
     el.addEventListener('input', onEvent)
+    el.addEventListener('compositionstart', onEvent)
     return () => {
       el.removeEventListener('beforeinput', onEvent)
       el.removeEventListener('input', onEvent)
+      el.removeEventListener('compositionstart', onEvent)
     }
   }, [])
 
@@ -723,7 +801,7 @@ export function Composer({ sessionId }) {
       setAsk({ kind: 'link' })
       return
     }
-    emptyGuard.current.choose(cmd)
+    emptyGuard.current.choose(cmd, editor.current)
     document.execCommand(cmd, false, arg)
     bodyTouched.current = true
     touch()
@@ -738,7 +816,7 @@ export function Composer({ sessionId }) {
     else editor.current.focus()
     let v = value
     if (v === null) v = cmd === 'hiliteColor' ? 'transparent' : AUTO_COLOR
-    emptyGuard.current.choose(cmd)
+    emptyGuard.current.choose(cmd, editor.current)
     document.execCommand('styleWithCSS', false, false)
     document.execCommand(cmd, false, v)
     bodyTouched.current = true
@@ -1042,7 +1120,9 @@ export function Composer({ sessionId }) {
             return
           }
           // the formatting stays (a table with its grid, colours, fonts, lists), only what can do harm goes (pasteHtml);
-          // no text/html (Ctrl+Shift+V: Chromium hands only the text/plain then, MEASURED): the plain text
+          // no text/html (Ctrl+Shift+V: Chromium hands only the text/plain then, MEASURED): the plain text. Into an
+          // emptied text both start clean, as typing does (createEmptyTextGuard)
+          if (!sentRef.current) emptyGuard.current.beforePaste(editor.current)
           if (html) {
             pasteHtml(html)
             return

@@ -13,7 +13,7 @@ import { oldTextOf, previewOf, searchTextOf } from '../../core/mime/text.js'
 import { ActionError } from './sync-manager.js'
 import { BODY_STATE } from '../../core/db/mail-index.js'
 import { assignRoles } from '../../core/imap/folders.js'
-import { cidRefsIn, cidResolver } from '../../core/mime/cid.js'
+import { cidResolver, imgCidRefsIn } from '../../core/mime/cid.js'
 
 // cid: images served to the message frame. SVG is left out on purpose (no scripts in <img>, but no need either).
 export const CID_IMAGE_TYPES = Object.freeze(['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'image/bmp', 'image/x-icon'])
@@ -25,12 +25,14 @@ const addFlag = (flags, flag) => (hasFlag(flags, flag) ? flags || '' : [...(flag
  * The attachments a message offers as files: all but the embedded images its body shows. The part a cid: reference shows
  * is the one cidResolver picks (the Content-ID written the same way, else another case or %-encoded): a mail program may
  * write the reference in another case, and the image then showed broken and was offered as a file. Only the parts a
- * reference really shows are left out, so of two parts whose Content-IDs differ only in case none goes missing.
+ * reference really shows are left out, so of two parts whose Content-IDs differ only in case none goes missing. Only an
+ * <img src> shows a part (imgCidRefsIn): a part referred to only by a background, a CSS url(), a link or the text is
+ * shown nowhere, so it is offered.
  */
 export function offeredAttachments(parsed) {
   const shows = cidResolver(parsed.attachments)
   const shown = new Set()
-  for (const ref of cidRefsIn(parsed.html)) {
+  for (const ref of imgCidRefsIn(parsed.html)) {
     const part = shows(ref)
     if (part) shown.add(part)
   }

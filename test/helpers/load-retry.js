@@ -1,17 +1,19 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // A test whose result rests on core/mime/visible-text.js's wall-clock net (TIME_LIMIT_MS, 1500 ms): on a loaded machine
-// (`npm test` runs its files in parallel) the honest work on the 404 KB newsletter passes the net, the text comes back
+// (`npm test` runs its files in parallel) the honest work on a 404 KB newsletter passes the net, the text comes back
 // empty and the visible word is not found. The product keeps the net (a CPU-time net is a later card); the test tells a
 // loaded machine from a broken build: after a failure it times the same extraction once, and runs the scenario again
 // ONLY if that took over LOADED_MS. On a quiet machine the first failure is thrown at once, so a real regression (the
 // visible text never found) still fails.
 import { visibleTextInfo } from '../../core/mime/visible-text.js'
-import { newsletterHtml } from './newsletter.js'
+import { complexNewsletterHtml } from './newsletter.js'
 
-export const LOADED_MS = 1000 // the extraction on a quiet machine: 0.7-0.8 s, the net 1500
+// the extraction on a quiet machine: 0.7-0.8 s, the net 1500. The gauge is the complex newsletter (its rules all in one
+// class list): it works up to the ceiling whatever the index does, so its time stays a measure of the machine
+export const LOADED_MS = 1000
 
-/** The wall-clock time of one visible-text extraction of the 404 KB newsletter now. */
-export function extractionMs(html = newsletterHtml({ blocks: 2000 })) {
+/** The wall-clock time of one visible-text extraction of the complex newsletter now. */
+export function extractionMs(html = complexNewsletterHtml()) {
   const t0 = performance.now()
   visibleTextInfo(html)
   return performance.now() - t0

@@ -10,7 +10,7 @@ export function setupDom() {
   register('./jsx-loader.mjs', import.meta.url)
   dom = new JSDOM('<!doctype html><html><body></body></html>', { pretendToBeVisual: true, url: 'http://localhost/' })
   const w = dom.window
-  for (const key of ['window', 'document', 'navigator', 'HTMLElement', 'Node', 'Element', 'Event', 'KeyboardEvent', 'MouseEvent', 'FocusEvent', 'getComputedStyle']) {
+  for (const key of ['window', 'document', 'navigator', 'HTMLElement', 'Node', 'NodeFilter', 'Element', 'Event', 'KeyboardEvent', 'MouseEvent', 'FocusEvent', 'getComputedStyle']) {
     Object.defineProperty(globalThis, key, { value: key === 'window' ? w : w[key], configurable: true, writable: true })
   }
   globalThis.IS_REACT_ACT_ENVIRONMENT = true

@@ -63,9 +63,9 @@ const folderSel = p => `.folder-tree section[data-account="${pop}"] .folder[data
 const subjectsIn = (page, folder) =>
   page.evaluate(async q => (await window.shadowMail.mail.list({ ...q, sort: 'date', dir: 'asc', offset: 0, limit: 50 })).rows.map(r => r.subject), { accountId: pop, folder })
 const until = async (fn, what, ms = 8000) => {
-  const t0 = Date.now()
+  const t0 = performance.now()
   while (!(await fn())) {
-    if (Date.now() - t0 > ms) throw new Error(`timed out: ${what}`)
+    if (performance.now() - t0 > ms) throw new Error(`timed out: ${what}`)
     await sleep(50)
   }
 }

@@ -9,7 +9,7 @@ import { JSDOM } from 'jsdom'
 import createDOMPurify from 'dompurify'
 import { preparePaste, MIN_CONTRAST, MAX_PASTE_CELLS, MAX_PASTE_TABLE_DEPTH, PASTE_TIME_LIMIT_MS } from '../core/mime/paste-prepare.js'
 import { contrastRatio, MAX_TAGS, visibleTextInfo, TIME_LIMIT_MS } from '../core/mime/visible-text.js'
-import { newsletterHtml } from './helpers/newsletter.js'
+import { complexNewsletterHtml } from './helpers/newsletter.js'
 import { retryWhenLoaded } from './helpers/load-retry.js'
 import { sanitizeCompose } from '../app/renderer/src/sanitize.js'
 
@@ -159,14 +159,14 @@ test(`the paste's own time net: ${PASTE_TIME_LIMIT_MS} ms (the planner's decisio
   assert.equal(preparePaste(html, { clocks: clockAt(400) }).plain, false, 'under 500 ms: formatted')
 })
 
-test('a stylesheet-heavy newsletter (the reader\'s complex case) falls back within 900 ms', async t => {
+test('a stylesheet-heavy newsletter over the work ceiling (the reader\'s complex case) falls back within 900 ms', async t => {
   // a wall-clock limit: `npm test` runs its files in parallel, so a failure is tried again only on a machine that
   // measures as loaded (load-retry.js); on a quiet one the first failure stands
   await retryWhenLoaded(t, () => {
     const runs = []
     for (let i = 0; i < 3; i++) {
       const t0 = performance.now()
-      const r = preparePaste(newsletterHtml({ blocks: 2000 }))
+      const r = preparePaste(complexNewsletterHtml())
       runs.push(performance.now() - t0)
       assert.equal(r.plain, true)
     }
@@ -229,4 +229,17 @@ test('a background on a tag the sanitizer unwraps (center, body) is no backgroun
 test('a clipboard\'s own <style> rules are written onto the elements too (one rule with the quote): a class colour and background stay', () => {
   assert.equal(sanitizeCompose(purify, ready('<style>.d { background-color: #000000; } .w { color: #ffffff; }</style><div class="d"><span class="w">fehér a feketén</span></div>'), { rich: true }),
     '<div style="background-color: #000000;"><span style="color: #ffffff;">fehér a feketén</span></div>')
+})
+
+test('a tie of rank and specificity within one rule: the later declaration wins (the shorthand and its longhand in the text\'s order)', () => {
+  const cell = html => /<td[^>]*style="([^"]*)"/.exec(preparePaste(html).html)?.[1]
+  const sheet = css => `<style>${css}</style><table><tr><td class="a b" id="q">x</td></tr></table>`
+  // two classes on the cell, the winning rule has border and then border-top: the top is dotted blue (as the browser has it)
+  assert.equal(cell(sheet('.a { border-top: 0 } .b { border: 2px solid red; border-top: 3px dotted blue }')), 'border: 2px solid red; border-top: 3px dotted blue')
+  // an id and !important: the same
+  assert.equal(cell(sheet('#q { border-top: 0 } .b { border: 2px solid red !important; border-top: 3px dotted blue !important }')), 'border: 2px solid red; border-top: 3px dotted blue')
+  // the other order in the text: the shorthand last, it wins the top
+  assert.equal(cell(sheet('.b { border-top: 3px dotted blue; border: 2px solid red }')), 'border-top: 3px dotted blue; border: 2px solid red')
+  // a name written twice counts at its last place
+  assert.equal(cell(sheet('.b { border-top: 1px solid green; border: 2px solid red; border-top: 3px dotted blue }')), 'border: 2px solid red; border-top: 3px dotted blue')
 })

@@ -7,7 +7,7 @@ import { setupDom, mount, inAct, key } from './helpers/react-dom-env.js'
 
 setupDom()
 const { createElement: h } = await import('react')
-const { SearchChips, EMPTY_FILTERS, toListFilter, listFilterOn, clearedFilters, leftSearch, toRequest, fromConditions } = await import('../app/renderer/src/Search.jsx')
+const { SearchChips, EMPTY_FILTERS, toListFilter, listFilterOn, clearedFilters, leftSearch, toRequest, fromConditions, storedSearchSort, SEARCH_SORT_KEY } = await import('../app/renderer/src/Search.jsx')
 
 const folder = (path, extra = {}) => ({ path, delimiter: '/', special_use: null, count: 3, unread: 0, ...extra })
 const ACCOUNTS = [
@@ -112,7 +112,7 @@ test('folder view: no aria-disabled chip and no help line; the filter chips work
   assert.deepEqual(sortPicks, ['from'], "the order chip runs the list's own item")
 })
 
-test('with a search the chips are as before: "Minden fiók", the account filter, Relevancia / Dátum', async t => {
+test('with a search the chips are as before: "Minden fiók", the account filter, Dátum / Relevancia', async t => {
   let filters = EMPTY_FILTERS
   const v = await mount(h(SearchChips, { accounts: ACCOUNTS, filters, onChange: f => (filters = f), searching: true, view: { accountId: 1, folder: 'INBOX' } }))
   t.after(v.unmount)
@@ -123,7 +123,7 @@ test('with a search the chips are as before: "Minden fiók", the account filter,
   assert.deepEqual([...root.querySelectorAll('[role="menuitemradio"]')].map(i => i.textContent), ['Minden fiók', 'Első fiók', 'Második fiók', 'Üres fiók'])
   await click(root.querySelectorAll('[role="menuitemradio"]')[2])
   assert.equal(filters.accountId, 2)
-  assert.equal(chipByText(root, 'Rendezés').textContent, 'Rendezés: Relevancia')
+  assert.equal(chipByText(root, 'Rendezés').textContent, 'Rendezés: Dátum', 'a new search: by date')
 })
 
 // Claude's show_search conditions -> the panel state
@@ -202,4 +202,46 @@ test('the Label chip: only with labels; a menu of the labels with their color; t
   assert.equal(leftSearch(on).label, 7, 'Esc leaves the search, the folder filter stays')
   assert.equal(clearedFilters(on).label, null, 'Szűrők törlése')
   assert.equal(fromConditions({ label: 7 }).label, null, "Claude's show_search sets no label (yet)")
+})
+
+// the search's order: by date unless the user chose relevance on the Sort chip; the choice is kept (a view setting)
+const STORE = `shadowmail.ui.${'searchSort'}`
+test('storedSearchSort: by date when nothing is stored or the value is broken or unknown; relevance only when chosen', t => {
+  t.after(() => window.localStorage.removeItem(STORE))
+  assert.equal(SEARCH_SORT_KEY, 'searchSort')
+  window.localStorage.removeItem(STORE)
+  assert.equal(storedSearchSort(), 'date')
+  for (const raw of ['"relevance"']) (window.localStorage.setItem(STORE, raw), assert.equal(storedSearchSort(), 'relevance', raw))
+  for (const raw of ['"date"', '"subject"', '{', '5', 'null', '"RELEVANCE"', '["relevance"]', '']) {
+    window.localStorage.setItem(STORE, raw)
+    assert.equal(storedSearchSort(), 'date', JSON.stringify(raw))
+  }
+})
+
+test('leftSearch takes the stored order (an order Claude asked for ends with its search); fromConditions: relevance only when asked', t => {
+  t.after(() => window.localStorage.removeItem(STORE))
+  window.localStorage.setItem(STORE, '"relevance"')
+  assert.equal(leftSearch({ ...EMPTY_FILTERS, sort: 'date' }).sort, 'relevance')
+  window.localStorage.removeItem(STORE)
+  assert.equal(leftSearch({ ...EMPTY_FILTERS, sort: 'relevance' }).sort, 'date')
+  assert.equal(fromConditions({ sort: 'relevance' }).sort, 'relevance')
+  for (const sort of [undefined, 'date', 'subject', 5]) assert.equal(fromConditions({ sort }).sort, 'date', String(sort))
+  // clearing the filters keeps the order on screen
+  assert.equal(clearedFilters({ ...EMPTY_FILTERS, sort: 'relevance', unread: true }).sort, 'relevance')
+})
+
+test('the Sort chip: Dátum first; the user\'s pick is stored and applied', async t => {
+  t.after(() => window.localStorage.removeItem(STORE))
+  window.localStorage.removeItem(STORE)
+  let filters = EMPTY_FILTERS
+  const v = await mount(h(SearchChips, { accounts: ACCOUNTS, filters, onChange: f => (filters = f), searching: true, view: { accountId: 1, folder: 'INBOX' } }))
+  t.after(v.unmount)
+  const root = v.container
+  await click(chipByText(root, 'Rendezés'))
+  const items = [...root.querySelectorAll('[role="menuitemradio"]')]
+  assert.deepEqual(items.map(i => i.textContent), ['Dátum', 'Relevancia'])
+  await click(items[1])
+  assert.equal(filters.sort, 'relevance')
+  assert.equal(window.localStorage.getItem(STORE), '"relevance"')
+  assert.equal(storedSearchSort(), 'relevance')
 })

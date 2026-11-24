@@ -171,9 +171,9 @@ try {
       reader: document.querySelector('.reader-subject')?.textContent || null,
     }))
   const waitIds = async (want, ms = 10_000) => {
-    const t0 = Date.now()
+    const t0 = performance.now()
     let s = await state()
-    while (JSON.stringify(s.ids) !== JSON.stringify(want) && Date.now() - t0 < ms) {
+    while (JSON.stringify(s.ids) !== JSON.stringify(want) && performance.now() - t0 < ms) {
       await sleep(100)
       s = await state()
     }
@@ -205,8 +205,35 @@ try {
   const s2 = await waitIds(expect2)
   check('query only: the window\'s hits and their order are search_messages\' (both accounts)', JSON.stringify(s2.ids) === JSON.stringify(expect2) && expect2.length === 6 && expect2.includes(bySubject('B-fiók számla').id), JSON.stringify({ ui: s2.ids, sm: expect2 }))
   const on2 = s2.chips.filter(([, p]) => p === 'true').map(([text]) => text)
-  check('query only: no chip is left on; "Rendezés: Relevancia"', on2.length === 0 && s2.chips.some(([text]) => text === `${t.searchFilter.sort}: ${t.searchSort.relevance}`), JSON.stringify(s2.chips))
+  check('query only: no chip is left on; without a sort the order chip says Dátum', on2.length === 0 && s2.chips.some(([text]) => text === `${t.searchFilter.sort}: ${t.searchSort.date}`), JSON.stringify(s2.chips))
   check('query only: the count in the answer', meta(r2).total === 6 && /: 6 találat/.test(r2.content[0].text), r2.content[0].text)
+  // search_messages without a sort: newest first (the messages' dates are minutes apart, the newest is B's Anna)
+  const dateOf = id => [...rowsA, ...rowsB].find(r => r.id === id).date
+  check('search_messages without a sort: newest first', expect2.every((id, i) => i === 0 || dateOf(expect2[i - 1]) >= dateOf(id)) && expect2[0] === bySubject('B-fiók Anna számla').id, JSON.stringify(expect2.map(dateOf)))
+  // 2b. the user's stored order is relevance: Claude's show_search without a sort still shows by date and does not write
+  // the stored choice; with sort 'relevance' it shows relevance; after Esc the user's own search starts with the stored one
+  const STORE = 'shadowmail.ui.searchSort'
+  const stored = () => page.evaluate(k => window.localStorage.getItem(k), STORE)
+  const sortChip = s => (s.chips.find(([text]) => text.startsWith(t.searchFilter.sort)) || [null])[0]
+  await page.evaluate(k => window.localStorage.setItem(k, '"relevance"'), STORE)
+  await c.tool('show_search', { query: 'kettő' }) // another search first, so the next one is a change the window applies
+  const r2b = await c.tool('show_search', few)
+  const s2b = await waitIds(expect2)
+  check('stored relevance: show_search without a sort is by date, search_messages\' order', r2b.isError === false && JSON.stringify(s2b.ids) === JSON.stringify(expect2) && sortChip(s2b) === `${t.searchFilter.sort}: ${t.searchSort.date}`, JSON.stringify({ ui: s2b.ids, chip: sortChip(s2b) }))
+  check('show_search does not write the stored order', (await stored()) === '"relevance"', await stored())
+  const expectRel = await smIds({ ...few, sort: 'relevance' })
+  await c.tool('show_search', { ...few, sort: 'relevance' })
+  const s2c = await waitIds(expectRel)
+  check('show_search sort relevance: relevance, search_messages\' relevance order', JSON.stringify(s2c.ids) === JSON.stringify(expectRel) && sortChip(s2c) === `${t.searchFilter.sort}: ${t.searchSort.relevance}`, JSON.stringify({ ui: s2c.ids, sm: expectRel, chip: sortChip(s2c) }))
+  await c.tool('show_search', few)
+  await waitIds(expect2)
+  const box = page.locator('.app-header-search input[type="search"]')
+  await box.press('Escape')
+  await box.fill('számla')
+  const s2d = await waitIds(expectRel)
+  check('after Esc the user\'s own search starts with the stored order (relevance)', sortChip(s2d) === `${t.searchFilter.sort}: ${t.searchSort.relevance}` && JSON.stringify(s2d.ids) === JSON.stringify(expectRel), JSON.stringify({ ui: s2d.ids, chip: sortChip(s2d) }))
+  await box.press('Escape')
+  await page.evaluate(k => window.localStorage.removeItem(k), STORE)
 
   // 3. a folder without an account; the sender only
   const fold = { from: 'Árvíztűrő', folder: 'INBOX' }

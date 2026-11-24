@@ -804,13 +804,25 @@ export class MailIndex {
         params.push(label, label)
       }
       const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : ''
-      const byRelevance = ftsQuery && sort !== 'date'
+      if (ftsQuery && sort === 'date') {
+        // By date, SQLite computes snippet() for EVERY hit before it sorts (measured: 95 000 hits, 1.1 s); so the inner
+        // query picks the newest `limit` ids under every condition (the filters decide which ones), and the outer one
+        // computes the snippet for those only. The same rows and snippets as one query; ties by id, as in the folder list.
+        const inner = where.map(w => (w === 'messages_fts MATCH ?' ? 'f2.messages_fts MATCH ?' : w.replace(/\bm\./g, 'm2.')))
+        const sql = `SELECT m.*, snippet(messages_fts, 3, '«', '»', '…', 14) AS snip
+            FROM messages_fts JOIN messages m ON m.id = messages_fts.rowid
+            WHERE messages_fts MATCH ? AND m.id IN (
+              SELECT m2.id FROM messages_fts f2 JOIN messages m2 ON m2.id = f2.rowid
+               WHERE ${inner.join(' AND ')} ORDER BY m2.date DESC, m2.id DESC LIMIT ?)
+            ORDER BY m.date DESC, m.id DESC`
+        return this.db.prepare(sql).all(ftsQuery, ...params, limit)
+      }
       const sql = ftsQuery
         ? `SELECT m.*, snippet(messages_fts, 3, '«', '»', '…', 14) AS snip,
               bm25(messages_fts, 8.0, 4.0, 2.0, 1.0) AS rank
             FROM messages_fts JOIN messages m ON m.id = messages_fts.rowid
-            ${whereSql} ORDER BY ${byRelevance ? 'rank' : 'm.date DESC'} LIMIT ?`
-        : `SELECT m.*, NULL AS snip FROM messages m ${whereSql} ORDER BY m.date DESC LIMIT ?`
+            ${whereSql} ORDER BY rank LIMIT ?`
+        : `SELECT m.*, NULL AS snip FROM messages m ${whereSql} ORDER BY m.date DESC, m.id DESC LIMIT ?`
       return this.db.prepare(sql).all(...params, limit)
     }
 

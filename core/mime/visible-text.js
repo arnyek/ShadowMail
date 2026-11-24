@@ -27,6 +27,7 @@
 // over the work ceiling gives no text. Both are reported (visibleTextInfo().cut), never silent.
 import { Parser, DomHandler, DomUtils } from 'htmlparser2'
 import { RICH_EXTRA_TAGS, RICH_ATTRS, RICH_PROPERTIES, VOID_TAGS, richAttrs, cleanStyle, cleanAttr } from '../smtp/rich-style.js'
+import { askedWidth } from '../smtp/image-width.js'
 const RICH_PROPERTY_SET = new Set(RICH_PROPERTIES)
 
 const NAMED = {
@@ -277,6 +278,8 @@ function splitTop(s, sep) {
 function declarations(text) {
   const out = {}
   if (!text) return out
+  // pos: the declaration's place in the text (a repeated name keeps its first key, so the key order is not it)
+  let pos = 0
   for (const decl of splitTop(stripComments(String(text)), ';')) {
     const i = decl.indexOf(':')
     if (i <= 0) continue
@@ -292,13 +295,13 @@ function declarations(text) {
       }
     }
     if (!name || (out[name]?.important && !important)) continue
-    out[name] = { value: decodeEscapes(value).toLowerCase(), important }
+    out[name] = { value: decodeEscapes(value).toLowerCase(), important, pos: pos++ }
     // the shorthand sets the size too: "font-size:16px; font:0/0 a" is 0; a later font-size wins
     if (name === 'font' && !(out['font-size']?.important && !important)) {
       const size = fontShorthandSize(out.font.value)
       if (size !== undefined) {
         delete out['font-size']
-        out['font-size'] = { value: size, important }
+        out['font-size'] = { value: size, important, pos: out.font.pos + 0.5 }
       }
     }
   }
@@ -437,15 +440,23 @@ const compoundKey = c => `${c.comb || ''}${c.tag || '*'}#${c.id || ''}.${c.class
 // what the document has: a rule asking for a class, id or tag that no element has can never match, and is dropped
 // before matching (newsletters ship big unused stylesheets)
 function presentNames(doc) {
-  const has = { classes: new Set(), ids: new Set(), tags: new Set() }
+  // count: how many elements carry each '#id' / '.class' (ancestorKey picks the rarest)
+  const has = { classes: new Set(), ids: new Set(), tags: new Set(), count: new Map() }
+  const bump = k => has.count.set(k, (has.count.get(k) || 0) + 1)
   const stack = [doc]
   while (stack.length) {
     const node = stack.pop()
     for (const c of node.children || []) {
       if (!isEl(c)) continue
       has.tags.add(c.name)
-      if (c.attribs?.id !== undefined) has.ids.add(c.attribs.id)
-      for (const x of classSet(c)) has.classes.add(x)
+      if (c.attribs?.id !== undefined) {
+        has.ids.add(c.attribs.id)
+        bump('#' + c.attribs.id)
+      }
+      for (const x of classSet(c)) {
+        has.classes.add(x)
+        bump('.' + x)
+      }
       stack.push(c)
     }
   }
@@ -453,12 +464,38 @@ function presentNames(doc) {
 }
 const possible = (compounds, has) =>
   compounds.every(c => (!c.tag || has.tags.has(c.tag)) && (!c.id || has.ids.has(c.id)) && c.classes.every(x => has.classes.has(x)))
+// a key every match's ANCESTOR carries: walking left from the subject over ' ' / '>' only (a '+' / '~' step leaves the
+// ancestor chain, and ends the walk), the id or class of such a compound that the body holds the fewest times; null when
+// there is none
+function ancestorKey(compounds, has) {
+  let best = null
+  let bestN = Infinity
+  for (let k = compounds.length - 1; k > 0; k--) {
+    const comb = compounds[k].comb
+    if (comb !== ' ' && comb !== '>') break
+    const c = compounds[k - 1]
+    const keys = c.id ? ['#' + c.id] : []
+    for (const x of c.classes) keys.push('.' + x)
+    for (const key of keys) {
+      const n = has.count.get(key) || 0
+      if (n < bestN) {
+        best = key
+        bestN = n
+      }
+    }
+  }
+  return best
+}
 class Stylesheet {
   constructor(texts, has) {
     this.byId = new Map()
     this.byClass = new Map()
     this.byTag = new Map()
     this.any = []
+    // a rule whose subject has no id and no class ("td.x > a" ends in a tag): by its subject tag ('*' = any) and a key
+    // an ancestor must carry (ancestorKey), so an element only tries the rules its ancestors can match; without the
+    // key every such rule sat in byTag, and every element of the tag tried all of them (elements x rules)
+    this.byTagAnc = new Map()
     const bySig = new Map()
     let order = 0
     for (const text of texts) {
@@ -466,7 +503,7 @@ class Stylesheet {
       if (css === UNCLOSED) continue // a block with an unclosed /* comment is skipped
       for (const [prelude, body] of topLevelRules(css)) {
         const decls = declarations(body)
-        const names = Object.keys(decls)
+        const names = Object.keys(decls).sort((a, b) => decls[a].pos - decls[b].pos)
         if (!names.length) continue
         for (const sel of splitTop(prelude, ',')) {
           const p = parseSelector(sel.trim())
@@ -479,10 +516,19 @@ class Stylesheet {
             bySig.set(key, rule)
             if (last.id) this.#add(this.byId, last.id, rule)
             else if (last.classes.length) this.#add(this.byClass, last.classes[0], rule)
-            else if (last.tag) this.#add(this.byTag, last.tag, rule)
-            else this.any.push(rule)
+            else {
+              const anc = ancestorKey(p.compounds, has)
+              if (anc) {
+                const tag = last.tag || '*'
+                let m = this.byTagAnc.get(tag)
+                if (!m) this.byTagAnc.set(tag, (m = new Map()))
+                this.#add(m, anc, rule)
+              } else if (last.tag) this.#add(this.byTag, last.tag, rule)
+              else this.any.push(rule)
+            }
           }
-          order++
+          // one step per declaration, in the text's order: within a rule the later one wins a tie of rank and
+          // specificity (".b { border: ...; border-top: ... }": the border-top), as in the browser
           for (const name of names) {
             const d = decls[name]
             // merged rules keep whether they ever hid or showed (868 i)
@@ -490,7 +536,7 @@ class Stylesheet {
             if (name === 'visibility') rule[VISIBILITY_HIDES(d.value) ? 'visHide' : 'visShow'] = true
             const prev = rule.decls.get(name)
             // within one selector: an important declaration beats a normal one, else the later one wins
-            if (!prev || d.important || !prev.important) rule.decls.set(name, { value: d.value, important: d.important, order })
+            if (!prev || d.important || !prev.important) rule.decls.set(name, { value: d.value, important: d.important, order: ++order })
           }
         }
       }
@@ -590,7 +636,7 @@ const VISIBILITY_HIDES = v => /^(hidden|collapse)\b/.test(v)
  * inline display" are gone: they let 5 hidden cases through; the rules this cascade sees are the ones
  * the reader applies too (no @media, no attribute or non-structural pseudo selector, no media-attributed <style>).
  */
-function computedStyle(el, sheet, budget) {
+function computedStyle(el, sheet, budget, anc) {
   const win = new Map()
   const take = (name, value, rank, spec, order) => {
     const w = win.get(name)
@@ -609,6 +655,19 @@ function computedStyle(el, sheet, budget) {
   for (const c of classSet(el)) consider(sheet.byClass.get(c))
   consider(sheet.byTag.get(el.name))
   consider(sheet.any)
+  // the ancestor-keyed rules: only the lists whose key an ancestor carries (anc: key -> how many ancestors carry it),
+  // walking the smaller side; the step counts as work
+  if (sheet.byTagAnc.size) for (const tag of [el.name, '*']) {
+    const m = sheet.byTagAnc.get(tag)
+    if (!m) continue
+    if (m.size <= anc.size) {
+      budget.work += m.size
+      for (const [key, list] of m) if (anc.has(key)) consider(list)
+    } else {
+      budget.work += anc.size
+      for (const key of anc.keys()) consider(m.get(key))
+    }
+  }
   const inline = declarations(el.attribs?.style)
   let k = 0
   for (const [name, d] of Object.entries(inline)) take(name, d.value, d.important ? 3 : 1, Infinity, k++)
@@ -1356,14 +1415,38 @@ function styleAll(doc, sheet, clocks, limit) {
   const net = startNet(clocks, limit)
   let n = 0
   const styles = new Map()
+  // the ids and classes of the current element's ancestors ('#id' / '.class' -> how many carry it), kept by an
+  // iterative walk that marks each element on the way in and unmarks it on the way out (no recursion: 1000 levels deep);
+  // only when an ancestor-keyed rule exists: without one (no <style>, a browser's copy) nothing reads it, and the
+  // marking alone cost a 1 MB web page copy 9..28 ms
+  const anc = new Map()
+  const track = sheet.byTagAnc.size > 0
+  const mark = (el, d) => {
+    const keys = el.attribs?.id !== undefined ? ['#' + el.attribs.id] : []
+    for (const x of classSet(el)) keys.push('.' + x)
+    for (const k of keys) {
+      const v = (anc.get(k) || 0) + d
+      if (v) anc.set(k, v)
+      else anc.delete(k)
+    }
+  }
+  const LEAVE = 1
   const stack = [doc]
   while (stack.length) {
     const node = stack.pop()
+    if (node === LEAVE) {
+      mark(stack.pop(), -1)
+      continue
+    }
+    if (track && node !== doc) {
+      mark(node, 1)
+      stack.push(node, LEAVE)
+    }
     const kids = node.children || []
     for (let i = kids.length - 1; i >= 0; i--) {
       const child = kids[i]
       if (!isEl(child) || child.name === 'style') continue
-      styles.set(child, computedStyle(child, sheet, budget))
+      styles.set(child, computedStyle(child, sheet, budget, anc))
       if (budget.work > MAX_MATCH_WORK || ((++n & 255) === 0 && net.over())) throw new TooComplex()
       stack.push(child)
     }
@@ -1431,7 +1514,7 @@ const inlineDecls = el => {
 function prune(doc, sheet, clocks, paste = null, limit = TIME_LIMIT_MS) {
   const styles = styleAll(doc, sheet, clocks, limit)
   // no rule at all (a browser's copy writes its styles inline): nothing to write onto the elements, no second style parse
-  const ruled = sheet.byId.size > 0 || sheet.byClass.size > 0 || sheet.byTag.size > 0 || sheet.any.length > 0
+  const ruled = sheet.byId.size > 0 || sheet.byClass.size > 0 || sheet.byTag.size > 0 || sheet.any.length > 0 || sheet.byTagAnc.size > 0
   const hidden = new Set()
   const root = { bg: '#ffffff', color: '#000000', font: 16, visible: true, indentOff: false, opacity: 1, pColor: null, pBg: null, moveX: 0, moveY: 0, moveOther: false }
   const stack = [[doc, root]]
@@ -1673,7 +1756,24 @@ const richAttrText = n =>
   })
     .map(([name, v]) => ` ${name}="${escAttr(v)}"`)
     .join('')
-function composeHtmlOf(doc, hidden, { rich = false } = {}) {
+// the composer's own images (sanitize.js's sanitizeCompose: the account's or the session's signature image, a pasted image of
+// THIS session), the same patterns
+const SIG_IMG_SRC = /^sig-img:\/\/(?:account\/\d{1,12}|session\/[A-Za-z0-9_-]{1,64})$/
+const INL_IMG_SRC = /^inl-img:\/\/session\/([0-9a-f-]{36})\/[0-9a-f]{24}$/
+// `own` (rich only, a session id): that composer session's own images and the signature block's marker stay, as
+// sanitizeCompose writes them (src, alt="", a pasted image's width; data-sm-signature on a div); every other image goes
+function ownImageHtml(n, own) {
+  const src = String(n.attribs?.src ?? '').trim()
+  const pasted = INL_IMG_SRC.exec(src)
+  if (!SIG_IMG_SRC.test(src) && !(pasted && pasted[1] === own)) return ''
+  const width = pasted && Object.hasOwn(n.attribs, 'width') ? String(n.attribs.width).trim() : null
+  return `<img src="${escAttr(src)}" alt=""${width !== null && askedWidth(width) !== null ? ` width="${escAttr(width)}"` : ''}>`
+}
+// DOMPurify keeps an attribute that is not "URI safe" (the marker is not) only empty or with a value its
+// ALLOWED_URI_REGEXP (sanitize.js) passes, whitespace and controls removed first; the value trimmed
+const ATTR_WHITESPACE = /[\u0000-\u0020\u00a0\u1680\u180e\u2000-\u2029\u205f\u3000]/g
+const markerKept = v => v === '' || /^(?:https?:|mailto:|sig-img:|inl-img:)/i.test(v.replace(ATTR_WHITESPACE, ''))
+function composeHtmlOf(doc, hidden, { rich = false, own = null } = {}) {
   const out = []
   // inA: inside a kept <a>. A nested <a> is unwrapped: htmlparser2 nests it, but the recipient's HTML5
   // parser closes the outer one, so a nested link would be a live second link next to the one the Modal lists
@@ -1709,6 +1809,10 @@ function composeHtmlOf(doc, hidden, { rich = false } = {}) {
       for (let i = seq.length - 1; i >= 0; i--) stack.push(seq[i])
       continue
     }
+    if (own && isEl(n) && n.name === 'img') {
+      out.push(ownImageHtml(n, own))
+      continue
+    }
     const painted = rich && isEl(n) && RICH_TAGS.has(n.name) ? richAttrText(n) : ''
     // rich: a font or a span with no attribute left is unwrapped, as sanitizeCompose does
     const kept = rich ? RICH_TAGS.has(n.name) && ((n.name !== 'font' && n.name !== 'span') || painted !== '') : COMPOSE_TAGS.has(n.name)
@@ -1717,6 +1821,8 @@ function composeHtmlOf(doc, hidden, { rich = false } = {}) {
       let attrs = ''
       const href = n.name === 'a' ? String(n.attribs?.href ?? '').replace(/[\u0000-\u001f\u007f]/g, '').trim() : ''
       if (href && /^(?:https?:|mailto:)/i.test(href)) attrs = ` href="${escAttr(href)}"`
+      const marker = own && n.name === 'div' && Object.hasOwn(n.attribs || {}, 'data-sm-signature') ? String(n.attribs['data-sm-signature']).trim() : null
+      if (marker !== null && markerKept(marker)) attrs += ` data-sm-signature="${escAttr(marker)}"`
       attrs += painted
       out.push(`<${n.name}${attrs}>`)
       if (n.name === 'br' || (rich && VOID_TAGS.has(n.name))) continue
@@ -1730,6 +1836,15 @@ function composeHtmlOf(doc, hidden, { rich = false } = {}) {
 const richComposeHtmlOf = (doc, hidden) => composeHtmlOf(doc, hidden, { rich: true })
 /**
  * The visible part of a message's HTML as composer HTML (empty when the body is too complex to filter). `rich`: the
- * formatting stays (the user's own saved draft), as sanitizeCompose's `rich` keeps it.
+ * formatting stays (the user's own saved draft), as sanitizeCompose's `rich` keeps it. `ownImagesOf` (with `rich` only: a
+ * composer session id): that session's own images (a pasted one with its width, the signature's) and the signature
+ * block's marker stay too, as sanitizeCompose keeps them for that session (send_draft of the user's own draft); without
+ * it no image and no marker, as before.
  */
-export const visibleComposeHtml = (html, { rich = false } = {}) => (rich ? visibleTextInfo(html, richComposeHtmlOf, { tables: true }) : visibleTextInfo(html, composeHtmlOf)).text
+/** The composer HTML of visibleComposeHtml (not rich) with the cut: { text, cut } (cut: null, 'tags' (the source cut short) or 'complex'). */
+export const visibleComposeInfo = html => visibleTextInfo(html, composeHtmlOf)
+export const visibleComposeHtml = (html, { rich = false, ownImagesOf = null } = {}) => {
+  if (ownImagesOf !== null && (!rich || typeof ownImagesOf !== 'string' || !ownImagesOf)) throw new TypeError('ownImagesOf wants rich and a session id')
+  if (ownImagesOf !== null) return visibleTextInfo(html, (doc, hidden) => composeHtmlOf(doc, hidden, { rich: true, own: ownImagesOf }), { tables: true }).text
+  return (rich ? visibleTextInfo(html, richComposeHtmlOf, { tables: true }) : visibleTextInfo(html, composeHtmlOf)).text
+}

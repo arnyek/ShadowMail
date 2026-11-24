@@ -102,6 +102,8 @@ list of the open folder: **Unread**, **Has attachment**, **Starred**,
   folder or the order, or press **Refresh**.
 - The **Account** chip opens the chosen account's Inbox, the **Folder** chip the chosen folder;
   the **Sort** chip is the same as the sorting in the list's **More** menu.
+- Search results come **by date** by default, newest first. On the **Sort** chip you can choose **Relevance**,
+  and the app remembers it: later searches (after a restart too) keep it until you switch back.
 
 ### Address book
 
@@ -244,6 +246,50 @@ color, order and delete labels.
 - **On a POP3 account** a label is kept on this computer and shows on every local copy of the message. When the message
   has no Message-ID and no Date header, a copy downloaded again does not show its label.
 - Claude (MCP) can put existing labels on and take them off; only you can make, rename and delete them.
+
+### New in 0.20.0, known limits
+
+- **Claude can attach files to a draft:** a file from your computer or an attachment of a message you have, to a
+  new draft, a reply draft or when changing a draft. This **always asks**, whatever the Confirmations switches say:
+  the window shows every file's full path or source message, its size and its fingerprint, and nothing is written if
+  you reject. At most 50 files, 25 MB together with what the draft holds already; a file is read when Claude asks.
+- **A send with an attachment always asks:** when Claude would send a message with an attachment (a forward with
+  the original's attachments, sending a draft with attachments, scheduled too), the confirmation window comes even
+  if you turned the send confirmation off. A pasted image and the signature image are not attachments here.
+- **Claude sends a draft with its images:** when Claude sends a draft, its pasted images and the signature image go
+  out too (they were left out, also when scheduled). The confirmation window says how many embedded images and how
+  large.
+- **Claude can write formatted text:** bold, italic, underlined and struck text, lists, headings, quotes, code and
+  links (http, https, mailto) in a draft, a reply and a sent message. Everything else (style, colour, image, script,
+  other links, hidden text) is removed by the same rules as in the program's composer. If nothing visible is left,
+  or the text is too complex, Claude gets an error and nothing is written or sent.
+- **Search results come by date by default, the newest first;** if you choose **Relevance** on the **Sort** chip,
+  the program remembers it. A text search by date is faster in a large mailbox.
+- **A faster filtered list and label picker:** the first page of the star, unread and label filters shows sooner
+  (the count follows a moment later, "…" until then), and the label picker opens faster with a whole folder selected.
+- **A newsletter with its own style sheet, quoted and pasted with its formatting:** the known limit of 0.19.0 (the
+  quote of a large newsletter with its own style sheet came without formatting) is gone for the usual newsletter
+  layout.
+- **An embedded image as an attachment:** when a message refers to an embedded image only as a background, a link
+  or in its text (the reader does not show it then), the image is now offered as an attachment, and **Save all**
+  saves it too; before it showed nowhere.
+- **Composer:** when you delete the text with a selection and go on with Enter, a dead key or an input method
+  (IME) letter, or a paste, the text starts clean (it does not take on the deleted part's formatting or pasted
+  style), as with typing.
+- **A security fix in the hidden text filter:** when a style rule gave the same thing in a short and a long form
+  (for example `margin: 0; margin-left: -2000px`, or `background` followed by a white `background-color` under white
+  text), the filter took the short form, so text hidden that way could reach Claude and the search index. Now the one
+  written later wins, as in the browser; the paste decides the same way.
+
+Known limits of this release:
+
+- When the signature is still there and you delete the (pasted, styled) text above it with a selection, the next
+  text may take on the deleted block's style (font size, colour, background), and goes out with it.
+- When the send confirmation is off and Claude would send a message with an attachment, the confirmation window
+  comes, but it does not say that it asks because of the attachment.
+- The confirmation window shows Claude's formatted text as plain text (and the real target of the links).
+- On purpose: in a search with no text (filters only), of two messages with the same time the one added later
+  comes first.
 
 ### New in 0.19.0, known limits
 
@@ -732,23 +778,25 @@ The setting's format is from the official documentation: Claude Desktop:
 ### What can Claude do?
 
 - **Without confirmation:** reading and searching (a message does not become read by this), flags (read, star),
-  moving, moving to the Trash, creating and renaming a folder, writing a draft (into Drafts, marked "Claude"; the
-  program shows a notice), changing a draft (it sends nothing; it can be made to ask under Confirmations), listing
+  moving, moving to the Trash, creating and renaming a folder, writing a draft (into Drafts, marked "Claude", in plain or simple formatted text;
+  the program shows a notice), changing a draft (it sends nothing; it can be made to ask under Confirmations), listing
   the scheduled messages and cancelling a message Claude scheduled (back to Drafts, with a notice), refresh, testing an account's connection,
   showing a message or a search in the program's window, listing the labels, seeing the messages' labels and
   filtering by a label, putting an existing label on and taking it off (the window shows it at once). These can be
   undone.
 - **Only with your confirmation:** sending or scheduling a message, deleting for good, deleting a folder or an
   account, changing an account's settings, restarting the login of a stopped account, cancelling your own scheduled
-  message. Under **Confirmations** these
-  can be turned off action by action (see the rules in New in 0.16.0); a change of the login details and cancelling your own scheduled message always ask.
+  message, attaching a file or a message's attachment to a draft. Under **Confirmations** these
+  can be turned off action by action (see the rules in New in 0.16.0); a change of the login details, cancelling
+  your own scheduled message, attaching and sending a message with an attachment always ask.
   Then the ShadowMail window comes to the front and
-  shows exactly what would happen (for a send: the recipients, the text and the real target of every link). The
+  shows exactly what would happen (for a send: the recipients, the text and the real target of every link; for an attachment: every file's path or
+  source message, its size and its fingerprint). The
   default button is **Reject** (Enter rejects too), **Approve** becomes active after one
   and a half seconds. The request expires after 10 minutes. From the confirmation window, **Lock** or
   **Reject all, turn Claude access off** rejects everything in one step.
-- **Never:** passwords, the master password and the recovery code, the content of attachments, attaching a local
-  file, the Claude access switch, and making, renaming or deleting a label (only you can, under Settings / Labels).
+- **Never:** passwords, the master password and the recovery code, the content of attachments (Claude can attach a
+  file, but does not get its content), the Claude access switch, and making, renaming or deleting a label (only you can, under Settings / Labels).
 
 The **Recent Claude calls** list on the same page shows the last 20 calls (time, tool,
 result, count). The list is in memory only and is empty after a lock or a restart. No search word, address, subject

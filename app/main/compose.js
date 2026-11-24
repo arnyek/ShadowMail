@@ -34,12 +34,30 @@ import { SIG_CID_RE, unwrapSignature } from '../../core/smtp/signature.js'
 import { SIGNATURE_TYPES, prepareInlineImage, SignatureImageError } from '../../core/accounts/signature-image.js'
 import { checkSendAt } from '../../core/db/scheduled.js'
 import { labelKeyOf } from '../../core/db/label-key.js'
-import { cidKey, cidResolver } from '../../core/mime/cid.js'
+import { cidKey, cidResolver, mapImgCidSrc } from '../../core/mime/cid.js'
 
 // the session image of a scheduled message: its html names this instead of a session id (a new session sends it)
 const SCHEDULED_SESSION = 'scheduled-session'
 
 export const MAX_ATTACHMENTS_BYTES = 25 * 1024 * 1024 // most servers refuse bigger messages
+// files Claude may attach in one call (the MCP tools' CAPS.attachments)
+export const CLAUDE_ATTACH_MAX = 50
+
+/**
+ * A path Claude gives for a local file: null when it may be opened, else 'bad_path'. Only a full path of this
+ * machine: on Windows a drive letter and a root (C:\...), never a relative or drive-relative one, a UNC share
+ * (\\server\...: opening it would sign in to that server), a device path (\\.\, \\?\) or a stream (file.txt:x);
+ * elsewhere an absolute path. NUL and other control characters are refused everywhere.
+ */
+export function claudePathProblem(p, platform = process.platform) {
+  if (typeof p !== 'string' || !p || p.length > 32767 || /[\u0000-\u001f]/.test(p)) return 'bad_path'
+  if (platform === 'win32') {
+    if (!/^[A-Za-z]:[\\/]/.test(p)) return 'bad_path'
+    if (p.indexOf(':', 2) !== -1) return 'bad_path'
+    return null
+  }
+  return path.posix.isAbsolute(p) ? null : 'bad_path'
+}
 // a pasted image wider than this shows at this width in the sent HTML when no size was chosen (its bytes are not touched)
 export const INLINE_IMAGE_SHOWN_WIDTH = SHOWN_WIDTH
 // our own inline part of a pasted image, in a saved draft (taken back into the session when the draft opens again)
@@ -48,27 +66,6 @@ const INL_IMG_RE = /<img\b[^>]*?\bsrc="inl-img:\/\/session\/([A-Za-z0-9_-]{1,64}
 // an <img> tag and one attribute of it, its value quoted or bare. No < or > inside the tag, not even in a quoted
 // value: a try stops at the next <, so an unclosed tag (or quote) cannot make each <img read on to the end of the
 // HTML (that was quadratic: 20 000 unclosed <img took 5 s); such an image is simply not taken
-const IMG_TAG_RE = /<img\b(?:[^<>"']|"[^"<>]*"|'[^'<>]*')*>/gi
-const ATTR_RE = /(\s)([^\s=/>"']+)(?:(\s*=\s*)("[^"]*"|'[^']*'|[^\s"'>]+))?/g
-// a cid: URL as a whole src value (RFC 2392: the Content-ID without < >, %-encoded)
-const CID_SRC_RE = /^\s*cid:([^\s"'<>()]+)\s*$/i
-
-/**
- * Every <img src="cid:..."> of an HTML through `fn(the cid as written)`: a string is the new src, undefined keeps it.
- * Only an image's src: a cid: in a background, a link, a CSS url() or the text is left alone, because the editor's
- * cleaning keeps only <img src>, and a part referred to only there must stay an attachment of a forward.
- */
-function mapImgCidSrc(html, fn) {
-  return html.replace(IMG_TAG_RE, tag =>
-    tag.replace(ATTR_RE, (whole, space, name, eq, value) => {
-      if (!value || name.toLowerCase() !== 'src') return whole
-      const quote = value[0] === '"' || value[0] === "'" ? value[0] : ''
-      const m = CID_SRC_RE.exec(quote ? value.slice(1, -1) : value)
-      const src = m ? fn(m[1]) : undefined
-      return src === undefined ? whole : `${space}${name}${eq}"${src}"`
-    }),
-  )
-}
 const EMAIL = /^[^\s@<>()",;:\\[\]]+@[^\s@<>()",;:\\[\]]+\.[^\s@<>()",;:\\[\]]+$/
 
 /** "Név <a@example.invalid>, c@example.invalid" or a list of such strings -> [{ name, address }]; bad ones -> { bad: [...] }. */
@@ -486,6 +483,102 @@ export class Composer {
       added.push({ id: att.id, filename: att.filename, size: att.content.length })
     }
     return added
+  }
+
+  /**
+   * Files Claude asks to attach (MCP): items { path } (a full local path, claudePathProblem) or
+   * { messageId, attachment } (the 1-based number of a message's attachment, counted among its not embedded ones,
+   * as read_message lists them). Every item is read and checked BEFORE any joins the session: one bad item adds none
+   * (ActionError with `item`, its 1-based place). The bytes are taken now: what the user approves is what was read,
+   * a later change on the disk does not count. The 25 MB limit is the session's, with what it holds already.
+   * -> [{ id, filename, size, sha256, source }], source { path } (the real path read) or { messageId, subject, attachment }
+   * Errors: bad_request, too_many, bad_path, not_found, not_a_file, forbidden_path, unreadable, too_large.
+   */
+  async claudeAttach(sessionId, items) {
+    const s = this.#session(sessionId)
+    if (!Array.isArray(items) || !items.length) throw new ActionError('bad_request')
+    if (items.length > CLAUDE_ATTACH_MAX) throw new ActionError('too_many')
+    let total = this.#sessionBytes(s)
+    const batch = []
+    for (const [i, item] of items.entries()) {
+      try {
+        const got = await this.#claudeItem(item, MAX_ATTACHMENTS_BYTES - total)
+        total += got.content.length
+        if (total > MAX_ATTACHMENTS_BYTES) throw new ActionError('too_large')
+        batch.push(got)
+      } catch (err) {
+        const e = err instanceof ActionError ? err : new ActionError('unreadable', err)
+        e.item = i + 1
+        throw e
+      }
+    }
+    // checked again with no await before the writes: another call on this session may have added files meanwhile
+    if (this.#sessionBytes(s) + batch.reduce((n, x) => n + x.content.length, 0) > MAX_ATTACHMENTS_BYTES) throw new ActionError('too_large')
+    return batch.map(({ filename, content, contentType, source }) => {
+      const att = { id: crypto.randomUUID(), filename, content, ...(contentType ? { contentType } : {}) }
+      s.attachments.set(att.id, att)
+      return { id: att.id, filename, size: content.length, sha256: crypto.createHash('sha256').update(content).digest('hex'), source }
+    })
+  }
+
+  // one item of claudeAttach -> { filename, content, contentType?, source }; `room`: the bytes still free
+  async #claudeItem(item, room) {
+    const own = item && typeof item === 'object' && !Array.isArray(item) ? Object.keys(item).sort().join() : ''
+    if (own === 'path') {
+      if (claudePathProblem(item.path)) throw new ActionError('bad_path')
+      let real
+      try {
+        real = fs.realpathSync(item.path)
+      } catch (err) {
+        throw new ActionError(err && (err.code === 'ENOENT' || err.code === 'ENOTDIR') ? 'not_found' : 'unreadable', err)
+      }
+      // a link may lead to a share or a device: the path read must be a plain local one too
+      if (claudePathProblem(real)) throw new ActionError('bad_path')
+      let fd
+      try {
+        fd = this.#openAttachment(real)
+      } catch (err) {
+        if (err instanceof ActionError) throw err
+        throw new ActionError(err && err.code === 'ENOENT' ? 'not_found' : 'unreadable', err)
+      }
+      try {
+        if (Number(fs.fstatSync(fd).size) > room) throw new ActionError('too_large')
+        // read in pieces, stopping past the room: a file growing after its size was read is never read whole
+        const chunks = []
+        const piece = Buffer.allocUnsafe(1 << 16)
+        let n = 0
+        for (;;) {
+          const got = fs.readSync(fd, piece, 0, piece.length, null)
+          if (!got) break
+          n += got
+          if (n > room) throw new ActionError('too_large')
+          chunks.push(Buffer.from(piece.subarray(0, got)))
+        }
+        return { filename: safeFileName(path.basename(real)), content: Buffer.concat(chunks, n), source: { path: real } }
+      } finally {
+        fs.closeSync(fd)
+      }
+    }
+    if (own === 'attachment,messageId') {
+      const { messageId, attachment } = item
+      if (!Number.isSafeInteger(messageId) || messageId < 1 || !Number.isSafeInteger(attachment) || attachment < 1) throw new ActionError('bad_request')
+      if (!this.reader) throw new ActionError('not_available')
+      const row = this.index.get(messageId)
+      if (!row) throw new ActionError('not_found')
+      let source
+      try {
+        ;({ source } = await this.reader.source(messageId))
+      } catch (err) {
+        throw new ActionError(err && err.code === 'not_found' ? 'not_found' : 'unreadable', err)
+      }
+      // the same list, in the same order, as read_message shows
+      const part = (await parseMessage(source)).attachments.filter(x => !x.inline)[attachment - 1]
+      if (!part) throw new ActionError('not_found')
+      if (part.content.length > room) throw new ActionError('too_large')
+      // as a forward takes it: the bytes and the type of the original part
+      return { filename: part.filename, content: part.content, contentType: part.contentType, source: { messageId, subject: row.subject || '', attachment } }
+    }
+    throw new ActionError('bad_request')
   }
 
   removeAttachment(sessionId, attachmentId) {

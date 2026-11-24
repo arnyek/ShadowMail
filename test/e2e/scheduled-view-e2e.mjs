@@ -76,8 +76,8 @@ const check = (name, ok, detail = '') => {
 }
 const sleep = ms => new Promise(r => setTimeout(r, ms))
 const waitFor = async (fn, ms) => {
-  const until = Date.now() + ms
-  while (Date.now() < until) {
+  const until = performance.now() + ms
+  while (performance.now() < until) {
     if (await fn()) return true
     await sleep(250)
   }

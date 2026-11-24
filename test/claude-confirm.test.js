@@ -3,6 +3,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { setupDom, mount, inAct, key } from './helpers/react-dom-env.js'
+import fs from 'node:fs'
 import { tempDir } from './helpers/tmp.js'
 import { ConfirmationQueue } from '../app/main/mcp/confirm.js'
 import { createMcpService, registerMcpIpc, MCP_CHANNELS } from '../app/main/mcp/service.js'
@@ -207,6 +208,16 @@ test('the send Modal lists every link as text -> real target; the update Modal w
   assert.ok(modal().textContent.includes(hu.claudeConfirm.restartsLogin))
 })
 
+test('the send Modal counts the draft\'s embedded images with their size; none: no such line', async t => {
+  const { v, modal } = await show(sendView({ images: { count: 2, size: 2048 } }))
+  t.after(v.unmount)
+  const rows = [...modal().querySelectorAll('.confirm-field')].map(f => [f.querySelector('dt').textContent, f.querySelector('dd').textContent])
+  assert.deepEqual(rows.find(([k]) => k === hu.claudeConfirm.embeddedImages), [hu.claudeConfirm.embeddedImages, hu.claudeConfirm.embeddedImagesValue(2, hu.sizeKb(2048))])
+  assert.equal(hu.claudeConfirm.embeddedImagesValue(2, '2 KB'), '2 db, összesen 2 KB')
+  await v.rerender(h(ClaudeConfirm, { request: { ...sendView(), id: 'k-noimg' }, waiting: 1, onDecide: () => {} }))
+  assert.ok(![...modal().querySelectorAll('dt')].some(d => d.textContent === hu.claudeConfirm.embeddedImages))
+})
+
 test('the send Modal names the recipients not in the address book (the send switch OFF); none: no such block', async t => {
   const { v, modal } = await show(sendView({ unknown: ['idegen@example.invalid', 'masik@example.invalid'] }))
   t.after(v.unmount)
@@ -232,6 +243,84 @@ test('the update_draft Modal: the account, old -> new per changed field, the new
   assert.equal(m.querySelector('.confirm-unknown'), null, 'no added stranger: no block')
   await v.rerender(h(ClaudeConfirm, { request: { ...request, id: 'd2', view: { ...request.view, unknown: ['idegen@example.invalid'] } }, waiting: 1, onDecide: () => {} }))
   assert.deepEqual([...modal().querySelectorAll('.confirm-unknown li')].map(li => li.textContent), ['idegen@example.invalid'])
+})
+
+test('the files Claude asks to attach: per file the name on its own line, the FULL path (or the message and its attachment), the size and 12 digits of the SHA-256; text only; with any kind', async t => {
+  const long = `D:\\Munka\\OneDrive - Ceg\\${'Nagyon hosszu mappanev\\'.repeat(10)}Ügyfelek\\ajánlat <b>végleges</b>.pdf`
+  assert.ok(long.length >= 260, `${long.length}`)
+  const files = [
+    { name: 'ajánlat <b>végleges</b>.pdf', size: 2048, sha256: 'a'.repeat(12) + 'b'.repeat(52), path: long },
+    { name: 'szamla.pdf', size: 10, sha256: '0123456789abcdef'.repeat(4), message: { subject: 'Novemberi <i>számla</i>' } },
+    { name: 'x.txt', size: 1, sha256: 'f'.repeat(64), message: { subject: '' } },
+  ]
+  const request = { id: 'f1', tool: 'update_draft', view: { kind: 'updateDraft', account: { name: 'M', email: 'm@example.invalid', type: 'imap' }, changes: [], text: null, claudeFiles: files } }
+  const { v, modal } = await show(request)
+  t.after(v.unmount)
+  const m = modal()
+  const box = m.querySelector('.confirm-claude-files')
+  assert.ok(box, 'the files block')
+  assert.equal(box.querySelector('.confirm-label').textContent, hu.claudeConfirm.claudeFilesHead(3))
+  const rows = [...box.querySelectorAll('.confirm-claude-file')].map(li => [li.querySelector('.confirm-file-name').textContent, li.querySelector('.confirm-file-source').textContent, li.querySelector('.confirm-file-meta').textContent])
+  assert.deepEqual(rows, [
+    ['ajánlat <b>végleges</b>.pdf', long, `${hu.sizeKb(2048)} · SHA-256 aaaaaaaaaaaa`],
+    ['szamla.pdf', hu.claudeConfirm.claudeFileFromMessage('Novemberi <i>számla</i>', 'szamla.pdf'), `${hu.sizeKb(10)} · SHA-256 0123456789ab`],
+    ['x.txt', hu.claudeConfirm.claudeFileFromMessage('', 'x.txt'), `${hu.sizeKb(1)} · SHA-256 ffffffffffff`],
+  ])
+  assert.ok(rows[1][1].includes('Novemberi <i>számla</i>') && rows[2][1].includes('(nincs tárgy)'))
+  assert.equal(m.querySelectorAll('b, i').length, 0, 'never HTML')
+  assert.ok(box.textContent.includes(hu.claudeConfirm.claudeFilesNote))
+  assert.ok(m.textContent.includes(hu.claudeConfirm.draftNotSent), 'the kind\'s own view stays')
+  // the send view takes them too; none, or an empty list: no block
+  await v.rerender(h(ClaudeConfirm, { request: sendView({ claudeFiles: files.slice(0, 1) }), waiting: 1, onDecide: () => {} }))
+  assert.equal(modal().querySelector('.confirm-claude-files .confirm-label').textContent, hu.claudeConfirm.claudeFilesHead(1))
+  await v.rerender(h(ClaudeConfirm, { request: { ...sendView({ claudeFiles: [] }), id: 'k9' }, waiting: 1, onDecide: () => {} }))
+  assert.equal(modal().querySelector('.confirm-claude-files'), null)
+  await v.rerender(h(ClaudeConfirm, { request: { ...sendView(), id: 'k10' }, waiting: 1, onDecide: () => {} }))
+  assert.equal(modal().querySelector('.confirm-claude-files'), null)
+})
+
+test('the create-draft Modal (draft tools with attachments): its title, the account, the original for a reply / forward, the envelope, Claude\'s text as text, the forward\'s own attachments, the files apart, and that nothing is sent', async t => {
+  const view = {
+    kind: 'createDraft',
+    account: { name: 'M', email: 'm@example.invalid', type: 'imap' },
+    original: { mode: 'forward', subject: 'Eredeti <b>tárgy</b>' },
+    to: ['Anna <anna@example.invalid>'], cc: [], bcc: ['titkos@example.invalid'],
+    subject: 'Fwd: Eredeti',
+    text: 'Szia,\n<i>nem HTML</i>',
+    attachments: [{ name: 'eredeti.pdf', size: 4096 }],
+    claudeFiles: [{ name: 'ajanlat.pdf', size: 10, sha256: 'c'.repeat(64), path: 'D:\\Munka\\ajanlat.pdf' }],
+  }
+  const { v, modal } = await show({ id: 'c1', tool: 'create_reply_draft', view })
+  t.after(v.unmount)
+  const m = modal()
+  assert.ok(m.textContent.includes(hu.claudeConfirm.titles.createDraft))
+  const rows = Object.fromEntries([...m.querySelectorAll('.confirm-create-draft .confirm-field')].map(f => [f.querySelector('dt').textContent, f.querySelector('dd').textContent]))
+  assert.deepEqual(rows, {
+    [hu.claudeConfirm.originalMessage]: `${hu.replyModes.forward}: Eredeti <b>tárgy</b>`,
+    [hu.claudeConfirm.to]: 'Anna <anna@example.invalid>',
+    [hu.claudeConfirm.bcc]: 'titkos@example.invalid',
+    [hu.claudeConfirm.subject]: 'Fwd: Eredeti',
+    [hu.claudeConfirm.attachments]: `eredeti.pdf (${hu.sizeKb(4096)})`,
+  })
+  assert.equal(m.querySelector('.confirm-draft-text').textContent, 'Szia,\n<i>nem HTML</i>')
+  assert.equal(m.querySelectorAll('b, i').length, 0, 'never HTML')
+  assert.deepEqual([...m.querySelectorAll('.confirm-claude-file .confirm-file-source')].map(x => x.textContent), ['D:\\Munka\\ajanlat.pdf'])
+  assert.ok(m.textContent.includes(hu.claudeConfirm.draftNotSent))
+  // a new draft: no original line, no own attachments, an empty text shown as such
+  await v.rerender(h(ClaudeConfirm, { request: { id: 'c2', tool: 'create_draft', view: { ...view, original: null, attachments: [], bcc: [], text: '' } }, waiting: 1, onDecide: () => {} }))
+  const m2 = modal()
+  assert.deepEqual([...m2.querySelectorAll('.confirm-create-draft dt')].map(x => x.textContent), [hu.claudeConfirm.to, hu.claudeConfirm.subject])
+  assert.equal(m2.querySelector('.confirm-draft-text').textContent, hu.claudeConfirm.noText)
+  assert.equal(m2.querySelectorAll('.confirm-claude-file').length, 1)
+})
+
+test('the files block in the CSS: the name a line of its own, the path wraps anywhere (a long path never hides the name)', () => {
+  const css = fs.readFileSync(new URL('../app/renderer/src/app.css', import.meta.url), 'utf8')
+  const rule = sel => (css.match(new RegExp(`\\n${sel.replace(/[.]/g, '\\.')} \\{([^}]*)\\}`)) || [])[1] || ''
+  assert.match(rule('.confirm-claude-file'), /flex-direction: column/)
+  assert.match(rule('.confirm-file-name'), /overflow-wrap: anywhere/)
+  assert.match(rule('.confirm-file-source'), /overflow-wrap: anywhere/)
+  for (const sel of ['.confirm-claude-file', '.confirm-file-name', '.confirm-file-source']) assert.doesNotMatch(rule(sel), /text-overflow|white-space: nowrap|overflow: hidden/, sel)
 })
 
 test('the send Modal of a scheduled send ("Küldés később") says when, and that it does not go out now; a plain send has no such line', async t => {

@@ -10,6 +10,8 @@
 // (to, cc, bcc) is in the address book (manual, import or auto; case-free address, the name does not count). Any
 // other address brings the Modal as before, which names the unknown ones. An MCP send never adds its recipients to
 // the address book (compose.js sendNow addPeople: false), so the book grows only from the user's own decisions.
+// Nor does it open sending a file: a send that carries any attachment (a forward's, a draft's; an image embedded in
+// the text is not one) always asks, so a hidden instruction cannot send a file out without the user seeing it.
 
 export const CONFIRM_OPS = Object.freeze(['send', 'deleteMessages', 'deleteFolder', 'updateAccount', 'deleteAccount', 'restartLogin', 'updateDraft'])
 // the ops whose switch starts OFF: editing a draft sends nothing (it asks only when the user turns it on); for these
@@ -48,16 +50,17 @@ export function createConfirmPolicy({ settings, people = null, log = () => {} })
       return { op, on }
     },
     /**
-     * Must this request ask? -> { ask, unknown }. An unknown tool always asks. A send with its switch off asks only
-     * when a recipient is not in the address book; `unknown` names them (the Modal shows them).
+     * Must this request ask? -> { ask, unknown }. An unknown tool always asks. A send with its switch off asks
+     * when a recipient is not in the address book (`unknown` names them, the Modal shows them) or when it carries
+     * any attachment (`attachments`: their count).
      */
-    decide(tool, { recipients = [] } = {}) {
+    decide(tool, { recipients = [], attachments = 0 } = {}) {
       const op = TOOL_OPS[tool]
       if (!op || isOn(op)) return { ask: true, unknown: [] }
       if (op !== 'send') return { ask: false, unknown: [] }
       if (!people || !recipients.length) return { ask: true, unknown: [] }
       const unknown = people.unknownOf(recipients)
-      return { ask: unknown.length > 0, unknown }
+      return { ask: unknown.length > 0 || attachments > 0, unknown }
     },
   }
 }

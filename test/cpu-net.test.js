@@ -21,7 +21,7 @@ const until = async (fn, ms = 4000) => {
 }
 
 // enough elements for many net checks (one every 256 styled elements)
-const HTML = newsletterHtml({ blocks: 1000, visible: 'lathatoszo', hidden: 'rejtettszo' }) // under the work ceiling (2000 blocks are over it)
+const HTML = newsletterHtml({ blocks: 1000, visible: 'lathatoszo', hidden: 'rejtettszo' }) // under the work ceiling
 // clocks that move by fixed steps per reading: the net's checks are what reads them
 const stepClocks = ({ cpu, wall }) => {
   let c = 0

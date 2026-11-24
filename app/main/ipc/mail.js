@@ -6,7 +6,7 @@ import { errCode } from '../../../core/log-safe.js'
 import { assignRoles } from '../../../core/imap/folders.js'
 import { RECIPIENT_ROLES } from '../../../core/mime/recipient-label.js'
 
-export const MAIL_CHANNELS = Object.freeze(['mail:folders', 'mail:list', 'mail:status', 'mail:sync'])
+export const MAIL_CHANNELS = Object.freeze(['mail:count', 'mail:folders', 'mail:list', 'mail:status', 'mail:sync'])
 export const MAX_PAGE = 500
 
 const isPlainObject = v => v !== null && typeof v === 'object' && !Array.isArray(v) && Object.getPrototypeOf(v) === Object.prototype
@@ -57,18 +57,32 @@ export function registerMailIpc({ ipcMain, store, index, manager, labels = null,
     const limit = q.limit ?? 200
     if (!Object.hasOwn(LIST_SORTS, sort) || !['asc', 'desc'].includes(dir)) throw new BadRequest()
     if (!Number.isInteger(offset) || offset < 0 || !Number.isInteger(limit) || limit < 1 || limit > MAX_PAGE) throw new BadRequest()
+    if (q.deferCount !== undefined && typeof q.deferCount !== 'boolean') throw new BadRequest()
     // an optional filter; total is the filtered count, folderTotal the whole folder's
     const filter = parseListFilter(q.filter)
     if (!filter) throw new BadRequest()
     const folderTotal = index.countFolder(q.accountId, q.folder)
-    // the filtered count first: the page uses it to pick the label filter's cheaper side
-    const total = listFilterSql(filter).shape ? index.countFolder(q.accountId, q.folder, filter) : folderTotal
+    // deferCount: a filtered count reads every row of the folder (~200 ms on 100 000 rows, measured), the page only what it
+    // shows: the page comes at once with total null, the count after it (mail:count). Otherwise the count first: the page
+    // uses it to pick the label filter's cheaper side
+    const filtered = Boolean(listFilterSql(filter).shape)
+    const total = !filtered ? folderTotal : q.deferCount ? null : index.countFolder(q.accountId, q.folder, filter)
     const rows = index.listFolder({ accountId: q.accountId, folder: q.folder, sort: listSortFor(index, q.accountId, q.folder, sort), dir, offset, limit, filter, matches: total })
     return {
       total,
       folderTotal,
       rows: labels ? labels.attach(rows) : rows,
     }
+  })
+
+  // { accountId, folder, filter? } -> { total, folderTotal }: the count a deferred mail:list left out. Reads only.
+  handle('mail:count', async q => {
+    if (!isPlainObject(q) || !isId(q.accountId) || !isFolder(q.folder)) throw new BadRequest()
+    if (Object.keys(q).some(k => !['accountId', 'folder', 'filter'].includes(k))) throw new BadRequest()
+    const filter = parseListFilter(q.filter)
+    if (!filter) throw new BadRequest()
+    const folderTotal = index.countFolder(q.accountId, q.folder)
+    return { total: listFilterSql(filter).shape ? index.countFolder(q.accountId, q.folder, filter) : folderTotal, folderTotal }
   })
 
   handle('mail:status', async () => ({ accounts: manager.status() }))

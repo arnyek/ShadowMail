@@ -49,7 +49,7 @@ export function parseSearchRequest(q) {
     unread: Boolean(q.unread),
     flagged: Boolean(q.flagged),
     label: q.label ?? null,
-    sort: q.sort || 'relevance',
+    sort: q.sort || 'date',
   }
 }
 

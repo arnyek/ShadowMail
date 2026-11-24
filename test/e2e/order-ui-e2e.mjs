@@ -108,7 +108,7 @@ const lines = page => page.locator('.folder-tree .drop-before, .folder-tree .dro
 const depths = list => JSON.stringify(list.map(x => [x.path, x.depth]).sort((a, b) => (a[0] < b[0] ? -1 : 1)))
 const same = (a, b) => JSON.stringify(a) === JSON.stringify(b)
 const until = async (fn, what, ms = 5000) => {
-  for (const end = Date.now() + ms; Date.now() < end; await sleep(50)) if (await fn()) return true
+  for (const end = performance.now() + ms; performance.now() < end; await sleep(50)) if (await fn()) return true
   throw new Error(`timed out: ${what}`)
 }
 // a drag with the mouse to the upper (before) or lower (after) part of the target. Playwright's drag emulation

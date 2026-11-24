@@ -46,6 +46,7 @@ registerMailIpc({ ipcMain, store: { list: () => [{ ...account }] }, index, manag
 registerActionIpc({ ipcMain, actions, index, isTrustedSender: () => true })
 
 let listOverride = null
+let countOverride = null
 window.shadowMail = {
   onStatus: cb => ((statusCb = cb), () => {}),
   compose: { open() {} },
@@ -54,6 +55,7 @@ window.shadowMail = {
     folders: () => call('mail:folders'),
     status: async () => ({ ok: true, accounts: [] }),
     list: q => (listOverride ? listOverride(q) : call('mail:list', q)),
+    count: q => (countOverride ? countOverride(q) : call('mail:count', q)),
     ids: q => call('mail:ids', q),
     action: q => call('mail:action', q),
     sync: async () => ({ ok: true }),
@@ -177,4 +179,120 @@ test('a refused list request is said (role="alert"), the list is not left "busy"
   const root = v.container
   assert.ok(root.querySelector('.msg-viewport [role="alert"]')?.textContent.startsWith('A levéllista nem tölthető be'))
   assert.equal(root.querySelector('.msg-viewport').getAttribute('aria-busy'), 'false')
+})
+
+// a filtered count reads the whole folder: the page comes first, its count after it (mail:list deferCount + mail:count)
+test('IPC: deferCount leaves only the filtered count out; mail:count gives it; bad input is bad_request', async () => {
+  const ids = seed(8)
+  db.prepare("UPDATE messages SET flags = '\\Seen' WHERE id IN (?, ?, ?)").run(ids[0], ids[3], ids[5])
+  const q = { accountId: account.id, folder: 'INBOX', sort: 'date', dir: 'desc', offset: 0, limit: 50, filter: { unread: true } }
+  const full = await call('mail:list', q)
+  const later = await call('mail:list', { ...q, deferCount: true })
+  assert.deepEqual({ total: later.total, folderTotal: later.folderTotal, rows: later.rows.map(r => r.id) }, { total: null, folderTotal: 8, rows: full.rows.map(r => r.id) })
+  assert.equal(full.total, 5)
+  assert.deepEqual(await call('mail:count', { accountId: account.id, folder: 'INBOX', filter: { unread: true } }), { ok: true, total: 5, folderTotal: 8 })
+  // no filter: nothing to defer, the total is the folder's
+  const plain = await call('mail:list', { ...q, filter: undefined, deferCount: true })
+  assert.equal(plain.total, 8)
+  assert.deepEqual(await call('mail:count', { accountId: account.id, folder: 'INBOX' }), { ok: true, total: 8, folderTotal: 8 })
+  for (const bad of [{ ...q, deferCount: 'yes' }, { ...q, deferCount: 1 }]) assert.deepEqual(await call('mail:list', bad), { ok: false, error: 'bad_request' })
+  for (const bad of [null, { accountId: account.id }, { accountId: 0, folder: 'INBOX' }, { accountId: account.id, folder: 'INBOX', filter: { unread: 'x' } }, { accountId: account.id, folder: 'INBOX', offset: 0 }]) {
+    assert.deepEqual(await call('mail:count', bad), { ok: false, error: 'bad_request' }, JSON.stringify(bad))
+  }
+})
+
+test('a filtered view shows its rows before the count ("1–N / …"), then the count; the list asks with deferCount', async t => {
+  seed(6)
+  const asked = []
+  listOverride = q => (asked.push(q), call('mail:list', q))
+  let release
+  countOverride = q => new Promise(r => (release = () => r(call('mail:count', q))))
+  t.after(() => ((listOverride = null), (countOverride = null)))
+  const root = await unreadView(t)
+  assert.equal(shown(root).length, 6, 'the rows are there before the count')
+  assert.equal(total(root), '', 'no total yet')
+  assert.match(root.querySelector('.list-count').textContent, /^1–\d+ \/ …/, root.querySelector('.list-count').textContent)
+  assert.ok(asked.some(q => q.deferCount === true && q.filter && q.filter.unread === true), 'the filtered list asked to defer its count')
+  await inAct(async () => {
+    release()
+    await wait(30)
+  })
+  assert.equal(total(root), '6')
+  assert.doesNotMatch(root.querySelector('.list-count').textContent, /…/)
+})
+
+test('a quick filter change: the count of the filter before never shows', async t => {
+  const ids = seed(6)
+  db.prepare("UPDATE messages SET flags = '\\Flagged' WHERE id IN (?, ?)").run(ids[0], ids[1])
+  const pending = []
+  countOverride = q => new Promise(r => pending.push({ q, done: () => r(call('mail:count', q)) }))
+  t.after(() => (countOverride = null))
+  const root = await unreadView(t) // Unread on: its count is pending
+  await click([...root.querySelectorAll('.search-chips button.chip')].find(b => b.textContent === 'Olvasatlan')) // off
+  await click([...root.querySelectorAll('.search-chips button.chip')].find(b => b.textContent === 'Csillagos')) // starred on
+  await settle(60)
+  const unreadAsk = pending.find(p => p.q.filter && p.q.filter.unread === true)
+  const starAsk = pending.find(p => p.q.filter && p.q.filter.flagged === true)
+  assert.ok(unreadAsk && starAsk, JSON.stringify(pending.map(p => p.q.filter)))
+  // the newer count first, then the old one arrives late
+  await inAct(async () => {
+    starAsk.done()
+    await wait(30)
+  })
+  assert.equal(total(root), '2', 'the starred count')
+  await inAct(async () => {
+    unreadAsk.done()
+    await wait(30)
+  })
+  assert.equal(total(root), '2', 'the late unread count (6) is dropped')
+  assert.deepEqual(shown(root).sort(), [ids[0], ids[1]].sort())
+})
+
+test('a filtered view of several pages: the count is asked once, a later page (without a count) keeps the total', async t => {
+  const ids = seed(450)
+  const asked = []
+  countOverride = q => (asked.push(q), call('mail:count', q))
+  t.after(() => (countOverride = null))
+  const root = await unreadView(t)
+  await settle(60)
+  assert.equal(total(root), '450')
+  const rows = [...root.querySelectorAll('.msg-row[data-id]')]
+  const rowH = parseFloat(rows[1].style.top) - parseFloat(rows[0].style.top)
+  assert.ok(rowH > 0, `row height ${rowH}`)
+  const vp = root.querySelector('.msg-viewport')
+  // jsdom has no layout: the scroll position is set by hand, then the scroll event tells the list
+  Object.defineProperty(vp, 'scrollTop', { configurable: true, writable: true, value: 300 * rowH })
+  await inAct(async () => {
+    vp.dispatchEvent(new window.Event('scroll'))
+    await wait(60)
+  })
+  const after = { total: total(root), asked: asked.length, page2: shown(root).includes(ids[300]) }
+  assert.deepEqual(after, { total: '450', asked: 1, page2: true })
+})
+
+test('a change (version) in a filtered view: the old count is never shown beside the new rows ("1–N / …" until the new count)', async t => {
+  seed(6)
+  const pending = []
+  countOverride = q => (pending.length ? new Promise(r => pending.push(() => r(call('mail:count', q)))) : (pending.push(null), call('mail:count', q)))
+  const asked = []
+  listOverride = q => (asked.push(q), call('mail:list', q))
+  t.after(() => ((countOverride = null), (listOverride = null)))
+  const root = await unreadView(t)
+  await settle(40)
+  assert.equal(total(root), '6')
+  // a new unread message arrives
+  index.insertMany([{ account_id: account.id, folder: 'INBOX', uid: 99, message_id: '<v99@x>', in_reply_to: null, refs: null, from_addr: 'x@example.invalid', from_name: 'X', to_addrs: '', cc_addrs: '',
+    subject: 'Uj', date: NOW + 1000, idate: NOW + 1000, flags: '', size: 1, has_attachments: 0, attachments: null, body_state: 3, sender_text: '', recipients_text: '' }])
+  const newId = db.prepare("SELECT id FROM messages WHERE subject = 'Uj'").pluck().get()
+  // Refresh (a sync, an action and a label change step the list's version the same way)
+  await click(root.querySelector('.list-refresh'))
+  await settle(80)
+  const during = { top: shown(root)[0], total: total(root), text: root.querySelector('.list-count').textContent }
+  assert.equal(pending.length, 2, `the new generation asked for its count: ${JSON.stringify(asked.map(q => [q.offset, q.deferCount ?? null]))}`)
+  await inAct(async () => {
+    pending[1]()
+    await wait(30)
+  })
+  assert.deepEqual({ top: during.top, total: during.total, open: /^1–\d+ \/ …/.test(during.text) }, { top: newId, total: '', open: true }, during.text)
+  assert.equal(total(root), '7')
 })

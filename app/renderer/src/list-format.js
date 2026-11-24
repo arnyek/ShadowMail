@@ -31,6 +31,11 @@ export function formatRange(first, last, total) {
   return `${num(first)}–${num(last)} / ${num(total)}`
 }
 
+/** The visible range while the total is still being counted: "1–50 / …". */
+export function formatOpenRange(first, last) {
+  return `${num(first)}–${num(last)} / …`
+}
+
 /** The preview text for one line: whitespace collapsed; empty when there is none. */
 export function previewLine(preview) {
   return preview ? String(preview).replace(/\s+/g, ' ').trim() : ''

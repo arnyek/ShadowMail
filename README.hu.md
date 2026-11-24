@@ -100,6 +100,8 @@ A kereső melletti **Szűrők** gomb nyitja a szűrősort. Keresőszó nélkül 
   rendezést nem váltasz, vagy nem nyomod meg a **Frissítés**t.
 - A **Fiók** chip a választott fiók Beérkezett mappáját nyitja meg, a **Mappa** chip a választott mappát;
   a **Rendezés** chip ugyanaz, mint a lista **További** menüjének rendezése.
+- Keresésnél a találatok alapból **dátum szerint** jönnek, a legújabb elöl. A **Rendezés** chipen a **Relevancia**
+  választható, és a program megjegyzi: a következő kereséseknél (újraindítás után is) az marad, amíg vissza nem váltasz.
 
 ### Címlista
 
@@ -239,6 +241,49 @@ színezhetsz, rendezhetsz és törölhetsz címkét.
 - **POP3-fióknál** a címke ezen a gépen tárolódik, és a levél minden helyi példányán látszik. Ha a levélnek nincs
   Message-ID és Date fejléce, egy újra letöltött példányán a címke nem látszik.
 - Claude (MCP) felteheti és leveheti a meglévő címkéket; létrehozni, átnevezni és törölni csak te tudsz.
+
+### Újdonságok a 0.20.0-ban, ismert korlátok
+
+- **Claude mellékletet csatolhat a piszkozathoz:** egy fájlt a gépedről vagy egy meglévő levél mellékletét, új
+  piszkozathoz, válasz-piszkozathoz vagy egy piszkozat módosításakor. Ez **mindig kérdez**, a Megerősítések
+  kapcsolóitól függetlenül: az ablak minden fájl teljes útját vagy forrás-levelét, méretét és ujjlenyomatát mutatja,
+  elutasításnál semmi nem íródik. Legfeljebb 50 fájl, a piszkozatban már lévőkkel együtt 25 MB; a fájl a kérés
+  pillanatában olvasódik be.
+- **Melléklettel menő küldés mindig kérdez:** ha Claude mellékletes levelet küldene (továbbítás az eredeti
+  mellékleteivel, egy mellékletes piszkozat elküldése, időzítve is), a megerősítő ablak akkor is megjön, ha a küldés
+  megerősítését kikapcsoltad. A beillesztett kép és az aláírás képe nem számít mellékletnek.
+- **Claude a piszkozat képeivel küld:** ha Claude egy piszkozatot elküld, a beillesztett kép és az aláírás képe is
+  kimegy (eddig kimaradt, az időzített küldésnél is). A megerősítő ablak kiírja a beágyazott képek számát és méretét.
+- **Claude formázott szöveget írhat:** a piszkozatba, a válaszba és a küldött levélbe félkövér, dőlt, aláhúzott és
+  áthúzott szöveget, listát, címsort, idézetet, kódot és linket (http, https, mailto). Minden mást (stílus, szín,
+  kép, script, más hivatkozás, rejtett szöveg) a program ugyanúgy kiszűr, mint a levélírójában. Ha semmi látható nem
+  marad, vagy a szöveg túl összetett, Claude hibát kap, és semmi nem íródik és nem megy ki.
+- **A keresés alapból dátum szerint jön, a legújabb elöl;** ha a **Rendezés** chipen a **Relevanciát** választod, a
+  program megjegyzi. A dátum szerinti szöveges keresés nagy postafiókban gyorsabb.
+- **Gyorsabb szűrt lista és címkeválasztó:** a csillag-, olvasatlan- és címkeszűrő első oldala hamarabb jelenik meg
+  (a darabszám egy pillanattal később jön, addig „…” áll a helyén), és egy egész mappa kijelölésekor a címkeválasztó
+  is gyorsabban nyílik.
+- **Stíluslapos hírlevél idézete és beillesztése formázva:** a 0.19.0 ismert korlátja (a nagy, saját stíluslapos
+  hírlevél idézete formázás nélkül jött) a hírlevelek szokásos felépítésénél megszűnt.
+- **Beágyazott kép mellékletként:** ha egy levél egy beágyazott képre csak háttérként, linkként vagy a szövegében
+  hivatkozik (az olvasó ilyenkor nem mutatja), a kép most mellékletként jelenik meg, és az **Összes mentése** is
+  menti; eddig sehol nem látszott.
+- **Levélíró:** ha a szöveget kijelölve törlöd, és utána Enterrel, holt billentyűs vagy beviteli módszeres (IME)
+  betűvel vagy beillesztéssel folytatod, a szöveg tisztán indul (nem örökli a törölt rész formázását és beillesztett
+  stílusát), ugyanúgy, mint gépelésnél.
+- **Biztonsági javítás a rejtett szöveg szűrésében:** ha egy stílusszabály ugyanazt rövid és hosszú alakban is
+  megadta (például `margin: 0; margin-left: -2000px`, vagy `background` után fehér `background-color` fehér
+  szöveggel), a szűrő eddig a rövid alakot vette, így az így elrejtett szöveg eljuthatott Claude-hoz és a
+  keresőindexbe. Most a később írt nyer, mint a böngészőben; a beillesztés is így dönt.
+
+A kiadás ismert korlátai:
+
+- Ha a levél aláírása megmaradt, és a fölötte álló (beillesztett, saját stílusú) szöveget kijelölve törlöd, a
+  következő szöveg megkaphatja a törölt blokk stílusát (betűméret, szín, háttér), és így is megy ki.
+- Ha a küldés megerősítése ki van kapcsolva, és Claude mellékletes levelet küldene, a megerősítő ablak megjön, de
+  nem írja ki, hogy a melléklet miatt kérdez.
+- A megerősítő ablak Claude formázott szövegét sima szövegként mutatja (a linkek valódi célját igen).
+- Szándékos: szöveg nélküli keresésben (csak szűrőkkel) az azonos időpontú levelek közül a később felvett áll elöl.
 
 ### Újdonságok a 0.19.0-ban, ismert korlátok
 
@@ -731,21 +776,24 @@ A beállítás formátuma a hivatalos dokumentációból való: Claude Desktop:
 
 - **Megerősítés nélkül:** olvasás és keresés (a levél ettől nem lesz olvasott), jelölés (olvasott, csillag),
   áthelyezés, Kukába helyezés, mappa létrehozása és átnevezése, piszkozat írása (a Piszkozatok mappába, "Claude"
-  jellel; a programban értesítés jelenik meg), egy piszkozat módosítása (semmit nem küld el; a Megerősítések alatt
+  jellel, sima vagy egyszerű formázott szöveggel; a programban értesítés jelenik meg), egy piszkozat módosítása (semmit nem küld el; a Megerősítések alatt
   kérdéshez köthető), az időzített levelek listázása és a Claude által időzített levél visszavonása (vissza a
   Piszkozatok közé, sávval),
   frissítés, a fiók kapcsolatának próbája, egy levél vagy egy keresés megmutatása a program ablakában, a címkék
   listázása, a levelek címkéinek látása és a címke szerinti szűrés, egy meglévő címke feltétele és levétele (az
   ablakban azonnal látszik). Ezek visszafordíthatók.
 - **Csak a te megerősítéseddel:** levél küldése vagy időzítése, végleges törlés, mappa és fiók törlése,
-  fiók-beállítás módosítása, egy leállt fiók belépésének újraindítása, a te saját időzítésed visszavonása. A **Megerősítések** alatt ezek műveletenként
-  kikapcsolhatók (a szabályokat lásd a 0.16.0 újdonságainál); a belépési adatok módosítása és a saját időzítésed visszavonása mindig kérdez. Ilyenkor a ShadowMail ablaka előre jön, és pontosan azt mutatja, ami
-  történne (küldésnél a címzetteket, a szöveget és minden link valódi célját). Az alapértelmezett gomb az
+  fiók-beállítás módosítása, egy leállt fiók belépésének újraindítása, a te saját időzítésed visszavonása, egy fájl vagy
+  egy levél mellékletének csatolása egy piszkozathoz. A **Megerősítések** alatt ezek műveletenként
+  kikapcsolhatók (a szabályokat lásd a 0.16.0 újdonságainál); a belépési adatok módosítása, a saját időzítésed
+  visszavonása, a csatolás és a mellékletes levél küldése mindig kérdez. Ilyenkor a ShadowMail ablaka előre jön, és pontosan azt mutatja, ami
+  történne (küldésnél a címzetteket, a szöveget és minden link valódi célját; csatolásnál minden fájl útját vagy forrás-levelét,
+  méretét és ujjlenyomatát). Az alapértelmezett gomb az
   **Elutasítás** (az Enter is elutasít), a **Jóváhagyás** másfél másodperc után válik aktívvá. A kérés 10 perc után
   lejár. A megerősítő ablakból a **Zárolás** vagy a **Mind elutasítása, Claude-hozzáférés ki** gomb egy lépésben
   mindent elutasít.
-- **Soha:** jelszó, mesterjelszó és helyreállító kód, a mellékletek tartalma, helyi fájl csatolása, a
-  Claude-hozzáférés kapcsolója, és címke létrehozása, átnevezése vagy törlése (ezt csak te teheted, a Beállítások /
+- **Soha:** jelszó, mesterjelszó és helyreállító kód, a mellékletek tartalma (csatolni csatolhat, de a fájl tartalmát
+  nem kapja meg), a Claude-hozzáférés kapcsolója, és címke létrehozása, átnevezése vagy törlése (ezt csak te teheted, a Beállítások /
   Címkék alatt).
 
 A **Legutóbbi Claude-hívások** lista ugyanezen a lapon az utolsó 20 hívást mutatja (idő, eszköz, eredmény,

@@ -51,6 +51,7 @@ function SendView({ v }) {
         {join(v.cc) && <Field label={ct.cc}>{join(v.cc)}</Field>}
         {join(v.bcc) && <Field label={ct.bcc}>{join(v.bcc)}</Field>}
         <Field label={ct.subject}>{v.subject || ct.noSubject}</Field>
+        {v.images && v.images.count > 0 && <Field label={ct.embeddedImages}>{ct.embeddedImagesValue(v.images.count, t.sizeKb(v.images.size))}</Field>}
         {v.attachments.length > 0 && (
           <Field label={ct.attachments}>
             <ul className="confirm-list">
@@ -190,6 +191,59 @@ function UpdateDraftView({ v }) {
   )
 }
 
+/**
+ * The files Claude asks to attach (view.claudeFiles): per file its name, where it comes from (the FULL local path,
+ * or a message's attachment), its size and the first 12 digits of its SHA-256. The name is a line of its own, so a
+ * long path never hides it; the path wraps anywhere. Text only, as everything here.
+ * @param files  [{ name, size, sha256, path } | { name, size, sha256, message: { subject } }]
+ */
+export function ClaudeFiles({ files }) {
+  return (
+    <div className="confirm-claude-files">
+      <p className="confirm-label">{ct.claudeFilesHead(files.length)}</p>
+      <ul className="confirm-list">
+        {files.map((f, i) => (
+          <li key={i} className="confirm-claude-file">
+            <strong className="confirm-file-name">{f.name}</strong>
+            <span className="confirm-file-source">{f.message ? ct.claudeFileFromMessage(f.message.subject, f.name) : f.path}</span>
+            <span className="confirm-file-meta">{`${t.sizeKb(f.size)} · SHA-256 ${String(f.sha256).slice(0, 12)}`}</span>
+          </li>
+        ))}
+      </ul>
+      <p className="confirm-warning">{ct.claudeFilesNote}</p>
+    </div>
+  )
+}
+
+// create_draft / create_reply_draft with files: the envelope, the original message for a reply or forward, Claude's own
+// text, the forward's own attachments, and that nothing is sent (the files themselves: ClaudeFiles, below)
+function CreateDraftView({ v }) {
+  return (
+    <>
+      <AccountLine account={v.account} />
+      <dl className="confirm-fields confirm-create-draft">
+        {v.original && <Field label={ct.originalMessage}>{`${t.replyModes[v.original.mode] || ''}: ${v.original.subject || ct.noSubject}`}</Field>}
+        <Field label={ct.to}>{join(v.to) || ct.empty}</Field>
+        {join(v.cc) && <Field label={ct.cc}>{join(v.cc)}</Field>}
+        {join(v.bcc) && <Field label={ct.bcc}>{join(v.bcc)}</Field>}
+        <Field label={ct.subject}>{v.subject || ct.noSubject}</Field>
+        {v.attachments && v.attachments.length > 0 && (
+          <Field label={ct.attachments}>
+            <ul className="confirm-list">
+              {v.attachments.map((a, i) => (
+                <li key={i}>{`${a.name} (${t.sizeKb(a.size)})`}</li>
+              ))}
+            </ul>
+          </Field>
+        )}
+      </dl>
+      <p className="confirm-label">{ct.draftText}</p>
+      <pre className="confirm-text confirm-draft-text">{v.text || ct.noText}</pre>
+      <p>{ct.draftNotSent}</p>
+    </>
+  )
+}
+
 function AccountLine({ account }) {
   return (
     <dl className="confirm-fields">
@@ -198,7 +252,17 @@ function AccountLine({ account }) {
   )
 }
 
+// the request's own view, and the files Claude asks to attach below it (any kind may carry them)
 function Body({ v }) {
+  return (
+    <>
+      <KindBody v={v} />
+      {Array.isArray(v.claudeFiles) && v.claudeFiles.length > 0 && <ClaudeFiles files={v.claudeFiles} />}
+    </>
+  )
+}
+
+function KindBody({ v }) {
   switch (v.kind) {
     case 'send':
       return <SendView v={v} />
@@ -218,6 +282,8 @@ function Body({ v }) {
       return <UpdateAccountView v={v} />
     case 'updateDraft':
       return <UpdateDraftView v={v} />
+    case 'createDraft':
+      return <CreateDraftView v={v} />
     case 'cancelScheduled':
       return (
         <>

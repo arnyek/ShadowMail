@@ -114,7 +114,7 @@ test('worker: opening the newsletter: the indexed row gets the visible text, the
       assert.equal(s.db.prepare('SELECT preview FROM messages').get().preview, preview, `${mode}: the preview stays`)
       if (svc) {
         assert.equal(s.index.search({ query: HIDDEN }).length, 0, 'opened: clean')
-        // the whole 404 KB newsletter is over visibleTextInfo's work ceiling: its first 128 KB is searched
+        // the visible word is found (the whole text, or the first 128 KB when over the work ceiling)
         assert.equal(s.index.search({ query: VISIBLE }).length, 1)
       }
     }

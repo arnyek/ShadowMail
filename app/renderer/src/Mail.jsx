@@ -10,14 +10,14 @@ import { createPortal } from 'react-dom'
 import { t, locale } from '../i18n/index.js'
 import { buildFolderTree, flattenTree, assignRoles, inArchive, roleFixed } from '../../../core/imap/folders.js'
 import { Reader } from './Reader.jsx'
-import { SearchBox, SearchChips, SearchResults, EMPTY_FILTERS, clearedFilters, fromConditions, leftSearch, listFilterOn, searchActive, toListFilter, toRequest } from './Search.jsx'
+import { SearchBox, SearchChips, SearchResults, EMPTY_FILTERS, clearedFilters, fromConditions, leftSearch, listFilterOn, searchActive, storedSearchSort, toListFilter, toRequest } from './Search.jsx'
 import { Icon } from './Icon.jsx'
 import { Banner, Button, Checkbox, IconButton, Menu, MenuButton, Modal, Splitter } from './ui/index.js'
 import { folderIcon } from './folder-icons.js'
 import { dropAfter, dropped, dropZone, followPath, moveTarget, moveTargetReason, siblingLists, stepped } from './folder-order.js'
 import { foldKey, foldedSet, movedFolded, visibleFolders } from './folder-fold.js'
 import { getPref, setPref } from './prefs.js'
-import { formatRange, previewLine } from './list-format.js'
+import { formatOpenRange, formatRange, previewLine } from './list-format.js'
 import { RowText } from './RowText.jsx'
 import { RECIPIENT_ROLES } from '../../../core/mime/recipient-label.js'
 import { SubscriptionsDialog } from './Subscriptions.jsx'
@@ -492,7 +492,7 @@ const MessageRow = memo(function MessageRow({ m, index, top, flags, labels, labe
  * count; on the right the visible range ("(szűrve, összesen N)" when filtered).
  */
 function ListHeader({ ctx }) {
-  const { selection, total, folderTotal, filtered, range, folders, folder, archive, sortItems, onSelectAll, onSelectNone, onSelectSeen, onAction, onLabel, onRefresh, onClearFilters, selectedInfo } = ctx
+  const { selection, total, counting, folderTotal, filtered, range, folders, folder, archive, sortItems, onSelectAll, onSelectNone, onSelectSeen, onAction, onLabel, onRefresh, onClearFilters, selectedInfo } = ctx
   const n = selection.size
   const ids = [...selection]
   const all = total > 0 && n === total
@@ -552,7 +552,11 @@ function ListHeader({ ctx }) {
         </div>
       )}
       <span className="list-count" data-total={total ?? ''} data-folder-total={folderTotal ?? ''} title={total ? t.listCount(total) : undefined}>
-        {total === null ? '' : formatRange(range.first, range.last, total) + (filtered && folderTotal !== null ? t.listFiltered(folderTotal) : '')}
+        {total === null
+          ? counting
+            ? formatOpenRange(range.first, range.last) + (filtered && folderTotal !== null ? t.listFiltered(folderTotal) : '')
+            : ''
+          : formatRange(range.first, range.last, total) + (filtered && folderTotal !== null ? t.listFiltered(folderTotal) : '')}
       </span>
     </div>
   )
@@ -564,6 +568,9 @@ function ListHeader({ ctx }) {
  */
 function MessageList({ accountId, folder, folders, version, openId, onOpen, selection, onSelection, overlay, onAction, onContextMenu, sort, dir, onSort, filter, keepRef, onRefresh, onClearFilters, idsRef = null, labelList = null, labelDeltas = [], onLabel = null, onDeltaSettled = () => {}, onDragOut = null }) {
   const [total, setTotal] = useState(null)
+  // the total is an older generation's (a change came, the new pages come without a count and the count is on its way):
+  // the list keeps its length, but the number is not shown (an old count never stands beside the new rows)
+  const [totalStale, setTotalStale] = useState(false)
   const [folderTotal, setFolderTotal] = useState(null)
   const [loadError, setLoadError] = useState(null) // a refused list request: said, not an endless "busy"
   const [scrollTop, setScrollTop] = useState(0)
@@ -572,6 +579,8 @@ function MessageList({ accountId, folder, folders, version, openId, onOpen, sele
   const pages = useRef(new Map()) // page index -> { gen, rows }
   const loading = useRef(new Set())
   const gen = useRef(0)
+  // the generation whose filtered count was asked for (mail:count after a page that came without it)
+  const countedGen = useRef(-1)
   const viewport = useRef(null)
   const anchor = useRef(null)
   const archive = useMemo(() => archiveOf(folders), [folders])
@@ -657,7 +666,9 @@ function MessageList({ accountId, folder, folders, version, openId, onOpen, sele
       const key = `${myGen}:${p}`
       if (loading.current.has(key)) return
       loading.current.add(key)
-      api.mail.list({ accountId, folder, sort, dir, offset: p * PAGE, limit: PAGE, ...request() }).then(res => {
+      // a filtered view: the page at once, its count after it (a filtered count reads the whole folder); a late count of
+      // another generation (another filter, folder, order, or a change since) is dropped, so an old count never shows
+      api.mail.list({ accountId, folder, sort, dir, offset: p * PAGE, limit: PAGE, ...request(), ...(filtered ? { deferCount: true } : {}) }).then(res => {
         loading.current.delete(key)
         if (myGen !== gen.current) return
         if (!res.ok) {
@@ -666,9 +677,21 @@ function MessageList({ accountId, folder, folders, version, openId, onOpen, sele
         }
         setLoadError(null)
         pages.current.set(p, { gen: myGen, rows: res.rows })
-        setTotal(res.total)
+        if (res.total !== null) {
+          setTotal(res.total)
+          setTotalStale(false)
+        } else if (countedGen.current !== myGen) setTotalStale(true)
         setFolderTotal(res.folderTotal)
         setTick(t => t + 1)
+        if (res.total === null && countedGen.current !== myGen) {
+          countedGen.current = myGen
+          api.mail.count({ accountId, folder, ...request() }).then(c => {
+            if (myGen !== gen.current || !c.ok) return
+            setTotal(c.total)
+            setTotalStale(false)
+            setFolderTotal(c.folderTotal)
+          })
+        }
       })
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -681,6 +704,7 @@ function MessageList({ accountId, folder, folders, version, openId, onOpen, sele
     pages.current = new Map()
     loading.current = new Set()
     setTotal(null)
+    setTotalStale(false)
     setFolderTotal(null)
     setLoadError(null)
     if (viewport.current) viewport.current.scrollTop = 0
@@ -735,7 +759,11 @@ function MessageList({ accountId, folder, folders, version, openId, onOpen, sele
     }
   }, [openId, rowH])
   const first = Math.max(0, Math.floor(scrollTop / rowH) - OVERSCAN)
-  const count = total ?? 0
+  // while a filtered count is on its way: the rows of the first page are shown (the list grows when the count comes)
+  const firstPage = pages.current.get(0)
+  const shownTotal = totalStale ? null : total
+  const counting = shownTotal === null && Boolean(firstPage && firstPage.gen === gen.current && firstPage.rows.length)
+  const count = total ?? (counting ? firstPage.rows.length : 0)
   const last = Math.min(count, Math.ceil((scrollTop + height) / rowH) + OVERSCAN)
   const range = {
     first: Math.min(count, Math.floor(scrollTop / rowH) + 1),
@@ -845,7 +873,8 @@ function MessageList({ accountId, folder, folders, version, openId, onOpen, sele
 
   const ctx = {
     selection,
-    total,
+    total: shownTotal,
+    counting,
     folderTotal,
     filtered,
     range,
@@ -895,8 +924,8 @@ function MessageList({ accountId, folder, folders, version, openId, onOpen, sele
             {t.listLoadError(loadError)}
           </p>
         )}
-        {total === 0 && !filtered && <p className="hint pad">{t.listEmpty}</p>}
-        {total === 0 && filtered && (
+        {shownTotal === 0 && !filtered && <p className="hint pad">{t.listEmpty}</p>}
+        {shownTotal === 0 && filtered && (
           <div className="list-filtered-empty pad">
             <p className="hint">{t.listFilteredEmpty}</p>
             <Button variant="outlined" icon="filterClear" onClick={onClearFilters}>{t.clearFilters}</Button>
@@ -1079,7 +1108,7 @@ export function Mail({ collapsed = false, readerPane = 'none', searchSlot = null
   const listhMeasure = useCallback(() => listAreaRef.current?.getBoundingClientRect().height ?? 0, [])
   const listhMax = useCallback(() => (panesRef.current?.clientHeight ?? 0) - 160, [])
   const [searchText, setSearchText] = useState('')
-  const [filters, setFilters] = useState(EMPTY_FILTERS)
+  const [filters, setFilters] = useState(() => ({ ...EMPTY_FILTERS, sort: storedSearchSort() }))
   const [filtersOpen, setFiltersOpen] = useState(false)
   const searching = searchActive(searchText, filters)
   // since 0.10.1 the chips filter the folder view too; the filter stays on a

@@ -83,9 +83,9 @@ const check = (name, ok, detail = '') => {
 }
 const problems = []
 const until = async (fn, ms = 4000) => {
-  const t0 = Date.now()
+  const t0 = performance.now()
   while (!(await fn())) {
-    if (Date.now() - t0 > ms) return false
+    if (performance.now() - t0 > ms) return false
     await sleep(40)
   }
   return true
