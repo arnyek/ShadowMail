@@ -47,7 +47,7 @@ export function englishProblem(text, n) {
 test('the sample table covers every function key of the English dictionary, and nothing else', () => {
   const keys = functions(en).map(([p]) => p).sort()
   assert.deepEqual(Object.keys(SAMPLES).sort(), keys)
-  assert.equal(keys.length, 147)
+  assert.equal(keys.length, 148)
 })
 
 test('every function key with 0, 1, 2 and 1000 (and every code): finished English, the right number', () => {

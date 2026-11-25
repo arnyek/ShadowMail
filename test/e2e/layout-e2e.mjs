@@ -269,7 +269,7 @@ try {
     }, n)
   const rowH = await token(page, '--row-h')
   const r0 = await rowInfo(0)
-  check(`unread row: sender and subject 600, " – " and the preview 400 in gray, one line, --row-h (${rowH} px)`, r0 && r0.unread && r0.fromW === '600' && r0.subjW === '600' && r0.prevW === '400' && r0.prevColor === r0.gray && r0.sep === ' – ' && r0.oneLine && r0.h === rowH, JSON.stringify(r0))
+  check(`unread row: sender and subject 700, " – " and the preview 400 in gray, one line, --row-h (${rowH} px)`, r0 && r0.unread && r0.fromW === '700' && r0.subjW === '700' && r0.prevW === '400' && r0.prevColor === r0.gray && r0.sep === ' – ' && r0.oneLine && r0.h === rowH, JSON.stringify(r0))
   const r1 = await rowInfo(1)
   check('read row: sender and subject 400', r1 && !r1.unread && r1.fromW === '400' && r1.subjW === '400' && r1.prevW === '400', JSON.stringify(r1))
   const r3 = await rowInfo(3)

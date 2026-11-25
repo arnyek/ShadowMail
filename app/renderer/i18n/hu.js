@@ -491,7 +491,7 @@ export const hu = {
   listFilteredEmpty: 'Nincs a szűrőknek megfelelő levél.',
   // MCP: the connector's answer when the app cannot be reached
   mcpUnavailable: 'A ShadowMail nem fut, zárolva van, vagy a Claude-hozzáférés ki van kapcsolva.',
-  mcpTooMany: 'A ShadowMailhez már két Claude-kapcsolat él (ennyi lehet egyszerre). Zárj be egy másik Claude-munkamenetet, és próbáld újra.',
+  mcpTooMany: 'Most két Claude-beszélgetés dolgozik a ShadowMaillel egyszerre. Várj, amíg az egyik végez, és próbáld újra.',
   listLoadError: code => `A levéllista nem tölthető be: ${hu.searchError(code)}`,
   clearFilters: 'Szűrők törlése',
   // recipient: the Sent and Drafts lists' sender column shows the recipient, and the order follows it
@@ -503,6 +503,7 @@ export const hu = {
   noRecipient: '(nincs címzett)',
   flagged: 'Csillagozott',
   hasAttachment: 'Van melléklet',
+  replyMarks: { answered: 'Megválaszolva', forwarded: 'Továbbítva', both: 'Megválaszolva és továbbítva' },
   // Message list
   listToolsLabel: 'Levéllista',
   selectRow: 'Kijelölés',
@@ -625,6 +626,12 @@ export const hu = {
   readerToolsLabel: 'Műveletek a levélen',
   readerMore: 'További',
   readerDetailsShow: 'Részletek megjelenítése',
+  repliedLine: {
+    on: 'Válaszoltál: ',
+    none: 'Megválaszoltad',
+    forwarded: 'Továbbítottad',
+    many: (n, date) => `${n.toLocaleString('hu-HU')} válasz, a legutóbbi: ${date}`,
+  },
   readerDetailsHide: 'Részletek elrejtése',
   readerToSummary: names => `címzett: ${names}`,
   readerNoRecipient: 'nincs címzett',

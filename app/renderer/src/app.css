@@ -601,6 +601,9 @@ main.app > .error {
   flex-direction: column;
   min-width: 0;
   min-height: 0;
+  /* the list header's steps below measure this box (a container query never applies to the container itself, and the
+     header's own padding is one of the steps); its width is the header's */
+  container: list-box / inline-size;
 }
 
 /* List header: select-all, tools or the icon actions, the visible range */
@@ -643,11 +646,87 @@ main.app > .error {
   min-width: 0;
 }
 
+/* the sort tools never shrink under their button: a long range gives way instead (below) */
+.list-tools {
+  flex: 1 0 auto;
+}
+
 .selection-count {
   margin-left: var(--space-2);
   font-size: var(--fs-s);
   color: var(--c-text-2);
   white-space: nowrap;
+}
+
+/* While rows are selected a narrow list header gives way, in steps (the buttons never shrink or overlap):
+   1. the two labels: the range shrinks first, down to nothing (.list-count, every state), then "N selected", both cut
+      with an ellipsis (each keeps its whole text in its title);
+   2. a compact header: 32 px buttons (the classic styles have them already), a 4 px edge and gap;
+   3. "More" at the bar's end: label and star go into it, then read / unread;
+   4. refresh goes into it too.
+   The thresholds are the widths the worst case needs (Archive and the filter's clear button both there, both labels
+   at nothing) before each step: default 472 px, compact 400 px; then 368, 332, 296 px. Without a selection the header
+   is the same at every width. */
+.list-header.selecting .action-bar {
+  flex: 1 1 auto;
+}
+
+.list-header.selecting .selection-count {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.action-bar .action-more,
+.action-bar .action-more li:has(> [data-key="read"]),
+.action-bar .action-more li:has(> [data-key="refresh"]) {
+  display: none;
+}
+
+@container list-box (width < 472px) {
+  :root:not([data-density="compact"]) .list-header.selecting {
+    --icon-btn: 32px;
+    padding: 0 var(--space-1);
+    gap: var(--space-1);
+  }
+}
+
+@container list-box (width < 400px) {
+  [data-density="compact"] .list-header.selecting {
+    padding: 0 var(--space-1);
+    gap: var(--space-1);
+  }
+}
+
+@container list-box (width < 368px) {
+  .list-header.selecting .action-more {
+    display: inline-flex;
+  }
+
+  .list-header.selecting .label-open,
+  .list-header.selecting .act-star {
+    display: none;
+  }
+}
+
+@container list-box (width < 332px) {
+  .list-header.selecting .act-read {
+    display: none;
+  }
+
+  .list-header.selecting .action-more li:has(> [data-key="read"]) {
+    display: list-item;
+  }
+}
+
+@container list-box (width < 296px) {
+  .list-header.selecting > .list-refresh {
+    display: none;
+  }
+
+  .list-header.selecting .action-more li:has(> [data-key="refresh"]) {
+    display: list-item;
+  }
 }
 
 .list-filtered-empty {
@@ -657,8 +736,14 @@ main.app > .error {
   gap: var(--space-2);
 }
 
+/* the range gives way first when the header is short (a long filtered range on a narrow list, a selection): it shrinks
+   down to nothing with an ellipsis, its whole text in its title; where it fits it is as before */
 .list-count {
+  flex: 0 1000 auto;
+  min-width: 0;
   margin-left: auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
   font-size: var(--fs-xs);
   color: var(--c-text-2);
   white-space: nowrap;
@@ -703,9 +788,13 @@ main.app > .error {
   column-gap: var(--space-1);
   padding: 0 var(--space-4) 0 var(--space-2);
   border-bottom: 1px solid var(--c-border);
-  background: var(--c-bg);
+  background: var(--c-row-read);
   cursor: default;
   font-size: var(--fs-m);
+}
+
+.msg-row.unread {
+  background: var(--c-row-unread);
 }
 
 /* a narrow list (under 351 px, where the default theme's sender would get less than 96 px; the container's width is
@@ -765,7 +854,7 @@ main.app > .error {
 
 .msg-row.unread .col-from,
 .msg-row.unread .col-subject {
-  font-weight: var(--fw-strong);
+  font-weight: var(--fw-unread);
 }
 
 .msg-row .col-attachment {
@@ -780,7 +869,7 @@ main.app > .error {
 
 .msg-row.unread .col-date {
   color: var(--c-text);
-  font-weight: var(--fw-strong);
+  font-weight: var(--fw-unread);
 }
 
 .msg-row:hover {
@@ -788,8 +877,21 @@ main.app > .error {
   box-shadow: var(--shadow-1);
 }
 
+/* after the unread row's rule: a selected row is the selected color, read or unread */
 .msg-row.selected {
-  background: var(--c-surface-2);
+  background: var(--c-row-selected);
+}
+
+/* a starred row's star: its color says it, not the pressed button's disc (on the selected row's color the disc would
+   show as a circle); under the mouse the row's own hover disc, as every button in the row */
+.msg-row .star-toggle[aria-pressed="true"] {
+  background: transparent;
+}
+
+/* a button in a row (the star, the hover actions) under the mouse: the row's translucent disc (--c-hover is nearly the
+   row's own color on the new row backgrounds) */
+.msg-row .icon-btn:not(:disabled):hover {
+  background: var(--c-row-hover);
 }
 
 /* the hover actions take the date's place */
@@ -996,6 +1098,33 @@ main.app > .error {
   font-weight: var(--fw-normal);
   margin: 0 0 var(--space-4);
   overflow-wrap: anywhere;
+}
+
+/* the replied / forwarded line under the sender: small, quiet, the reply's date a link */
+.reader-replied {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-2);
+  margin-top: var(--space-1);
+  font-size: var(--fs-s);
+  color: var(--c-text-2);
+}
+
+.reader-replied-part {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.reader-replied-part .icon {
+  width: 14px;
+  height: 14px;
+}
+
+.reader-replied .reader-replied-open {
+  align-self: center;
+  font-size: inherit;
 }
 
 .reader-from-row {
@@ -1371,7 +1500,7 @@ main.app > .error {
 
 .result.selected,
 .result.selected .result-open {
-  background: var(--c-surface-2);
+  background: var(--c-row-selected);
 }
 
 /* the same cells as a list row (RowText) inside the hit's button */
@@ -1388,15 +1517,16 @@ main.app > .error {
   padding: 0 var(--space-4);
   border: 0;
   border-radius: 0;
-  background: var(--c-bg);
+  background: var(--c-row-read);
   color: var(--c-text);
   text-align: left;
   font-size: var(--fs-m);
   cursor: pointer;
 }
 
+/* the hit keeps its row color under the mouse (over the plain button's hover), the shadow marks it */
 .result-open:hover {
-  background: var(--c-bg);
+  background: var(--c-row-read);
   box-shadow: var(--shadow-1);
   position: relative;
   z-index: 1;
@@ -1418,9 +1548,20 @@ main.app > .error {
   color: var(--c-text-2);
 }
 
+/* a hit is drawn as a list row: an unread one on its color (a selected one keeps the selected color), bold, its date
+   too */
+.result.unread:not(.selected) .result-open {
+  background: var(--c-row-unread);
+}
+
 .result.unread .col-from,
-.result.unread .col-subject {
-  font-weight: var(--fw-strong);
+.result.unread .col-subject,
+.result.unread .col-date {
+  font-weight: var(--fw-unread);
+}
+
+.result.unread .col-date {
+  color: var(--c-text);
 }
 
 .result-where {
@@ -1439,6 +1580,100 @@ main.app > .error {
   border-radius: var(--radius-m);
   background: var(--c-surface-2);
   color: var(--c-accent);
+}
+
+/* the replied / forwarded marks at the start of a row's text cell (the list and the search hits): a flex child of
+   .col-text, never shrinking, in the secondary text color on every row state */
+.reply-marks {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 2px;
+  margin-right: var(--space-1);
+  color: var(--c-text-2);
+}
+
+.reply-marks .icon {
+  width: 14px;
+  height: 14px;
+}
+
+/* the sender cell's copy: hidden in a wide row (the text cell's copy shows) */
+.reply-marks-from {
+  display: none;
+  vertical-align: middle;
+}
+
+/* the row's own box decides which copy shows (the scrollbar is not in it) */
+.msg-row,
+.result-open {
+  container: row-box / inline-size;
+}
+
+/* where the text cell gets narrower than both marks (two icons, the gap, the margin: 34 px), they move before the
+   sender, which keeps >= 96 px there. The query reads the row's CONTENT box (its padding out, the scrollbar not in it).
+   Measured (the list divider swept 1 px at a time): the text cell is the content box less 312 px (normal density) / 292 px
+   (compact) in the list, less 232 / 224 px in the search hits; the tracks are px tokens, so the font does not move it.
+   In the list's narrow form (msg-list < 351 px, a smaller edge and checkbox) the text cell is the content box less
+   300 / 288 px and the content box at most 327 px: the normal row is under its switch, the marks before the sender; the
+   compact one has its marks in the text cell at 326-327 px (38-39 px cell) and before the sender under 326 px, also
+   where the cell would just hold them (322-325 px: 34-37 px).
+   Under the switch the sender cell's right padding is 4 px instead of 16 (the name's room; the tracks do not move, so
+   neither does the date) */
+@container row-box (width < 346px) {
+  :root:not([data-density="compact"]) .msg-row .col-from {
+    padding-right: var(--space-1);
+  }
+
+  :root:not([data-density="compact"]) .msg-row .reply-marks-text {
+    display: none;
+  }
+
+  :root:not([data-density="compact"]) .msg-row .reply-marks-from {
+    display: inline-flex;
+  }
+}
+
+@container row-box (width < 326px) {
+  [data-density="compact"] .msg-row .col-from {
+    padding-right: var(--space-1);
+  }
+
+  [data-density="compact"] .msg-row .reply-marks-text {
+    display: none;
+  }
+
+  [data-density="compact"] .msg-row .reply-marks-from {
+    display: inline-flex;
+  }
+}
+
+@container row-box (width < 266px) {
+  :root:not([data-density="compact"]) .result-open .col-from {
+    padding-right: var(--space-1);
+  }
+
+  :root:not([data-density="compact"]) .result-open .reply-marks-text {
+    display: none;
+  }
+
+  :root:not([data-density="compact"]) .result-open .reply-marks-from {
+    display: inline-flex;
+  }
+}
+
+@container row-box (width < 258px) {
+  [data-density="compact"] .result-open .col-from {
+    padding-right: var(--space-1);
+  }
+
+  [data-density="compact"] .result-open .reply-marks-text {
+    display: none;
+  }
+
+  [data-density="compact"] .result-open .reply-marks-from {
+    display: inline-flex;
+  }
 }
 
 /* the small "Claude" mark on a draft Claude made (the Drafts list, search hits) */

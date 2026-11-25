@@ -10,6 +10,7 @@ const each = (list, f) => list.map(f)
 // key path -> n => list of argument lists
 export const SAMPLES = {
   dataDirNotWritable: () => [['C:\\ShadowMail\\data', 'EACCES']],
+  'repliedLine.many': n => [[n, '25 Nov 2026, 09:30']],
   vaultMinLength: n => [[n]],
   'vaultErrors.db_no_space': n => [[{ needMb: n, freeMb: n }], [null], [{}]],
   vaultError: n => [...each(codes(en.vaultErrors), c => [c, { needMb: n, freeMb: n }]), ['wrong_password']],

@@ -72,6 +72,9 @@ export function contrast(fg, bg) {
   return (a + 0.05) / (b + 0.05)
 }
 
+// the backgrounds of a message list row: read, unread, selected
+const ROWS = ['--c-row-read', '--c-row-unread', '--c-row-selected']
+
 // [foreground, background (layers, top first)]
 const TEXT_PAIRS = [
   // the composer's writing surface: the message's own light page in every theme
@@ -108,9 +111,19 @@ const TEXT_PAIRS = [
   ['--c-success', ['--c-bg']],
   ['--c-success', ['--c-surface']],
   ...Array.from({ length: 8 }, (_, i) => ['--c-on-accent', [`--c-avatar-${i + 1}`]]),
+  // the message list's rows (a search hit is drawn the same way): the sender, subject and date, the preview and the
+  // grayed date / "+N" on the read, the unread and the selected row
+  ...ROWS.flatMap(row => [['--c-text', [row]], ['--c-text-2', [row]]]),
+  // a button in a row under the mouse: its icon (--c-text) on the translucent hover disc over the row
+  ...ROWS.map(row => ['--c-text', ['--c-row-hover', row]]),
 ]
 
 const ICON_PAIRS = [
+  // on a list row: the checkbox and the attachment / hover icons (text-2), the open row's stripe and a checked box
+  // (accent), a starred row's star
+  ...ROWS.flatMap(row => [['--c-text-2', [row]], ['--c-accent', [row]], ['--c-star', [row]]]),
+  // a starred row's star under the mouse, on the hover disc
+  ...ROWS.map(row => ['--c-star', ['--c-row-hover', row]]),
   // a colour menu's swatch outline is --c-text-2 on the menu (--c-bg, below); a quote's line on the writing surface
   // (--c-mail-quote) is decoration, as --c-border-strong was there before
   ['--c-text-2', ['--c-bg']],
@@ -177,6 +190,29 @@ for (const theme of THEMES) {
   })
 }
 
+// the hover disc of a button in a row (--c-row-hover, translucent) must stand out from the row it sits on: its composited
+// color at least 1.15:1 against the read, the unread and the selected row, in every theme (no WCAG pair: a step of its
+// own; the shared --c-hover measured 1.001-1.04:1 on the new rows)
+export function rowHoverSteps(tokens) {
+  const keep = T
+  T = tokens
+  try {
+    return ROWS.map(row => [row, contrast(solid('--c-row-hover', row), solid(row))])
+  } finally {
+    T = keep
+  }
+}
+for (const theme of THEMES) {
+  test(`theme ${theme.id}: the row hover disc stands out from every row state at 1.15:1`, () => {
+    const weak = rowHoverSteps(themeTokens(css, theme.id)).filter(([, r]) => r < 1.15).map(([row, r]) => `${row}: ${r.toFixed(3)}`)
+    assert.deepEqual(weak, [])
+  })
+}
+test('the row hover check catches a disc too faint (the shared --c-hover on the rows)', () => {
+  const probe = `${css}\n[data-theme="probe"] { --c-row-hover: var(--c-hover); }\n`
+  assert.ok(rowHoverSteps(themeTokens(probe, 'probe')).some(([, r]) => r < 1.15))
+})
+
 // 0.17.0 labels: a chip's background is the label's own color (the same in every theme), its text black or white by
 // label-chips.js; measured here with this file's own contrast, in every theme (the chip does not take a theme token),
 // for the 12 offered colors and two custom ones. The "+N" next to the chips is --c-text-2 on the row: in TEXT_PAIRS.
@@ -192,8 +228,8 @@ for (const theme of THEMES) {
 }
 
 // the dot form of a chip (a narrow text cell, app.css @container msg-text < 240px): 8 px of the label's color; its ring
-// token is read from app.css itself. WCAG 1.4.11: the fill OR the ring at least 3:1 against the row it sits on, the plain
-// row (--c-bg) and the selected one (--c-surface-2), in every theme
+// token is read from app.css itself. WCAG 1.4.11: the fill OR the ring at least 3:1 against the row it sits on, the read,
+// the unread and the selected row, in every theme
 const appCss = fs.readFileSync(new URL('../app/renderer/src/app.css', import.meta.url), 'utf8')
 export function dotRing(text) {
   const at = text.indexOf('@container msg-text (width < 240px)')
@@ -205,7 +241,7 @@ export function dotRing(text) {
 export function weakDots(tokens, ring, colors = [...LABEL_PALETTE, '#ffff00', '#000080']) {
   T = tokens
   const out = []
-  for (const bgName of ['--c-bg', '--c-surface-2']) {
+  for (const bgName of ROWS) {
     const bg = solid(bgName, '--c-bg')
     for (const c of colors) {
       const fill = contrast(hexRgb(c), bg)
@@ -225,8 +261,8 @@ for (const theme of THEMES) {
 test('the dot check catches a missing ring, and a ring in the chip\'s text color (black / white): both leave weak dots', () => {
   const noRing = appCss.replace('box-shadow: inset 0 0 0 1px var(--c-text-2);', '')
   assert.equal(dotRing(noRing), null)
-  assert.ok(weakDots(themeTokens(css, 'default'), null).some(w => w.startsWith('#fbc02d on --c-bg')))
-  assert.ok(weakDots(themeTokens(css, 'dark'), null).some(w => w.startsWith('#3949ab on --c-bg')))
+  assert.ok(weakDots(themeTokens(css, 'default'), null).some(w => w.startsWith('#fbc02d on --c-row-unread')))
+  assert.ok(weakDots(themeTokens(css, 'dark'), null).some(w => w.startsWith('#3949ab on --c-row-read')))
   // the first try: a ring of black on a dark row for a mid-tone (teal, green), measured weak
   const textRing = appCss.replace('box-shadow: inset 0 0 0 1px var(--c-text-2);', 'box-shadow: inset 0 0 0 1px var(--probe-ring);')
   assert.equal(dotRing(textRing), '--probe-ring')

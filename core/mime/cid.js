@@ -3,6 +3,7 @@
 // %-encoded; the Content-ID itself is case-insensitive in practice: mail programs write the reference in another case).
 // Used by the reader (the frame's cid: images, the attachments it offers) and the composer (the quote's images).
 
+import { Parser } from 'htmlparser2'
 /** A Content-ID or a cid: reference as a key: without < >, %-decoded where it decodes, lower case. */
 export function cidKey(raw) {
   let v = String(raw).replace(/^<|>$/g, '')
@@ -55,26 +56,42 @@ export function mapImgCidSrc(html, fn) {
   })
 }
 
-// a cid: URL as an <img src> the reader's frame shows: its sanitizer takes the < > off too (cid:<a@x>)
-const CID_BRACKETS_RE = /cid:<([^\s"'<>()]*)>?/gi
-const FRAME_CID_SRC_RE = /^\s*cid:<?([^\s"'<>()]+)>?\s*$/i
+// Elements whose content the reader's frame never shows as elements: raw text for an HTML parser, and what its
+// sanitizer (app/renderer/src/sanitize.js sanitizeMail, DOMPurify with the html profile) removes WITH its content
+// (DOMPurify's FORBID_CONTENTS among the elements it removes: forbidden tags and foreign content). An <img> in one of
+// them shows no part. Kept on the safe side: an image counted as not shown is only offered as a file too.
+const INERT = new Set([
+  'script', 'style', 'title', 'textarea', 'xmp', 'plaintext', 'iframe', 'noembed', 'noframes', 'noscript', 'template',
+  'audio', 'video', 'head', 'svg', 'math', 'foreignobject', 'annotation-xml', 'desc', 'mi', 'mn', 'mo', 'ms', 'mtext',
+])
 
 /**
- * The cid: references of an HTML's <img src> as written (without < >), in one pass: the only references a message's
- * frame shows (the reader's sanitizer drops a background attribute, the frame's policy a CSS url()), so the only parts
- * the reader does not offer as files. A cid: in a background, a CSS url(), a link or the text is not among them.
+ * The cid: references the reader's frame shows (as written, without < >): the src of every real <img> element, read as
+ * an HTML parser reads it (htmlparser2, one linear pass), outside the INERT elements, taken as the frame's sanitizer
+ * takes it (fixUrl: trimmed, "cid:", the < > off). So an "<img src=cid:..>" that is only text (in a comment, an
+ * attribute value, a textarea, a script) shows nothing and hides nothing. A cid: in a background, a CSS url(), a link
+ * or the text is not among them either: the frame shows none of those.
  */
 export function imgCidRefsIn(html) {
   const refs = new Set()
-  if (html) {
-    // the < > after cid: off first, as the frame's sanitizer does (fixUrl): <img src="cid:<a@x>"> is then a tag the
-    // linear scan matches. Only for this set of references: the composer's mapImgCidSrc never sees it
-    mapImgSrc(html.replace(CID_BRACKETS_RE, 'cid:$1'), value => {
-      const m = FRAME_CID_SRC_RE.exec(value)
-      if (m) refs.add(m[1])
-      return undefined
-    })
-  }
+  if (!html) return refs
+  const inertStack = []
+  let inert = 0
+  const parser = new Parser({
+    onopentag(name, attrs) {
+      const isInert = INERT.has(name)
+      inertStack.push(isInert)
+      if (isInert) inert++
+      if (name !== 'img' || inert || typeof attrs.src !== 'string') return
+      const value = attrs.src.trim()
+      if (/^cid:/i.test(value)) refs.add(value.slice(4).replace(/^<|>$/g, ''))
+    },
+    onclosetag() {
+      if (inertStack.pop()) inert--
+    },
+  }, { lowerCaseTags: true, lowerCaseAttributeNames: true, decodeEntities: true })
+  parser.write(String(html))
+  parser.end()
   return refs
 }
 

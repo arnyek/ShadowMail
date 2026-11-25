@@ -27,14 +27,15 @@ const addFlag = (flags, flag) => (hasFlag(flags, flag) ? flags || '' : [...(flag
  * write the reference in another case, and the image then showed broken and was offered as a file. Only the parts a
  * reference really shows are left out, so of two parts whose Content-IDs differ only in case none goes missing. Only an
  * <img src> shows a part (imgCidRefsIn): a part referred to only by a background, a CSS url(), a link or the text is
- * shown nowhere, so it is offered.
+ * shown nowhere, so it is offered; so is one whose <img> is only text (a comment, an attribute value, a script), and one
+ * of a type the frame does not serve (CID_IMAGE_TYPES: an SVG part, say).
  */
 export function offeredAttachments(parsed) {
   const shows = cidResolver(parsed.attachments)
   const shown = new Set()
   for (const ref of imgCidRefsIn(parsed.html)) {
     const part = shows(ref)
-    if (part) shown.add(part)
+    if (part && CID_IMAGE_TYPES.includes(part.contentType)) shown.add(part)
   }
   return parsed.attachments.filter(a => !(a.inline && shown.has(a)))
 }
@@ -263,6 +264,24 @@ export class MessageReader {
     const cur = this.current
     if (!cur || !cur.viewToken || cur.viewToken !== token) return null
     return { html: cur.viewHtml, imagesAllowed: cur.imagesAllowed }
+  }
+
+  /**
+   * The reader's replied / forwarded line: the row's \\Answered and $Forwarded (any case), and with \\Answered the
+   * latest reply in the account's Sent-role folder (In-Reply-To = this Message-ID): { id, date, count } or null.
+   */
+  replyInfo(id) {
+    const row = this.index.get(id)
+    if (!row) throw new ActionError('not_found')
+    const flags = new Set((row.flags || '').toLowerCase().split(' '))
+    const answered = flags.has('\\answered')
+    let reply = null
+    if (answered && row.message_id) {
+      const roles = assignRoles(this.index.folderList(row.account_id))
+      const sent = [...roles].find(([, role]) => role === 'sent')
+      if (sent) reply = this.index.replyIn(row.account_id, sent[0], row.message_id)
+    }
+    return { answered, forwarded: flags.has('$forwarded'), reply }
   }
 
   /** Thread of a message (same account), oldest first, the list's columns only. */

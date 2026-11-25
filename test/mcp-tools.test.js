@@ -3151,3 +3151,49 @@ test('the html parameter on the four writing tools (not send_draft), its descrip
   }
   assert.equal(list.find(x => x.name === 'send_draft').inputSchema.properties.html, undefined)
 })
+
+// a reply / forward draft sent by Claude marks its original, as one sent from the window it was written in
+const serverFlagsOf = (s, messageId) => [...[...s.imap.mailboxes.get('INBOX').messages.values()].find(m => m.envelope.messageId === messageId).flags].sort()
+
+test('send_draft of a reply draft marks the original \\Answered (the draft written and sent later, by Claude)', async t => {
+  const s = await confirmedSetup(t)
+  const r = await s.call('create_reply_draft', { message_id: s.idBySubject('Olvasatlan számla'), mode: 'reply', text: 'Megkaptam.' })
+  assert.equal(r.isError, false, r.content[0].text)
+  const subject = (await parseMessage(serverMessages(s, 'Drafts').at(-1).source)).subject
+  s.manager.syncNow(s.row.id)
+  await until(() => draftRow(s, subject))
+  assert.deepEqual(serverFlagsOf(s, '<u1@x>'), [], 'the draft alone marks nothing')
+  s.policy.decide = () => 'approve'
+  const sent = await s.call('send_draft', { draft_id: draftRow(s, subject).id })
+  assert.equal(sent.isError, false, sent.content[0].text)
+  assert.equal(s.box.sent.length, 1)
+  await until(() => serverFlagsOf(s, '<u1@x>').includes('\\Answered'))
+  assert.deepEqual(serverFlagsOf(s, '<u1@x>'), ['\\Answered'])
+})
+
+test('a forward draft: update_draft keeps X-ShadowMail-Forward-Of, send_draft marks the original $Forwarded; never in what goes out nor in Sent', async t => {
+  const s = await attachedSetup(t)
+  s.policy.decide = () => null
+  const { id } = await forwardDraft(s, 'ELSO')
+  const forwardOf = /^x-shadowmail-forward-of: <upd1@x>\r?$/im
+  assert.match(serverMessages(s, 'Drafts').at(-1).source.toString('latin1'), forwardOf, 'Claude\'s forward draft names its original')
+  s.policy.decide = () => 'approve' // the new recipient is not in the address book: the user is asked
+  const u = await s.call('update_draft', { draft_id: id, to: 'sajat@example.invalid', text: 'MASODIK' })
+  assert.equal(u.isError, false, u.content[0].text)
+  const drafts = serverMessages(s, 'Drafts')
+  assert.equal(drafts.length, 1)
+  assert.match(drafts[0].source.toString('latin1'), forwardOf, 'kept by update_draft')
+  const subject = (await parseMessage(drafts[0].source)).subject
+  s.manager.syncNow(s.row.id)
+  await until(() => {
+    const row = s.index.db.prepare("SELECT uid FROM messages WHERE folder = 'Drafts' AND subject = ?").get(subject)
+    return row && row.uid === drafts[0].uid
+  })
+  s.policy.decide = () => 'approve'
+  const sent = await s.call('send_draft', { draft_id: draftRow(s, subject).id })
+  assert.equal(sent.isError, false, sent.content[0].text)
+  assert.equal(s.box.sent.length, 1)
+  assert.doesNotMatch(s.box.sent[0].raw, /x-shadowmail-forward-of/i, 'the message that went out')
+  for (const m of serverMessages(s, 'Sent')) assert.doesNotMatch(m.source.toString('latin1'), /x-shadowmail-forward-of/i, 'the Sent copy')
+  await until(() => serverFlagsOf(s, '<upd1@x>').includes('$Forwarded'))
+})

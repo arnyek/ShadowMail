@@ -13,7 +13,7 @@ import { safeFileName } from '../../../core/mime/message.js'
 import { t } from '../../renderer/i18n/index.js'
 
 export const READER_CHANNELS = Object.freeze([
-  'mail:open', 'mail:thread', 'mail:allowImages', 'mail:render', 'mail:saveAttachment', 'mail:openAttachment',
+  'mail:open', 'mail:thread', 'mail:replyInfo', 'mail:allowImages', 'mail:render', 'mail:saveAttachment', 'mail:openAttachment',
   // "Összes mentése": every offered attachment into one chosen folder, and that folder shown
   'mail:saveAllAttachments', 'mail:showSavedAttachments',
   // the "Fejlécek / Eredeti" view and the .eml save
@@ -57,6 +57,11 @@ export function registerReaderIpc({ ipcMain, reader, tmpDir, fallbackDir = fallb
   handle('mail:thread', async id => {
     if (!isId(id)) throw new BadRequest()
     return { messages: reader.thread(id) }
+  })
+
+  handle('mail:replyInfo', async id => {
+    if (!isId(id)) throw new BadRequest()
+    return reader.replyInfo(id)
   })
 
   handle('mail:allowImages', async id => {

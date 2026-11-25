@@ -106,7 +106,14 @@ async function setup(t, { type = 'imap' } = {}) {
     passwordsFor: () => ({ incoming: 'jelszo', smtp: 'jelszo' }),
   }
   const storeDir = path.join(tempDir(t), 'store')
-  const manager = new SyncManager({ store, index, sealed: sealedStore(storeDir), notify: () => {}, connect: () => imap.connect(), now: () => NOW, throttleMs: 5, syncerOptions: { retryDelaysMs: [30, 30] }, idleOptions: { retryDelaysMs: [30], debounceMs: 10 } })
+  const stores = []
+  const connect = async () => {
+    const client = await imap.connect()
+    const add = client.messageFlagsAdd.bind(client)
+    client.messageFlagsAdd = async (range, flags, opts) => (stores.push({ path: client.mailbox && client.mailbox.path, range, flags: [].concat(flags) }), add(range, flags, opts))
+    return client
+  }
+  const manager = new SyncManager({ store, index, sealed: sealedStore(storeDir), notify: () => {}, connect, now: () => NOW, throttleMs: 5, syncerOptions: { retryDelaysMs: [30, 30] }, idleOptions: { retryDelaysMs: [30], debounceMs: 10 } })
   onCleanup(t, () => manager.stopAll())
   manager.startAll()
   await until(() => manager.entries.get(row.id).idle.connected)
@@ -120,8 +127,30 @@ async function setup(t, { type = 'imap' } = {}) {
   const original = index.getByUid(row.id, 'INBOX', uid)
   const serverFlags = () => [...imap.mailboxes.get('INBOX').messages.get(uid).flags].sort()
   const send = async (sid, form) => composer.sendNow(sid, { accountId: form.accountId, to: form.to, cc: form.cc, bcc: '', subject: form.subject, html: `<p>Válaszom.</p>${form.quote}`, inReplyTo: form.inReplyTo, references: form.references })
-  return { db, index, row, imap, manager, reader, composer, original, received, serverFlags, send }
+  return { db, index, row, imap, manager, reader, composer, original, received, serverFlags, send, stores, uid }
 }
+
+// ---- a reply / forward saved as a draft, opened again from Drafts, sent ----
+
+const sourceOf = (imap, box) => [...imap.mailboxes.get(box).messages.values()].map(m => m.source.toString('latin1'))
+const FORWARD_OF = /^x-shadowmail-forward-of:/im
+
+/** mode reply / forward: prepare, save as a draft, close; the Drafts row after the sync; open it again. -> { sid, form, draftRow } */
+async function draftRoundTrip(s, mode) {
+  const sid = s.composer.open()
+  const f = await s.composer.prepare(sid, { mode, messageId: s.original.id })
+  const to = mode === 'forward' ? 'Valaki <valaki@example.invalid>' : f.to
+  await s.composer.saveDraft(sid, { accountId: f.accountId, to, cc: f.cc, bcc: '', subject: f.subject, html: `<p>Piszkozat.</p>${f.quote}`, inReplyTo: f.inReplyTo, references: f.references })
+  s.composer.close(sid)
+  s.manager.requestSync(s.row.id, ['Drafts'])
+  await until(() => s.index.listFolder({ accountId: s.row.id, folder: 'Drafts' }).length === 1)
+  const draftRow = s.index.listFolder({ accountId: s.row.id, folder: 'Drafts' })[0]
+  const again = s.composer.open()
+  const form = await s.composer.prepare(again, { mode: 'draft', messageId: draftRow.id })
+  return { sid: again, form, draftRow }
+}
+
+const sendDraft = (s, sid, form) => s.composer.sendNow(sid, { accountId: form.accountId, to: form.to, cc: form.cc, bcc: form.bcc, subject: form.subject, html: form.draftHtml, inReplyTo: form.inReplyTo, references: form.references })
 
 test('reply: To the sender, threading headers, quote; \\Answered on the server; preparing did not mark it read; one thread', async t => {
   const s = await setup(t)
@@ -275,4 +304,100 @@ test('the reply and forward header follows the interface language: English after
   } finally {
     setLanguage('hu')
   }
+})
+
+test('a reply saved as a draft, opened again from Drafts and sent: \\Answered on the original, one STORE', async t => {
+  const s = await setup(t)
+  const { sid, form } = await draftRoundTrip(s, 'reply')
+  assert.equal(form.inReplyTo, '<cid-and-attachments@sender.invalid>')
+  const before = s.stores.length
+  const res = await sendDraft(s, sid, form)
+  assert.deepEqual(res.warnings, [])
+  assert.deepEqual(s.serverFlags(), ['\\Answered'])
+  assert.ok(s.index.get(s.original.id).flags.split(' ').includes('\\Answered'))
+  assert.deepEqual(s.stores.slice(before).filter(x => x.flags.includes('\\Answered')).length, 1, JSON.stringify(s.stores))
+})
+
+test('a forward saved as a draft, opened again and sent: $Forwarded on the original; X-ShadowMail-Forward-Of in the draft, never sent nor in Sent', async t => {
+  const s = await setup(t)
+  const { sid, form } = await draftRoundTrip(s, 'forward')
+  assert.ok(sourceOf(s.imap, 'Drafts').some(src => /^x-shadowmail-forward-of: <cid-and-attachments@sender\.invalid>$/im.test(src)), 'the draft carries the original')
+  const before = s.stores.length
+  await sendDraft(s, sid, form)
+  assert.deepEqual(s.serverFlags(), ['$Forwarded'])
+  assert.deepEqual(s.stores.slice(before).filter(x => x.flags.includes('$Forwarded')).length, 1)
+  assert.equal(s.received.length, 1)
+  assert.doesNotMatch(s.received[0].raw.toString('latin1'), FORWARD_OF, 'the outgoing message')
+  const sent = sourceOf(s.imap, 'Sent')
+  assert.equal(sent.length, 1)
+  assert.doesNotMatch(sent[0], FORWARD_OF, 'the Sent copy')
+})
+
+test('a forward draft saved twice keeps the header; reopened and saved again too', async t => {
+  const s = await setup(t)
+  const { sid, form } = await draftRoundTrip(s, 'forward')
+  await s.composer.saveDraft(sid, { accountId: form.accountId, to: form.to, cc: form.cc, bcc: '', subject: form.subject, html: `${form.draftHtml}<p>Még egy sor.</p>` })
+  const drafts = sourceOf(s.imap, 'Drafts')
+  assert.equal(drafts.length, 1, 'one copy in Drafts')
+  assert.match(drafts[0], /^x-shadowmail-forward-of: <cid-and-attachments@sender\.invalid>$/im)
+})
+
+test('a draft of another program (no X-Mailer: ShadowMail) with an In-Reply-To: no origin, no flag, the send works', async t => {
+  const s = await setup(t)
+  s.imap.addMessage('Drafts', {
+    from: ME, to: 'arpad@sender.invalid', subject: 'Re: x', messageId: '<idegen@example.invalid>', inReplyTo: '<cid-and-attachments@sender.invalid>', date: NOW, flags: ['\\Draft', '\\Seen'], body: 'masik',
+    source: `From: ${ME}\r\nTo: arpad@sender.invalid\r\nSubject: Re: x\r\nMessage-ID: <idegen@example.invalid>\r\nIn-Reply-To: <cid-and-attachments@sender.invalid>\r\nX-ShadowMail-Forward-Of: <cid-and-attachments@sender.invalid>\r\nX-Mailer: Masik Program\r\n\r\nmasik\r\n`,
+  })
+  s.manager.requestSync(s.row.id, ['Drafts'])
+  await until(() => s.index.listFolder({ accountId: s.row.id, folder: 'Drafts' }).length === 1)
+  const draftRow = s.index.listFolder({ accountId: s.row.id, folder: 'Drafts' })[0]
+  const sid = s.composer.open()
+  const form = await s.composer.prepare(sid, { mode: 'draft', messageId: draftRow.id })
+  const res = await sendDraft(s, sid, form)
+  assert.equal(res.sent, true)
+  assert.deepEqual(s.serverFlags(), [])
+  assert.equal(s.stores.filter(x => x.flags.includes('\\Answered') || x.flags.includes('$Forwarded')).length, 0)
+})
+
+test('the original gone (only a Sent / Drafts copy with its Message-ID left): no flag, no warning, the send works', async t => {
+  const s = await setup(t)
+  const { sid, form } = await draftRoundTrip(s, 'reply')
+  // the original leaves; a copy with the same Message-ID stays in Sent (our own sent copy of it, say)
+  s.imap.addMessage('Sent', { from: ME, to: 'x@example.invalid', subject: 'x', messageId: '<cid-and-attachments@sender.invalid>', date: NOW, body: 'masolat' })
+  s.imap.mailboxes.get('INBOX').messages.delete(s.uid)
+  s.manager.requestSync(s.row.id)
+  await until(() => !s.index.get(s.original.id) && s.index.listFolder({ accountId: s.row.id, folder: 'Sent' }).length === 1)
+  const before = s.stores.length
+  const res = await sendDraft(s, sid, form)
+  assert.equal(res.sent, true)
+  assert.deepEqual(res.warnings, [])
+  assert.equal(s.stores.slice(before).filter(x => x.flags.includes('\\Answered')).length, 0)
+  const sentRows = s.db.prepare("SELECT flags FROM messages WHERE folder = 'Sent'").all()
+  assert.ok(sentRows.every(r => !r.flags.includes('\\Answered')), JSON.stringify(sentRows))
+})
+
+test('the original deleted, a Sent copy with its Message-ID takes its row id: that copy is not marked', async t => {
+  const server = new SMTPServer({ disabledCommands: ['STARTTLS'], allowInsecureAuth: true, logger: false, onAuth: (a, s, cb) => cb(null, { user: 'u' }), onData: (st, s, cb) => { st.resume(); st.on('end', () => cb()) } })
+  server.on('error', () => {})
+  await new Promise(r => server.listen(0, '127.0.0.1', r))
+  onCleanup(t, () => new Promise(r => server.close(r)))
+  const { db, index } = memoryIndex(t)
+  const acc = addAccount(db, { type: 'pop3', email: 'en@example.invalid', smtp_host: '127.0.0.1', smtp_port: server.server.address().port, smtp_security: 'none', smtp_user: 'u' })
+  index.ensureLocalFolders(acc.id, [{ path: 'INBOX' }, { path: 'Sent', specialUse: '\\Sent' }, { path: 'Drafts', specialUse: '\\Drafts' }, { path: 'Trash', specialUse: '\\Trash' }])
+  const base = { account_id: acc.id, folder: 'INBOX', uid: null, in_reply_to: null, refs: null, from_addr: 'mas@example.invalid', from_name: 'Mas', to_addrs: 'en@example.invalid', cc_addrs: '', date: 1, idate: 1, flags: '', size: 1, has_attachments: 0, attachments: null, body_state: 0, sender_text: 'mas', recipients_text: 'en' }
+  // the original is the last row (the highest rowid): a row inserted after it is deleted takes its id
+  index.insertMany([{ ...base, message_id: '<old@x>', pop3_uidl: 'u1', subject: 'regi' }, { ...base, message_id: '<orig@x>', pop3_uidl: 'u2', subject: 'eredeti' }])
+  const orig = db.prepare("SELECT id FROM messages WHERE message_id = '<orig@x>'").get().id
+  const raw = Buffer.from('From: Mas <mas@example.invalid>\r\nTo: en@example.invalid\r\nSubject: eredeti\r\nMessage-ID: <orig@x>\r\n\r\nszia\r\n')
+  const reader = { source: async id => ({ row: index.get(id), source: raw }) }
+  const store = { list: () => db.prepare('SELECT * FROM accounts').all(), getRow: id => db.prepare('SELECT * FROM accounts WHERE id = ?').get(id), passwordsFor: () => ({ incoming: 'p', smtp: 'p' }) }
+  const composer = new Composer({ index, store, reader, contacts: new Contacts(db), storeDir: path.join(tempDir(t), 'store'), withConnection: async () => { throw new Error('no imap') } })
+  const sid = composer.open()
+  const f = await composer.prepare(sid, { mode: 'reply', messageId: orig })
+  index.deleteIds([orig])
+  index.insertMany([{ ...base, folder: 'Sent', message_id: '<orig@x>', pop3_uidl: null, subject: 'masolat' }])
+  assert.equal(db.prepare("SELECT id FROM messages WHERE folder = 'Sent' AND message_id = '<orig@x>'").get().id, orig, 'the copy took the id (else this case tests nothing)')
+  await composer.sendNow(sid, { accountId: acc.id, to: f.to, cc: '', bcc: '', subject: f.subject, html: '<p>valasz</p>', inReplyTo: f.inReplyTo, references: f.references })
+  const rows = db.prepare('SELECT id, folder, flags FROM messages ORDER BY id').all()
+  assert.ok(rows.every(r => !r.flags.includes('\\Answered')), JSON.stringify(rows))
 })

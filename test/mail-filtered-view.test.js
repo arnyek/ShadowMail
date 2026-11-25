@@ -68,6 +68,7 @@ window.shadowMail = {
       return { ok: true, message: { id, accountId: account.id, folder: 'INBOX', flags: m.flags, subject: m.subject, from: [{ name: 'X', address: 'x@example.invalid' }], to: [], cc: [], attachments: [], text: 'x', html: null } }
     },
     thread: async () => ({ ok: true, messages: index.listFolder({ accountId: account.id, folder: 'INBOX', limit: 2 }) }),
+    replyInfo: async () => ({ ok: true, answered: false, forwarded: false, reply: null }),
   },
 }
 

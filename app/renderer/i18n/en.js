@@ -496,7 +496,7 @@ export const en = {
   listFilteredEmpty: 'No message matches the filters.',
   // MCP: the connector's answer when the app cannot be reached (it goes to Claude: the connector uses the Hungarian one)
   mcpUnavailable: 'ShadowMail is not running, is locked, or Claude access is turned off.',
-  mcpTooMany: 'Two Claude connections to ShadowMail are already open (that is the most at a time). Close another Claude session and try again.',
+  mcpTooMany: 'Two Claude conversations are working with ShadowMail right now. Wait until one of them finishes, then try again.',
   listLoadError: code => `The message list cannot be loaded: ${en.searchError(code)}`,
   clearFilters: 'Clear filters',
   // recipient: the Sent and Drafts lists' sender column shows the recipient, and the order follows it
@@ -508,6 +508,7 @@ export const en = {
   noRecipient: '(no recipient)',
   flagged: 'Starred',
   hasAttachment: 'Has attachment',
+  replyMarks: { answered: 'Replied', forwarded: 'Forwarded', both: 'Replied and forwarded' },
   // Message list
   listToolsLabel: 'Message list',
   selectRow: 'Select',
@@ -630,6 +631,12 @@ export const en = {
   readerToolsLabel: 'Actions on the message',
   readerMore: 'More',
   readerDetailsShow: 'Show details',
+  repliedLine: {
+    on: 'You replied: ',
+    none: 'You replied',
+    forwarded: 'You forwarded this',
+    many: (n, date) => `${count(n, 'reply', 'replies')}, the latest: ${date}`,
+  },
   readerDetailsHide: 'Hide details',
   readerToSummary: names => `to: ${names}`,
   readerNoRecipient: 'no recipient',

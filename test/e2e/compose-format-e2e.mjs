@@ -11,7 +11,9 @@
 // typing gives bold; in a reply the quote stays; Ctrl+Z raises nothing. A formatted paste (Word, web, a styled list, a
 // bold italic quote) emptied with Ctrl+A + Delete: the next typed, plain-pasted or HTML-pasted text is one plain paragraph,
 // and Ctrl+Z brings the old text back; a quote or list chosen into it holds and takes nothing of the paste; with the
-// signature block kept it is untouched. The main log has no error line.
+// signature block kept it is untouched. A list chosen in an empty paragraph (a new message: Enter, then the list; the
+// emptied text; after a typed line) takes the paragraph's place, never goes inside it: sent, no empty paragraph around
+// it and no extra blank lines in the text part. The main log has no error line.
 // Playwright: PW=<path of the playwright package> (default: the repo's playwright-core devDependency).
 import fs from 'node:fs'
 import os from 'node:os'
@@ -35,9 +37,9 @@ const ME = 'teszt@example.invalid'
 const SUBJECT = 'Formázás próba'
 
 const watchdog = setTimeout(() => {
-  console.log('FAIL watchdog: the run took more than 8 minutes')
+  console.log('FAIL watchdog: the run took more than 10 minutes')
   process.exit(1)
-}, 480_000)
+}, 600_000)
 watchdog.unref()
 
 const received = []
@@ -516,6 +518,130 @@ try {
         new RegExp(`<${tag}>(<li>)?Utána`).test(text) && !/<p[^>]*>\s*<(ul|ol|blockquote)|style=|<(span|font|b|i|u)\b/.test(text) && sigAfter === sigBefore, html.slice(0, 200))
       await win.close()
     }
+  }
+  // a list chosen in an empty paragraph: the editor's own way is <p><ul> (MEASURED, a new message too), which the parser
+  // splits on the way out into an empty paragraph before and after the list (two blank lines each in the text part).
+  // The paths: A the emptied text, Enter, bulleted; B a new message, Enter, bulleted; D as A, numbered; E a new message,
+  // bulleted at once; F as B, numbered; G a typed line, Enter, bulleted; H a typed line made bulleted; I two typed lines
+  // selected and bulleted (the last two make the list of the text already there)
+  {
+    const atStart = win => win.locator('.editor').evaluate(el => {
+      el.focus()
+      const r = document.createRange()
+      r.setStart(el, 0)
+      r.collapse(true)
+      const sel = window.getSelection()
+      sel.removeAllRanges()
+      sel.addRange(r)
+    })
+    const emptiedText = async win => {
+      await win.locator('.editor').click()
+      await win.keyboard.press('Control+A')
+      await win.keyboard.press('Delete')
+      await win.keyboard.type('Régi szöveg')
+      await win.keyboard.press('Control+A')
+      await win.keyboard.press('Delete')
+    }
+    const paths = {
+      A: [emptiedText, 'Enter', 'ul'],
+      B: [atStart, 'Enter', 'ul'],
+      D: [emptiedText, 'Enter', 'ol'],
+      E: [atStart, 'ul'],
+      F: [atStart, 'Enter', 'ol'],
+      G: [atStart, 'line', 'Enter', 'ul'],
+      H: [atStart, 'line', 'ul'],
+      I: [atStart, 'line', 'Enter', 'line', 'selectBoth', 'ul'],
+    }
+    for (const [name, steps] of Object.entries(paths)) {
+      const win = await newComposer()
+      for (const st of steps) {
+        if (typeof st === 'function') await st(win)
+        else if (st === 'Enter') await win.keyboard.press('Enter')
+        else if (st === 'line') await win.keyboard.type('Szia,')
+        else if (st === 'selectBoth') {
+          await win.keyboard.press('Shift+ArrowUp')
+          await win.keyboard.press('Shift+Home')
+        } else await btn(st)(win)
+      }
+      // H and I make the list of the text there (a selection stays selected: typing would replace it)
+      const items = name === 'H' ? ['Szia,'] : name === 'I' ? ['Szia,', 'Szia,'] : ['Lista']
+      if (!['H', 'I'].includes(name)) await win.keyboard.type('Lista')
+      const editorHtml = await win.locator('.editor').innerHTML()
+      const nested = await win.locator('.editor').evaluate(el => el.querySelectorAll('p ul, p ol').length)
+      await win.locator('#compose-to').fill('Címzett <cimzett@example.invalid>')
+      await win.locator('#compose-subject').fill('Lista')
+      const before = received.length
+      const closed = win.waitForEvent('close', { timeout: 30_000 })
+      await win.getByRole('button', { name: t.composeSend, exact: true }).click({ noWaitAfter: true }).catch(e => {
+        if (!win.isClosed()) throw e
+      })
+      await closed
+      for (let i = 0; i < 50 && received.length === before; i++) await new Promise(r => setTimeout(r, 200))
+      const mail = received.length > before ? await simpleParser(received[received.length - 1]) : null
+      const html = mail ? (mail.html || '').split('<p>-- ')[0] : ''
+      const text = mail ? (mail.text || '').split(/\r?\n-- \r?\n/)[0] : ''
+      const list = steps.includes('ol') ? 'ol' : 'ul'
+      const listHtml = `<${list}>${items.map(x => `<li>${x}</li>`).join('')}</${list}>`
+      check(`list in a paragraph, path ${name}: not inside a paragraph in the editor`, nested === 0 && editorHtml.includes(listHtml), editorHtml.slice(0, 200))
+      check(`list in a paragraph, path ${name}: sent with no <p><${list}> and no empty paragraph around the list`,
+        html.includes(listHtml) && !/<p[^>]*>\s*<(ul|ol)\b/.test(html) && !/<p><\/p>/.test(html), html.slice(0, 200))
+      // the clean forms' text part: at most two line breaks before the list (three after the leading empty paragraph)
+      check(`list in a paragraph, path ${name}: no extra blank lines around the list in the text part`, mail && !/\n{4,}/.test(text) && text.includes(items[0]), JSON.stringify(text))
+    }
+  }
+  // a paragraph selected with an existing list, then the bulleted list: ONE list of them, as before the guard (it does not
+  // run when the selection takes in a list item; with it the list was cut in two). From "Bevezető" to the end of "Egy"
+  // (a), of "Kettő" (b, the whole list), of "Utóhang" (e)
+  for (const [name, last, items] of [['a', 'Egy', ['Bevezető', 'Egy', 'Kettő']], ['b', 'Kettő', ['Bevezető', 'Egy', 'Kettő']], ['e', 'Utóhang', ['Bevezető', 'Egy', 'Kettő', 'Utóhang']]]) {
+    const win = await newComposer()
+    await win.locator('.editor').evaluate(el => {
+      el.focus()
+      const r = document.createRange()
+      r.setStart(el, 0)
+      r.collapse(true)
+      const sel = window.getSelection()
+      sel.removeAllRanges()
+      sel.addRange(r)
+    })
+    await win.keyboard.type('Bevezető')
+    await win.keyboard.press('Enter')
+    await btn('ul')(win)
+    await win.keyboard.type('Egy')
+    await win.keyboard.press('Enter')
+    await win.keyboard.type('Kettő')
+    await win.keyboard.press('Enter')
+    await win.keyboard.press('Enter')
+    await win.keyboard.type('Utóhang')
+    await win.locator('.editor').evaluate((el, end) => {
+      const texts = []
+      const w = document.createTreeWalker(el, NodeFilter.SHOW_TEXT)
+      for (let n = w.nextNode(); n; n = w.nextNode()) texts.push(n)
+      const first = texts.find(n => n.data.includes('Bevezető'))
+      const lastNode = texts.find(n => n.data.includes(end))
+      const r = document.createRange()
+      r.setStart(first, first.data.indexOf('Bevezető'))
+      r.setEnd(lastNode, lastNode.data.indexOf(end) + end.length)
+      const sel = window.getSelection()
+      sel.removeAllRanges()
+      sel.addRange(r)
+    }, last)
+    await btn('ul')(win)
+    const lists = await win.locator('.editor').evaluate(el => [...el.querySelectorAll('ul')].filter(u => !u.closest('[data-sm-signature]')).map(u => [...u.children].map(li => li.textContent)))
+    await win.locator('#compose-to').fill('Címzett <cimzett@example.invalid>')
+    await win.locator('#compose-subject').fill('Lista')
+    const before = received.length
+    const closed = win.waitForEvent('close', { timeout: 30_000 })
+    await win.getByRole('button', { name: t.composeSend, exact: true }).click({ noWaitAfter: true }).catch(e => {
+      if (!win.isClosed()) throw e
+    })
+    await closed
+    for (let i = 0; i < 50 && received.length === before; i++) await new Promise(r => setTimeout(r, 200))
+    const mail = received.length > before ? await simpleParser(received[received.length - 1]) : null
+    const html = mail ? (mail.html || '').split('<p>-- ')[0] : ''
+    const text = mail ? (mail.text || '').split(/\r?\n-- \r?\n/)[0] : ''
+    const listHtml = `<ul>${items.map(x => `<li>${x}</li>`).join('')}</ul>`
+    check(`a paragraph and an existing list selected (${name}), the bulleted list: one list of them in the editor`, JSON.stringify(lists) === JSON.stringify([items]), JSON.stringify(lists))
+    check(`a paragraph and an existing list selected (${name}): sent as one list, no blank line between its items`, html.includes(listHtml) && !items.slice(1).some(x => text.includes(`\n\n * ${x}`)), JSON.stringify({ html: html.slice(0, 160), text }))
   }
   // a reply: deleting the typed text above the quote does not run the clean-up
   {

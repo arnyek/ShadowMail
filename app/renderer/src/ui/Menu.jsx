@@ -9,8 +9,15 @@ const cx = (...parts) => parts.filter(Boolean).join(' ')
 // the gap a menu keeps from the window's edges, px
 const EDGE = 4
 
+// a menu item hidden by CSS (its <li> display: none, e.g. the list header's "More" on a wide list) takes no focus:
+// skipped (the computed display, not the layout: a test DOM without a layout keeps every item)
 function enabledItems(list) {
-  return list ? [...list.querySelectorAll('[role^="menuitem"]:not(:disabled)')] : []
+  if (!list) return []
+  const shown = el => {
+    const li = el.closest('li')
+    return !li || getComputedStyle(li).display !== 'none'
+  }
+  return [...list.querySelectorAll('[role^="menuitem"]:not(:disabled)')].filter(shown)
 }
 
 /**

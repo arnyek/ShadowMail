@@ -56,7 +56,7 @@ const README_READER_SIZE = { width: 1280, height: 900 }
 const work = fs.mkdtempSync(path.join(os.tmpdir(), 'shadowmail-shots-'))
 const dataDir = path.join(work, 'data')
 const seed = JSON.parse(
-  execFileSync(process.execPath, [path.join(repo, 'test', 'tools', 'seed-index.mjs'), dataDir, '--count', '120', '--previews', '--eml', path.join(repo, 'test', 'fixtures', 'mail')], { encoding: 'utf8' }),
+  execFileSync(process.execPath, [path.join(repo, 'test', 'tools', 'seed-index.mjs'), dataDir, '--count', '120', '--previews', '--marks', '--eml', path.join(repo, 'test', 'fixtures', 'mail')], { encoding: 'utf8' }),
 )
 // the interface language: E2E_LANG (hu by default); the texts looked for come from the same dictionary
 seedLanguage(dataDir)

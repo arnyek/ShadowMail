@@ -3,9 +3,11 @@
 // Claude access is ON and the app is unlocked: a named pipe on Windows (\\.\pipe\shadowmail-<random>), a unix
 // socket in the data folder elsewhere (tests). A new 256-bit key per start; the pipe and the key go into
 // data/mcp/endpoint.json, which is deleted on stop. The first line of a connection is the key (compared in
-// constant time); a wrong key closes it. At most MAX_CONNECTIONS authenticated connections (a third gets a
-// "too many" line before the close); a connection without its key gets AUTH_TIMEOUT_MS, and at most
-// MAX_PENDING wait at once. Electron-free, testable.
+// constant time); a wrong key closes it. At most MAX_CONNECTIONS authenticated connections: a new one takes the
+// place of the one idle the longest (no request in flight; the connector of that conversation connects again at its
+// next request), and only when every connection has a request in flight does it get a "too many" line before the
+// close. A connection without its key gets AUTH_TIMEOUT_MS, and at most MAX_PENDING wait at once.
+// Electron-free, testable.
 import crypto from 'node:crypto'
 import fs from 'node:fs'
 import net from 'node:net'
@@ -56,7 +58,7 @@ export class McpPipeServer {
    * @param dispatch  async (line) -> answer object | null (protocol.js)
    * @param log       a line without content
    */
-  constructor({ dataDir, dispatch, log = () => {}, platform = process.platform, maxConnections = MAX_CONNECTIONS, maxPending = MAX_PENDING, authTimeoutMs = AUTH_TIMEOUT_MS }) {
+  constructor({ dataDir, dispatch, log = () => {}, platform = process.platform, maxConnections = MAX_CONNECTIONS, maxPending = MAX_PENDING, authTimeoutMs = AUTH_TIMEOUT_MS, now = () => performance.now() }) {
     this.dataDir = dataDir
     this.dispatch = dispatch
     this.log = log
@@ -64,10 +66,13 @@ export class McpPipeServer {
     this.maxConnections = maxConnections
     this.maxPending = maxPending
     this.authTimeoutMs = authTimeoutMs
+    // a monotonic clock: the wall clock can step back (it does on WSL), and the idle order must not
+    this.now = now
     this.server = null
     this.key = null
     this.address = null
     this.sockets = new Set() // authenticated
+    this.activity = new Map() // authenticated socket -> { inflight, lastActive }
     this.pending = new Set() // connected, key not seen yet
     this.wanted = false // the last start() / stop() decides (ON -> OFF -> ON without waiting)
     this.starting = null // the start in flight: a second start() waits for it
@@ -173,6 +178,7 @@ export class McpPipeServer {
     }
     for (const s of this.sockets) s.destroy()
     this.sockets.clear()
+    this.activity.clear()
     this.server.close()
     this.server = null
     if (this.key) this.key.fill(0)
@@ -206,9 +212,11 @@ export class McpPipeServer {
       alive = false
       this.pending.delete(socket)
       this.sockets.delete(socket)
+      this.activity.delete(socket)
     })
     socket.setEncoding('utf8')
     let authed = false
+    let activity = null // this connection's { inflight, lastActive } once authenticated
     let buffer = ''
     let chain = Promise.resolve()
     const timer = setTimeout(() => {
@@ -244,28 +252,58 @@ export class McpPipeServer {
           }
           clearTimeout(timer)
           this.pending.delete(socket)
-          // the limit counts authenticated connections; the third one is told why (the connector says it)
+          // the limit counts authenticated connections. At the limit the one idle the longest makes room (a connector
+          // whose conversation was left open holds its place until it quits); a connection with a request in flight is
+          // never closed. Only when all of them work is the new one told why (the connector says it)
           if (this.sockets.size >= this.maxConnections) {
-            this.log('mcp connection refused: limit')
-            socket.end(`${JSON.stringify({ shadowmail: TOO_MANY, sig: hello.tooMany })}\n`)
-            alive = false
-            return
+            const idle = this.#idlest()
+            if (!idle) {
+              this.log('mcp connection refused: limit')
+              socket.end(`${JSON.stringify({ shadowmail: TOO_MANY, sig: hello.tooMany })}\n`)
+              alive = false
+              return
+            }
+            // out of the set at once, not on its (later) close: the new one takes the place in the same turn
+            this.sockets.delete(idle)
+            this.activity.delete(idle)
+            idle.destroy()
+            this.log('mcp connection closed: idle, replaced')
           }
           this.sockets.add(socket)
+          activity = { inflight: 0, lastActive: this.now() }
+          this.activity.set(socket, activity)
           authed = true
           socket.write(`${JSON.stringify({ shadowmail: 'hello', sig: hello.sig })}\n`)
           continue
         }
         // answers in request order; a request queued before a stop() (lock, switched off) or the close of
-        // its connection never runs
+        // its connection never runs. In flight from its arrival to the end of its step (answered, failed or skipped);
+        // a connection is active until its last step ends, when its lastActive is taken
+        activity.inflight++
         chain = chain.then(async () => {
           const live = () => alive && gen === this.generation && Boolean(this.server)
           if (!live()) return
           const answer = await this.dispatch(line, { alive: live })
           if (answer && alive && !socket.destroyed) socket.write(`${JSON.stringify(answer)}\n`)
-        }).catch(err => this.log(`mcp dispatch failed: ${err && err.code ? err.code : 'internal'}`))
+        }).catch(err => this.log(`mcp dispatch failed: ${err && err.code ? err.code : 'internal'}`)).finally(() => {
+          activity.inflight--
+          activity.lastActive = this.now()
+        })
       }
     })
+  }
+
+  /** The authenticated connection without a request in flight that was active the longest ago, or null. */
+  #idlest() {
+    let best = null
+    let bestAt = Infinity
+    for (const [socket, a] of this.activity) {
+      if (a.inflight === 0 && a.lastActive < bestAt) {
+        best = socket
+        bestAt = a.lastActive
+      }
+    }
+    return best
   }
 
   /** The first line: { key, nonce }. The right key -> { sig, tooMany } signatures for the connector (base64), else null. */

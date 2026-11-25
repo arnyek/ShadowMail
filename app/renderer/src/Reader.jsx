@@ -12,7 +12,7 @@ import { assignRoles } from '../../../core/imap/folders.js'
 import { sanitizeMail, MAX_LINKS } from './sanitize.js'
 import { Icon } from './Icon.jsx'
 import { folderIcon } from './folder-icons.js'
-import { formatListDate } from './list-format.js'
+import { formatFullDate, formatListDate } from './list-format.js'
 import { Avatar, Banner, Button, IconButton, MenuButton } from './ui/index.js'
 import { SourceView } from './SourceView.jsx'
 import { readerText } from './control-marks.js'
@@ -230,6 +230,55 @@ function LinkTargetBar({ info, place }) {
         <div className="link-target-detail link-target-idn">
           {t.linkTarget.idn} <span dir="ltr">{info.unicode}</span>
         </div>
+      )}
+    </div>
+  )
+}
+
+/**
+ * "You replied: <date>" (the date opens the latest reply; with more replies their count in the title) or "You replied"
+ * without a reply in Sent, and "You forwarded this": one line, the replied part first. Asked again on every mail change
+ * of the message's account (a reply sent, a sync), so the open reader follows without reopening.
+ */
+function RepliedLine({ message, onOpen }) {
+  const [info, setInfo] = useState(null)
+  useEffect(() => {
+    let live = true
+    const load = () => api.mail.replyInfo(message.id).then(res => live && setInfo(res && res.ok ? res : null))
+    load()
+    const off = api.onStatus(ev => {
+      if (ev && ev.kind === 'mail' && ev.changes.some(c => c.accountId === message.accountId)) load()
+    })
+    return () => {
+      live = false
+      off()
+    }
+  }, [message.id, message.accountId])
+  if (!info || (!info.answered && !info.forwarded)) return null
+  const r = info.reply
+  return (
+    <div className="reader-replied">
+      {info.answered && (
+        <span className="reader-replied-part" data-part="replied">
+          <Icon name="reply" />
+          {r ? (
+            <>
+              {t.repliedLine.on}
+              <button type="button" className="link reader-replied-open" title={r.count > 1 ? t.repliedLine.many(r.count, formatFullDate(r.date)) : formatFullDate(r.date)} onClick={() => onOpen(r.id)}>
+                {formatListDate(r.date)}
+              </button>
+            </>
+          ) : (
+            t.repliedLine.none
+          )}
+        </span>
+      )}
+      {info.answered && info.forwarded && <span className="reader-replied-sep" aria-hidden="true">·</span>}
+      {info.forwarded && (
+        <span className="reader-replied-part" data-part="forwarded">
+          <Icon name="forward" />
+          {t.repliedLine.forwarded}
+        </span>
       )}
     </div>
   )
@@ -506,6 +555,7 @@ export function Reader({ messageId, onOpen, onBack = null, onAction = null, onLo
             </span>
           )}
         </div>
+        {onOpen && <RepliedLine message={message} onOpen={onOpen} />}
         {showDetails && (
           <div className="reader-details">
             <AddressLine label={t.readerHeaders.from} list={message.from} />

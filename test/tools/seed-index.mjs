@@ -8,6 +8,7 @@
 // --eml: every .eml of the folder becomes an unread INBOX message whose full source is already
 // in data/store (as if it had been opened once), e.g. test/fixtures/hostile for the reader measurement.
 // --previews: three of every four INBOX messages get an indexed text and its list preview.
+// --marks: some INBOX messages are marked replied (\Answered) or forwarded ($Forwarded), for the pictures.
 //
 // The account points at --host:--port (default 127.0.0.1:1, nothing listens there): the sync fails
 // fast with "connection refused" and never leaves the machine. The master password is printed;
@@ -23,7 +24,7 @@ import { parseMessage } from '../../core/mime/message.js'
 
 const { values, positionals } = parseArgs({
   allowPositionals: true,
-  options: { count: { type: 'string', default: '10000' }, host: { type: 'string', default: '127.0.0.1' }, port: { type: 'string', default: '1' }, eml: { type: 'string' }, previews: { type: 'boolean', default: false } },
+  options: { count: { type: 'string', default: '10000' }, host: { type: 'string', default: '127.0.0.1' }, port: { type: 'string', default: '1' }, eml: { type: 'string' }, previews: { type: 'boolean', default: false }, marks: { type: 'boolean', default: false } },
 })
 const dataDir = positionals[0]
 if (!dataDir) {
@@ -77,7 +78,7 @@ for (let i = 0; i < count; i++) {
     account_id: account.id, folder: 'INBOX', uid: i + 1, message_id: `<seed-${i}@example.invalid>`, in_reply_to: null, refs: null,
     from_addr: addr, from_name: name, to_addrs: 'meres@example.invalid', cc_addrs: '',
     subject: `${words[i % words.length]} ${words[(i * 7) % words.length]} #${i}`, date, idate: date,
-    flags: [i % 5 ? '\\Seen' : '', i % 17 === 0 ? '\\Flagged' : ''].filter(Boolean).join(' '),
+    flags: [i % 5 ? '\\Seen' : '', i % 17 === 0 ? '\\Flagged' : '', values.marks && i % 7 === 2 ? '\\Answered' : '', values.marks && i % 11 === 4 ? '$Forwarded' : ''].filter(Boolean).join(' '),
     size: 2000, has_attachments: i % 9 === 0 ? 1 : 0, attachments: null, body_state: 3,
     sender_text: name ? `${name} <${addr}>` : addr, recipients_text: 'meres@example.invalid',
   })

@@ -13,7 +13,7 @@ registry which folder you used last (`HKCU\…\Explorer\ComDlg32\LastVisitedPidl
 
 The interface is Hungarian by default; Settings / Appearance / Nyelv / Language switches it to English.
 
-![The message list: the sidebar with the folders, the search in the header, one-line rows with a preview](docs/screenshots/readme-en-list.png)
+![The message list: the sidebar with the folders, the search in the header, one-line rows with a preview; an unread message on a lighter background in bold, an icon before a replied and a forwarded message](docs/screenshots/readme-en-list.png)
 
 (The images are made with test data: `node scripts/ui-screenshots.mjs readme-en --set readme --lang en --out docs/screenshots`.)
 
@@ -246,6 +246,42 @@ color, order and delete labels.
 - **On a POP3 account** a label is kept on this computer and shows on every local copy of the message. When the message
   has no Message-ID and no Date header, a copy downloaded again does not show its label.
 - Claude (MCP) can put existing labels on and take them off; only you can make, rename and delete them.
+
+### New in 0.21.0, known limits
+
+- **Unread messages stand out:** in the message list and among the search results an unread message's row is on a
+  lighter background in bold, a read one faintly greyish; the selected row gets a stronger blue. In all five themes.
+- **Replied / forwarded mark:** when you replied to a message or forwarded it, a small icon shows it in the list row
+  and in the search result (pointing at it: **Replied**, **Forwarded**).
+- **"You replied" line in the reader:** the header of an open message says **You replied:** and the date of your
+  reply; clicking the date opens your reply (from the Sent folder). With several replies it gives their number and
+  the latest date, after a forward **You forwarded this**. When your reply is no longer in the Sent folder: **You
+  replied**.
+- **A reply sent from a draft marks too:** when you open a saved reply or forward draft later and send it, the
+  original message gets the replied / forwarded mark as well (so far only one sent at once did). This does not
+  apply to drafts written in another program.
+- **Claude connection fix ("two connections are open"):** with several conversations open in the Claude Desktop
+  app, a third could not connect to ShadowMail until you restarted everything. Now the new conversation takes the
+  place of the one not used for the longest, and that one connects again by itself at its next question. You get
+  an error only when two conversations are working with ShadowMail right then.
+- **Embedded image as an attachment:** when a message "refers" to an image only in its text, a comment or an
+  attribute (it does not show in the message), or embeds an SVG image, the image now shows as an attachment and
+  **Save all** saves it too; so far it showed nowhere.
+- **A list in a paragraph:** when you ask for bullets or numbering in an existing paragraph in the composer, the
+  list takes the paragraph's place cleanly; so far the text part of the sent message had two empty lines before and
+  after the list.
+- **The list's toolbar while selecting:** in a split view, on a narrow list, the "N selected" label and the message
+  count no longer overlap, and the buttons fit.
+
+The known limits of this release:
+
+- None of the above was measured on Windows, only on Linux; the Windows check comes before the release.
+- The mark of a reply sent from a draft was not tried in the interface on an IMAP account (the program's own tests
+  measure it).
+- The Claude connection fix was not measured with the real Claude Desktop app, only with the program's own
+  connector.
+- On purpose: in a folder of 100,000 messages, sorting by sender or subject with a filter takes 0.2-0.4 seconds; an
+  index to speed it up would slow a full sync by about 13%.
 
 ### New in 0.20.0, known limits
 

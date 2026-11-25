@@ -520,7 +520,7 @@ listFiltered (1);" (szűrve, összesen 1)";" (filtered, 1 in total)"
 listFiltered (2);" (szűrve, összesen 2)";" (filtered, 2 in total)"
 listFilteredEmpty;Nincs a szűrőknek megfelelő levél.;No message matches the filters.
 mcpUnavailable;"A ShadowMail nem fut, zárolva van, vagy a Claude-hozzáférés ki van kapcsolva.";"ShadowMail is not running, is locked, or Claude access is turned off."
-mcpTooMany;"A ShadowMailhez már két Claude-kapcsolat él (ennyi lehet egyszerre). Zárj be egy másik Claude-munkamenetet, és próbáld újra.";Two Claude connections to ShadowMail are already open (that is the most at a time). Close another Claude session and try again.
+mcpTooMany;"Most két Claude-beszélgetés dolgozik a ShadowMaillel egyszerre. Várj, amíg az egyik végez, és próbáld újra.";"Two Claude conversations are working with ShadowMail right now. Wait until one of them finishes, then try again."
 listLoadError (1);A levéllista nem tölthető be: megszakadt a kapcsolat;The message list cannot be loaded: the connection was lost
 listLoadError (2);A levéllista nem tölthető be: megszakadt a kapcsolat;The message list cannot be loaded: the connection was lost
 clearFilters;Szűrők törlése;Clear filters
@@ -540,6 +540,9 @@ unknownSender;(ismeretlen feladó);(unknown sender)
 noRecipient;(nincs címzett);(no recipient)
 flagged;Csillagozott;Starred
 hasAttachment;Van melléklet;Has attachment
+replyMarks.answered;Megválaszolva;Replied
+replyMarks.forwarded;Továbbítva;Forwarded
+replyMarks.both;Megválaszolva és továbbítva;Replied and forwarded
 listToolsLabel;Levéllista;Message list
 selectRow;Kijelölés;Select
 selectAll;Mind kijelölése;Select all
@@ -670,6 +673,11 @@ backToList;Vissza a listához;Back to the list
 readerToolsLabel;Műveletek a levélen;Actions on the message
 readerMore;További;More
 readerDetailsShow;Részletek megjelenítése;Show details
+repliedLine.on;"Válaszoltál: ";"You replied: "
+repliedLine.none;Megválaszoltad;You replied
+repliedLine.forwarded;Továbbítottad;You forwarded this
+repliedLine.many (1);"1 válasz, a legutóbbi: 25 Nov 2026, 09:30";"1 reply, the latest: 25 Nov 2026, 09:30"
+repliedLine.many (2);"2 válasz, a legutóbbi: 25 Nov 2026, 09:30";"2 replies, the latest: 25 Nov 2026, 09:30"
 readerDetailsHide;Részletek elrejtése;Hide details
 readerToSummary (1);"címzett: Anna, Bob";"to: Anna, Bob"
 readerToSummary (2);"címzett: Anna, Bob";"to: Anna, Bob"

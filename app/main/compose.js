@@ -110,6 +110,11 @@ const roleFolder = (index, accountId, role) => {
 // this IMAP keyword (POP3: the local flags column), which gives it the "Claude" mark in the Drafts list
 const escapeHtml = v => String(v ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c])
 export const CLAUDE_HEADER = 'X-ShadowMail-Draft-Origin'
+// on our own forward DRAFT only: the original's Message-ID, so the forward sent from Drafts later marks it $Forwarded
+// (a forward refers to its original in no standard header). Never in the sent message nor its Sent copy.
+export const FORWARD_OF_HEADER = 'X-ShadowMail-Forward-Of'
+const angled = v => (v ? `<${String(v).trim().replace(/^<|>$/g, '')}>` : null)
+const PLAIN_MESSAGE_ID = /^<[^<>\s]+>$/
 export const CLAUDE_KEYWORD = '$ShadowMailClaude'
 
 const draftKeyOf = (accountId, messageId) => `${accountId}\u0000${String(messageId).replace(/^<|>$/g, '')}`
@@ -362,6 +367,14 @@ export class Composer {
       s.saved = true
       s.draftAccountId = account.id
       s.claude = parsed.draftOrigin === 'claude'
+      // our own draft (X-Mailer: ShadowMail, as ownDraft decides it for Claude's tools): the original it answers or
+      // forwards is marked when this draft is sent, as from the window it was written in; another program's draft: never
+      s.origin = null
+      if (parsed.mailer === 'ShadowMail') {
+        const forwardOf = angled(parsed.forwardOf)
+        const row = this.#originRow(account.id, forwardOf || angled(parsed.inReplyTo))
+        if (row) s.origin = { id: row.id, accountId: row.account_id, messageId: row.message_id, folder: row.folder, flag: forwardOf ? '$Forwarded' : '\\Answered' }
+      }
       // our own signature image (a sig-...@shadowmail cid): the draft's OWN bytes, shown again as sig-img://session/<id>
       let html = parsed.html || `<p>${escapeHtml(parsed.text || '').replace(/\r?\n/g, '<br>')}</p>`
       s.signatureImage = null
@@ -427,7 +440,7 @@ export class Composer {
       form.quote = claudeQuote(mode, original, locale)
       delete form.quoteParts
     }
-    s.origin = { id: row.id, accountId: row.account_id, messageId: row.message_id || null, flag: mode === 'forward' ? '$Forwarded' : '\\Answered' }
+    s.origin = { id: row.id, accountId: row.account_id, messageId: row.message_id || null, folder: row.folder, flag: mode === 'forward' ? '$Forwarded' : '\\Answered' }
     s.initial = form
     return form
   }
@@ -438,6 +451,16 @@ export class Composer {
     return { form: s.initial, attachments: this.attachmentList(sessionId) }
   }
 
+  /**
+   * The message a reply or forward of `messageId` answers in the account: the lowest id with that Message-ID outside the
+   * Drafts- and Sent-role folders (a copy there is ours, not the original), or null.
+   */
+  #originRow(accountId, messageId) {
+    if (!messageId) return null
+    const skip = ['drafts', 'sent'].map(role => roleFolder(this.index, accountId, role)).filter(Boolean)
+    return this.index.db.prepare(`SELECT * FROM messages WHERE account_id = ? AND message_id = ?${skip.map(() => ' AND folder <> ?').join('')} ORDER BY id LIMIT 1`).get(accountId, messageId, ...skip) || null
+  }
+
   /** After a reply / forward went out: \Answered or $Forwarded on the original (server for IMAP, here for POP3). */
   async #markOrigin(origin) {
     // Row ids are reused (no AUTOINCREMENT): if the original was deleted meanwhile, the id may be another
@@ -445,9 +468,9 @@ export class Composer {
     // a row of the same account with that Message-ID is taken, or nothing is marked.
     let row = this.index.get(origin.id)
     if (row && origin.messageId && (row.message_id !== origin.messageId || row.account_id !== origin.accountId)) row = null
-    if (!row && origin.messageId) {
-      row = this.index.db.prepare('SELECT * FROM messages WHERE account_id = ? AND message_id = ? ORDER BY id LIMIT 1').get(origin.accountId, origin.messageId) || null
-    }
+    // the same id and Message-ID in another folder: a copy took a deleted original's id (our own Sent copy of it, say)
+    if (row && origin.folder && row.folder !== origin.folder) row = null
+    if (!row && origin.messageId) row = this.#originRow(origin.accountId, origin.messageId)
     if (!row) return
     const change = { add: [origin.flag], remove: [] }
     if (row.uid !== null && row.uid !== undefined) {
@@ -758,8 +781,11 @@ export class Composer {
       references: form.references || [],
       messageId: s.messageId,
       date: new Date(this.now()),
-      // only on a saved draft: the sent message is composed again without it
-      headers: claude ? { [CLAUDE_HEADER]: 'claude' } : {},
+      // only on a saved draft: the sent message is composed again without them
+      headers: {
+        ...(claude ? { [CLAUDE_HEADER]: 'claude' } : {}),
+        ...(draft && s.origin && s.origin.flag === '$Forwarded' && PLAIN_MESSAGE_ID.test(s.origin.messageId || '') ? { [FORWARD_OF_HEADER]: s.origin.messageId } : {}),
+      },
     })
     return { account, msg, recipients: [...to.ok, ...cc.ok, ...bcc.ok] }
   }

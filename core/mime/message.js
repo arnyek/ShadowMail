@@ -201,6 +201,9 @@ export async function parseMessage(source, { attachmentFallback = 'melleklet', h
     replyTo: addressList(p.replyTo),
     // "claude" on a draft Claude made (X-ShadowMail-Draft-Origin), else null
     draftOrigin: p.headers && p.headers.get ? String(p.headers.get('x-shadowmail-draft-origin') || '').trim().toLowerCase() || null : null,
+    // the program that wrote it ("ShadowMail" on ours), and on our own forward draft the original's Message-ID
+    mailer: p.headers && p.headers.get ? String(p.headers.get('x-mailer') || '').trim() || null : null,
+    forwardOf: p.headers && p.headers.get ? String(p.headers.get('x-shadowmail-forward-of') || '').trim() || null : null,
     date: p.date instanceof Date && !Number.isNaN(p.date.getTime()) ? p.date.getTime() : null,
     messageId: p.messageId || null,
     inReplyTo: typeof p.inReplyTo === 'string' && p.inReplyTo ? p.inReplyTo.trim() : null,

@@ -12,6 +12,7 @@ import { createDispatcher, createTools, JSONRPC, PROTOCOL_VERSION, META_KEY, err
 import { McpPipeServer, endpointFile, tooManyBytes, helloBytes } from '../app/main/mcp/server.js'
 import { runConnector, UNAVAILABLE } from '../app/main/mcp/connector.js'
 import { createMcpService, MCP_SETTING } from '../app/main/mcp/service.js'
+import { hu } from '../app/renderer/i18n/hu.js'
 
 const tools = () => createTools({ appVersion: '0.10.1', accountCount: () => 2 })
 const sleep = ms => new Promise(r => setTimeout(r, ms))
@@ -100,8 +101,36 @@ test('server: endpoint.json has the pipe and a 256-bit key; the right key gets a
   assert.equal(server.key, null)
 })
 
-test('server: a wrong key closes the connection after that one message, with a log line without the key; a third connection is refused', async t => {
-  const { dataDir, server, logs } = startServer(t)
+// a dispatcher whose "slow" method answers only when open() is called: a request in flight for as long as a test wants
+function gatedDispatch() {
+  const real = createDispatcher({ serverInfo: { name: 's', version: '1' }, tools: tools() })
+  let open
+  const gate = new Promise(r => (open = r))
+  const dispatch = async (line, ctx) => {
+    let m = null
+    try {
+      m = JSON.parse(line)
+    } catch {
+      m = null
+    }
+    if (m && m.method === 'slow') {
+      await gate
+      return { jsonrpc: '2.0', id: m.id, result: { slow: true } }
+    }
+    return real(line, ctx)
+  }
+  return { dispatch, open: () => open() }
+}
+async function until(fn, ms = 2000) {
+  const end = performance.now() + ms
+  while (!fn() && performance.now() < end) await sleep(10)
+  return fn()
+}
+const inflight = server => [...server.activity.values()].map(a => a.inflight)
+
+test('server: a wrong key closes the connection after that one message, with a log line without the key; a third connection while both work is refused', async t => {
+  const g = gatedDispatch()
+  const { dataDir, server, logs } = startServer(t, { dispatch: g.dispatch })
   await server.start()
   const ep = JSON.parse(fs.readFileSync(endpointFile(dataDir), 'utf8'))
   const wrong = rawClient(ep.pipe)
@@ -121,6 +150,9 @@ test('server: a wrong key closes the connection after that one message, with a l
   for (let i = 0; i < 50 && !(a.lines.length && b.lines.length); i++) await sleep(10)
   assert.deepEqual([a.lines, b.lines], [[{ jsonrpc: '2.0', id: 9, result: {} }], [{ jsonrpc: '2.0', id: 9, result: {} }]], 'the two allowed ones work')
   assert.equal(server.connections, 2)
+  // both are working now: neither may make room
+  for (const x of [a, b]) x.s.write('{"jsonrpc":"2.0","id":10,"method":"slow"}\n')
+  assert.ok(await until(() => inflight(server).join() === '1,1'), inflight(server).join())
   // the third (with the right key) is told why, then closed (the connector says "too many")
   const c = rawClient(ep.pipe)
   await c.connected
@@ -136,6 +168,13 @@ test('server: a wrong key closes the connection after that one message, with a l
   assert.equal(crypto.verify(null, tooManyBytes(crypto.randomBytes(32), ep.pipe), pub, sig), false, 'bound to the nonce')
   assert.equal(server.connections, 2)
   assert.ok(logs.includes('mcp connection refused: limit'))
+  assert.ok(!logs.includes('mcp connection closed: idle, replaced'))
+  // the two slow requests are answered on their own connections
+  g.open()
+  assert.ok(await until(() => a.lines.length === 2 && b.lines.length === 2))
+  for (const x of [a, b]) assert.deepEqual(x.lines[1], { jsonrpc: '2.0', id: 10, result: { slow: true } })
+  assert.ok(!a.s.destroyed && !b.s.destroyed)
+  assert.equal(server.connections, 2)
 })
 
 test('server: connections without a key do not take the two slots; they are dropped after the auth timeout', async t => {
@@ -316,20 +355,24 @@ test('requests queued before stop() (lock, switched off) do not run after it', a
   assert.equal(afterStop, 0, 'nothing started after stop()')
 })
 
-test('connector: the third session gets the "too many" text (the app line is not forwarded); without the app null / a batch / bad JSON get the app\'s answers', async t => {
-  const { dataDir, server } = startServer(t)
+test('connector: the third session while both others work gets the "too many" text (the app line is not forwarded); without the app null / a batch / bad JSON get the app\'s answers', async t => {
+  const g = gatedDispatch()
+  const { dataDir, server } = startServer(t, { dispatch: g.dispatch })
+  t.after(() => g.open())
   await server.start()
   const ep = JSON.parse(fs.readFileSync(endpointFile(dataDir), 'utf8'))
   const hold = [rawClient(ep.pipe), rawClient(ep.pipe)]
   await Promise.all(hold.map(x => x.connected))
-  for (const x of hold) x.s.write(`${auth(ep)}\n`)
-  for (let i = 0; i < 50 && server.connections < 2; i++) await sleep(10)
+  for (const x of hold) x.s.write(`${auth(ep)}\n{"jsonrpc":"2.0","id":1,"method":"slow"}\n`)
+  assert.ok(await until(() => inflight(server).join() === '1,1'), inflight(server).join())
   const input = new PassThrough()
   let out = ''
-  const ended = new Promise(resolve => runConnector({ dataDir, input, write: s => (out += s), onEnd: resolve, text: 'nem fut', tooManyText: 'túl sok' }))
+  // the text main.js gives the connector
+  const ended = new Promise(resolve => runConnector({ dataDir, input, write: s => (out += s), onEnd: resolve, text: 'nem fut', tooManyText: hu.mcpTooMany }))
   input.write('{"jsonrpc":"2.0","id":1,"method":"ping"}\n')
   for (let i = 0; i < 100 && !out; i++) await sleep(10)
-  assert.deepEqual(out.split('\n').filter(Boolean).map(l => JSON.parse(l)), [{ jsonrpc: '2.0', id: 1, error: { code: UNAVAILABLE, message: 'túl sok' } }])
+  assert.deepEqual(out.split('\n').filter(Boolean).map(l => JSON.parse(l)), [{ jsonrpc: '2.0', id: 1, error: { code: UNAVAILABLE, message: hu.mcpTooMany } }])
+  assert.match(hu.mcpTooMany, /dolgozik/)
   server.stop()
   await sleep(50)
   out = ''
@@ -338,6 +381,154 @@ test('connector: the third session gets the "too many" text (the app line is not
   assert.deepEqual(out.split('\n').filter(Boolean).map(l => JSON.parse(l).error.code), [-32600, -32600, -32700])
   input.end()
   await ended
+})
+
+// a raw client that sends the key (and whatever follows) and waits for the server's hello
+async function join(ep, extra = '') {
+  const x = rawClient(ep.pipe)
+  x.gone = false
+  x.closed.then(() => (x.gone = true))
+  await x.connected
+  x.s.write(`${auth(ep)}\n${extra}`)
+  assert.ok(await until(() => x.hello || x.gone), 'the hello or a close')
+  return x
+}
+const PING = id => `{"jsonrpc":"2.0","id":${id},"method":"ping"}\n`
+
+test('server: at the limit a new connection takes the place of the one idle the longest; the other stays; one log line without content', async t => {
+  const logs = []
+  // the replaced one leaves the count at once, not on its later close event
+  const countAtReplace = []
+  const { dataDir, server } = startServer(t, {
+    log: m => {
+      logs.push(m)
+      if (m === 'mcp connection closed: idle, replaced') countAtReplace.push(server.connections)
+    },
+  })
+  await server.start()
+  const ep = JSON.parse(fs.readFileSync(endpointFile(dataDir), 'utf8'))
+  const a = await join(ep, PING(1))
+  assert.ok(await until(() => a.lines.length === 1))
+  await sleep(20)
+  const b = await join(ep, PING(1))
+  assert.ok(await until(() => b.lines.length === 1))
+  await sleep(20)
+  const c = await join(ep, PING(1))
+  assert.ok(c.hello, 'the new one is let in')
+  assert.ok(await until(() => c.lines.length === 1))
+  assert.deepEqual(c.lines, [{ jsonrpc: '2.0', id: 1, result: {} }])
+  assert.ok(await until(() => a.gone), 'the one idle the longest is closed')
+  assert.equal(b.gone, false, 'the other one stays')
+  b.s.write(PING(2))
+  assert.ok(await until(() => b.lines.length === 2))
+  assert.deepEqual(b.lines[1], { jsonrpc: '2.0', id: 2, result: {} })
+  assert.equal(server.connections, 2)
+  assert.deepEqual(logs.filter(l => l.startsWith('mcp connection')), ['mcp connection closed: idle, replaced'])
+  assert.deepEqual(countAtReplace, [1])
+  assert.ok(!logs.join('\n').includes(ep.key), 'no key in the log')
+})
+
+test('server: the idle order comes from a monotonic clock: a wall clock stepping back changes nothing; an injected clock decides', async t => {
+  // the wall clock runs backwards all the time: a Date.now order would close the newer one
+  let wall = 2e12
+  t.mock.method(Date, 'now', () => (wall -= 1000))
+  {
+    const { dataDir, server } = startServer(t)
+    await server.start()
+    const ep = JSON.parse(fs.readFileSync(endpointFile(dataDir), 'utf8'))
+    const a = await join(ep, PING(1))
+    assert.ok(await until(() => a.lines.length === 1))
+    await sleep(5)
+    const b = await join(ep, PING(1))
+    assert.ok(await until(() => b.lines.length === 1))
+    await sleep(5)
+    const c = await join(ep)
+    assert.ok(c.hello)
+    assert.ok(await until(() => a.gone), 'the older one goes')
+    assert.equal(b.gone, false)
+    server.stop()
+  }
+  // the server's own clock, against the real order: b came later but the clock calls it earlier
+  {
+    let clock = 100
+    const { dataDir, server } = startServer(t, { now: () => clock })
+    await server.start()
+    const ep = JSON.parse(fs.readFileSync(endpointFile(dataDir), 'utf8'))
+    const a = await join(ep)
+    clock = 50
+    const b = await join(ep)
+    clock = 200
+    const c = await join(ep)
+    assert.ok(c.hello)
+    assert.ok(await until(() => b.gone), 'the one the clock calls the oldest goes')
+    assert.equal(a.gone, false)
+    server.stop()
+  }
+  // a came first, but its answered request at 30 makes b (20) the one idle the longest
+  let clock = 0
+  const { dataDir, server } = startServer(t, { now: () => clock })
+  await server.start()
+  const ep = JSON.parse(fs.readFileSync(endpointFile(dataDir), 'utf8'))
+  clock = 10
+  const a = await join(ep)
+  clock = 20
+  const b = await join(ep)
+  clock = 30
+  a.s.write(PING(1))
+  assert.ok(await until(() => a.lines.length === 1))
+  clock = 40
+  const c = await join(ep)
+  assert.ok(c.hello)
+  assert.ok(await until(() => b.gone), 'the one the clock calls the oldest goes')
+  assert.equal(a.gone, false)
+})
+
+test('server: one connection working, one idle + a third: the idle one makes room even if it was active later; the working one is answered', async t => {
+  const g = gatedDispatch()
+  const { dataDir, server, logs } = startServer(t, { dispatch: g.dispatch })
+  t.after(() => g.open())
+  await server.start()
+  const ep = JSON.parse(fs.readFileSync(endpointFile(dataDir), 'utf8'))
+  const a = await join(ep, '{"jsonrpc":"2.0","id":7,"method":"slow"}\n')
+  await sleep(20)
+  const b = await join(ep, PING(1))
+  assert.ok(await until(() => b.lines.length === 1))
+  assert.deepEqual(inflight(server), [1, 0])
+  const c = await join(ep, PING(1))
+  assert.ok(c.hello)
+  assert.ok(await until(() => b.gone), 'the idle one goes')
+  assert.equal(a.gone, false, 'the working one stays')
+  g.open()
+  assert.ok(await until(() => a.lines.length === 1))
+  assert.deepEqual(a.lines, [{ jsonrpc: '2.0', id: 7, result: { slow: true } }])
+  assert.ok(await until(() => c.lines.length === 1))
+  assert.equal(server.connections, 2)
+  assert.ok(logs.includes('mcp connection closed: idle, replaced'))
+  assert.ok(!logs.includes('mcp connection refused: limit'))
+})
+
+test('connector: replaced while idle, it connects again at its next request and is answered, taking the place of the one idle the longest', async t => {
+  const { dataDir, server, logs } = startServer(t)
+  await server.start()
+  const ep = JSON.parse(fs.readFileSync(endpointFile(dataDir), 'utf8'))
+  const x = connector(dataDir)
+  assert.deepEqual(await x.ask({ jsonrpc: '2.0', id: 1, method: 'ping' }, 1), { jsonrpc: '2.0', id: 1, result: {} })
+  await sleep(20)
+  const b = await join(ep, PING(1))
+  assert.ok(await until(() => b.lines.length === 1))
+  await sleep(20)
+  const c = await join(ep, PING(1))
+  assert.ok(await until(() => c.lines.length === 1))
+  assert.equal(logs.filter(l => l === 'mcp connection closed: idle, replaced').length, 1, 'the connector made room')
+  assert.equal(b.gone, false)
+  // the next request of the replaced conversation: no error, an answer
+  assert.deepEqual(await x.ask({ jsonrpc: '2.0', id: 2, method: 'ping' }, 2), { jsonrpc: '2.0', id: 2, result: {} })
+  assert.ok(await until(() => b.gone), 'now b was idle the longest')
+  assert.equal(c.gone, false)
+  assert.equal(logs.filter(l => l === 'mcp connection closed: idle, replaced').length, 2)
+  assert.equal(server.connections, 2)
+  x.input.end()
+  await x.ended
 })
 
 test('connector: stdout gone (EPIPE) -> it quits quietly, no exception escapes', async t => {

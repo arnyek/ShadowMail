@@ -130,6 +130,28 @@ function outsideSignature(el) {
 }
 const bare = s => s.replace(/\s+/g, '')
 
+// Whether the selection starts or ends in a paragraph (outside a list and the signature block). A list chosen there lands
+// INSIDE it, <p><ul> (MEASURED: an empty paragraph, one with text, two selected, a new message too); saved and sent the
+// HTML parser splits it into <p></p><ul></ul><p></p>, two blank lines around the list in the text part. Not when the
+// selection takes in an existing list item too: the div there would cut the list in two (MEASURED, the tester's
+// paragraph + list case); the editor makes one list of them, as before.
+function inParagraph(el) {
+  const sel = window.getSelection()
+  if (!el || !sel || !sel.rangeCount) return false
+  const range = sel.getRangeAt(0)
+  if ([...el.querySelectorAll('li')].some(li => range.intersectsNode(li))) return false
+  // an element boundary (the caret on the editor itself, before its first block) is the child at the offset
+  const elementAt = (node, offset) => {
+    let at = node && node.nodeType === 1 ? node.childNodes[offset] || node : node
+    if (at && at.nodeType !== 1) at = at.parentNode
+    return at
+  }
+  return [elementAt(sel.anchorNode, sel.anchorOffset), elementAt(sel.focusNode, sel.focusOffset)].some(at => {
+    const p = at && at.closest ? at.closest('p') : null
+    return Boolean(p && el.contains(p) && !p.closest('li') && !p.closest(`[${SIGNATURE_ATTR}]`))
+  })
+}
+
 const FORMATS = { formatBold: 'bold', formatItalic: 'italic', formatUnderline: 'underline' }
 const INLINE_COMMANDS = new Set(['bold', 'italic', 'underline'])
 const BLOCK_COMMANDS = new Set(['formatBlock', 'insertUnorderedList', 'insertOrderedList'])
@@ -802,6 +824,9 @@ export function Composer({ sessionId }) {
       return
     }
     emptyGuard.current.choose(cmd, editor.current)
+    // a list in a paragraph: the paragraph(s) a div first (the editor's own command, an undo step), as the emptied text's
+    // plain start does (reset), so the list does not go inside a paragraph
+    if (/List$/.test(cmd) && inParagraph(editor.current)) document.execCommand('formatBlock', false, 'div')
     document.execCommand(cmd, false, arg)
     bodyTouched.current = true
     touch()

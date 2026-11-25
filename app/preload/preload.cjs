@@ -64,6 +64,8 @@ contextBridge.exposeInMainWorld('shadowMail', {
     // reader. open -> { message: { id, subject, from, to, cc, date, html | text, hasExternalImages, attachments, seenError } }
     open: id => ipcRenderer.invoke('mail:open', id),
     thread: id => ipcRenderer.invoke('mail:thread', id),
+    // the reader's replied / forwarded line: { ok, answered, forwarded, reply: { id, date, count } | null }
+    replyInfo: id => ipcRenderer.invoke('mail:replyInfo', id),
     allowImages: id => ipcRenderer.invoke('mail:allowImages', id),
     // sanitized body -> { url } of the sandboxed frame's document (mail-view:)
     render: (id, html) => ipcRenderer.invoke('mail:render', id, html),

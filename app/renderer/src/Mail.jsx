@@ -466,7 +466,7 @@ const MessageRow = memo(function MessageRow({ m, index, top, flags, labels, labe
           onClick={() => h.action(flagged ? 'unstar' : 'star', [m.id])}
         />
       </div>
-      <RowText m={m} preview={preview} recipient={recipient} labels={labels} labelList={labelList} />
+      <RowText m={m} preview={preview} recipient={recipient} labels={labels} labelList={labelList} flags={flags} />
       {hovered && !leaving && (
         // mouse shortcuts of the toolbar's actions: hidden from assistive tech, the toolbar has them
         <div className="row-quick" aria-hidden="true" onClick={stop}>
@@ -508,8 +508,27 @@ function ListHeader({ ctx }) {
     { key: 'read', label: t.selectMenuItems.read, onSelect: () => onSelectSeen(true) },
     { key: 'unread', label: t.selectMenuItems.unread, onSelect: () => onSelectSeen(false) },
   ]
+  // the shown range, whole (on a narrow list, with a selection or a long filtered range, it is cut: its title keeps it)
+  const countText =
+    total === null
+      ? counting
+        ? formatOpenRange(range.first, range.last) + (filtered && folderTotal !== null ? t.listFiltered(folderTotal) : '')
+        : ''
+      : formatRange(range.first, range.last, total) + (filtered && folderTotal !== null ? t.listFiltered(folderTotal) : '')
+  // "More" while rows are selected: always in the DOM, app.css shows it (and which of its items) only on a narrow list,
+  // where the same buttons leave the row; the items do what the buttons do
+  const moreItems = [
+    onLabel && { key: 'label', label: t.labels.button, icon: 'tag', onSelect: () => onLabel(ids) },
+    selectedInfo.allFlagged
+      ? { key: 'star', label: t.actions.unstar, icon: 'star', onSelect: () => onAction('unstar', ids) }
+      : { key: 'star', label: t.actions.star, icon: 'star', onSelect: () => onAction('star', ids) },
+    selectedInfo.anyUnread
+      ? { key: 'read', label: t.actions.read, icon: 'markRead', onSelect: () => onAction('read', ids) }
+      : { key: 'read', label: t.actions.unread, icon: 'markUnread', onSelect: () => onAction('unread', ids) },
+    { key: 'refresh', label: t.refresh, icon: 'refresh', onSelect: onRefresh },
+  ].filter(Boolean)
   return (
-    <div className="list-header">
+    <div className={`list-header${n ? ' selecting' : ''}`}>
       <div className="list-select">
         <Checkbox
           label={t.selectAll}
@@ -533,9 +552,9 @@ function ListHeader({ ctx }) {
           {archive && <IconButton icon="archive" label={t.actions.archive} onClick={() => onAction('archive', ids)} />}
           <IconButton icon="trash" label={t.actions.delete} onClick={() => onAction('delete', ids)} />
           {selectedInfo.anyUnread ? (
-            <IconButton icon="markRead" label={t.actions.read} onClick={() => onAction('read', ids)} />
+            <IconButton icon="markRead" className="act-read" label={t.actions.read} onClick={() => onAction('read', ids)} />
           ) : (
-            <IconButton icon="markUnread" label={t.actions.unread} onClick={() => onAction('unread', ids)} />
+            <IconButton icon="markUnread" className="act-read" label={t.actions.unread} onClick={() => onAction('unread', ids)} />
           )}
           <MenuButton
             icon="move"
@@ -543,20 +562,17 @@ function ListHeader({ ctx }) {
             items={targets.map(f => ({ key: f.path, label: f.role ? `${t.folderRoles[f.role]} (${f.path})` : f.path, icon: folderIcon(f.role), onSelect: () => onAction('move', ids, { target: f.path }) }))}
           />
           {selectedInfo.allFlagged ? (
-            <IconButton icon="star" filled className="star-on" label={t.actions.unstar} onClick={() => onAction('unstar', ids)} />
+            <IconButton icon="star" filled className="star-on act-star" label={t.actions.unstar} onClick={() => onAction('unstar', ids)} />
           ) : (
-            <IconButton icon="star" label={t.actions.star} onClick={() => onAction('star', ids)} />
+            <IconButton icon="star" className="act-star" label={t.actions.star} onClick={() => onAction('star', ids)} />
           )}
           {onLabel && <IconButton icon="tag" className="label-open" label={t.labels.button} onClick={() => onLabel(ids)} />}
-          <span className="selection-count">{t.selectedCount(n)}</span>
+          <MenuButton icon="more" className="action-more" align="end" label={t.moreMenu} items={moreItems} />
+          <span className="selection-count" title={t.selectedCount(n)}>{t.selectedCount(n)}</span>
         </div>
       )}
-      <span className="list-count" data-total={total ?? ''} data-folder-total={folderTotal ?? ''} title={total ? t.listCount(total) : undefined}>
-        {total === null
-          ? counting
-            ? formatOpenRange(range.first, range.last) + (filtered && folderTotal !== null ? t.listFiltered(folderTotal) : '')
-            : ''
-          : formatRange(range.first, range.last, total) + (filtered && folderTotal !== null ? t.listFiltered(folderTotal) : '')}
+      <span className="list-count" data-total={total ?? ''} data-folder-total={folderTotal ?? ''} title={(n || filtered) && countText ? countText : total ? t.listCount(total) : undefined}>
+        {countText}
       </span>
     </div>
   )

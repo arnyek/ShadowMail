@@ -110,10 +110,10 @@ test('the offered list: a reference in another case, %-encoded or in < > hides i
   const parsed = {
     html: '<p><img src="CID:Logo@X"><img src="cid:k%C3%A9p@x"><img src="cid:<bg@x>"><img src="cid:icon@xy"></p>',
     attachments: [
-      { index: 0, filename: 'logo.png', inline: true, cid: 'logo@x' },
-      { index: 1, filename: 'kep.png', inline: true, cid: '<KÉP@x>' },
-      { index: 2, filename: 'bg.png', inline: true, cid: 'bg@x' },
-      { index: 3, filename: 'icon.png', inline: true, cid: 'icon@x' },
+      { index: 0, filename: 'logo.png', inline: true, contentType: 'image/png', cid: 'logo@x' },
+      { index: 1, filename: 'kep.png', inline: true, contentType: 'image/png', cid: '<KÉP@x>' },
+      { index: 2, filename: 'bg.png', inline: true, contentType: 'image/png', cid: 'bg@x' },
+      { index: 3, filename: 'icon.png', inline: true, contentType: 'image/png', cid: 'icon@x' },
     ],
   }
   // icon@x is referred to only as icon@xy: before this the substring match hid it (and the image showed nowhere)
@@ -122,8 +122,8 @@ test('the offered list: a reference in another case, %-encoded or in < > hides i
 
 test('the offered list: of two parts whose Content-IDs differ only in case, only the ones a reference shows are left out', () => {
   const parts = [
-    { index: 0, filename: 'kis.png', inline: true, cid: 'pair@x' },
-    { index: 1, filename: 'nagy.png', inline: true, cid: 'PAIR@x' },
+    { index: 0, filename: 'kis.png', inline: true, contentType: 'image/png', cid: 'pair@x' },
+    { index: 1, filename: 'nagy.png', inline: true, contentType: 'image/png', cid: 'PAIR@x' },
   ]
   // each referred to as written: both shown, none offered
   assert.deepEqual(offeredAttachments({ html: '<img src="cid:pair@x"><img src="cid:PAIR@x">', attachments: parts }).map(a => a.filename), [])
@@ -137,9 +137,9 @@ test('the offered list: the embedded images the body shows are not in it, an unr
   const parsed = {
     html: '<p><img src="cid:logo@x"></p>',
     attachments: [
-      { index: 0, filename: 'logo.png', inline: true, cid: 'logo@x' },
+      { index: 0, filename: 'logo.png', inline: true, contentType: 'image/png', cid: 'logo@x' },
       { index: 1, filename: 'a.pdf', inline: false },
-      { index: 2, filename: 'kep.png', inline: true, cid: 'unused@x' },
+      { index: 2, filename: 'kep.png', inline: true, contentType: 'image/png', cid: 'unused@x' },
     ],
   }
   assert.deepEqual(offeredAttachments(parsed).map(a => a.filename), ['a.pdf', 'kep.png'])
@@ -240,7 +240,7 @@ test('IPC: the web-page-like files saved are counted (the parser\'s own save-onl
 })
 
 test('the offered list: only an <img src> reference hides a part; a background, a CSS url(), a link or the text does not', () => {
-  const part = { index: 0, filename: 'a.png', inline: true, cid: '<a@x>' }
+  const part = { index: 0, filename: 'a.png', inline: true, contentType: 'image/png', cid: '<a@x>' }
   const offered = html => offeredAttachments({ html, attachments: [part] }).map(a => a.filename)
   const cases = {
     'img src': ['<img src="cid:a@x">', []],
@@ -258,7 +258,7 @@ test('the offered list: only an <img src> reference hides a part; a background, 
 })
 
 test('the offered list: cid:<x> as an <img src> hides its part (the frame shows it); in a background, a CSS url(), a link or the text it does not', () => {
-  const part = { index: 0, filename: 'bg.png', inline: true, cid: '<bg@x>' }
+  const part = { index: 0, filename: 'bg.png', inline: true, contentType: 'image/png', cid: '<bg@x>' }
   const offered = html => offeredAttachments({ html, attachments: [part] }).map(a => a.filename)
   const got = {
     img: offered('<img src="cid:<bg@x>">'),

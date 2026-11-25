@@ -11,7 +11,7 @@ Windows saját **Megnyitás/Mentés** ablaka megjegyzi a felhasználói registry
 utoljára (`HKCU\…\Explorer\ComDlg32\LastVisitedPidlMRU`, egy bejegyzés a `ShadowMail.exe` nevével): ezt a
 Windows írja, nem a program. A Windows „Legutóbbi fájlok” listájába a ShadowMail nem tesz bejegyzést.
 
-![A levéllista: oldalsáv a mappákkal, kereső a fejlécben, egysoros levélsorok előnézettel](docs/screenshots/readme-list.png)
+![A levéllista: oldalsáv a mappákkal, kereső a fejlécben, egysoros levélsorok előnézettel; az olvasatlan levél világosabb háttéren, vastag betűvel, a megválaszolt és a továbbított levél előtt ikon](docs/screenshots/readme-list.png)
 
 (A képek tesztadattal készültek: `node scripts/ui-screenshots.mjs readme --set readme --out docs/screenshots`.)
 
@@ -241,6 +241,41 @@ színezhetsz, rendezhetsz és törölhetsz címkét.
 - **POP3-fióknál** a címke ezen a gépen tárolódik, és a levél minden helyi példányán látszik. Ha a levélnek nincs
   Message-ID és Date fejléce, egy újra letöltött példányán a címke nem látszik.
 - Claude (MCP) felteheti és leveheti a meglévő címkéket; létrehozni, átnevezni és törölni csak te tudsz.
+
+### Újdonságok a 0.21.0-ban, ismert korlátok
+
+- **Az olvasatlan levél kiemelve:** a levéllistában és a keresési találatok közt az olvasatlan levél sora világosabb
+  háttéren, vastag betűvel áll, az olvasotté halványan szürkés; a kijelölt sor erősebb kékes színt kap. Mind az öt
+  témában.
+- **Válaszolt / továbbított jel:** ha egy levélre válaszoltál vagy továbbítottad, a listasorban és a keresési
+  találatban egy kis ikon jelzi (rámutatva: **Megválaszolva**, **Továbbítva**).
+- **„Válaszoltál” sor az olvasóban:** a megnyitott levél fejlécében **Válaszoltál:** és a válaszod dátuma áll;
+  a dátumra kattintva a válaszod nyílik meg (az Elküldött mappából). Több válasznál a darabszám és a legutóbbi
+  dátuma, továbbításnál **Továbbítottad**. Ha a válaszod már nincs az Elküldött mappában: **Megválaszoltad**.
+- **A piszkozatból küldött válasz is jelöl:** ha egy elmentett válasz- vagy továbbítás-piszkozatot később nyitsz
+  meg és küldesz el, az eredeti levél is megkapja a válaszolt / továbbított jelet (eddig csak az azonnal küldött
+  kapta). A más programban írt piszkozatokra ez nem vonatkozik.
+- **Claude-kapcsolat javítás („két kapcsolat már él”):** ha a Claude Desktopban több beszélgetés volt nyitva, a
+  harmadik nem tudott a ShadowMailhez csatlakozni, amíg az egészet újra nem indítottad. Most az új beszélgetés
+  átveszi a legrégebben nem használt beszélgetés helyét, és az a következő kérdésénél magától visszacsatlakozik.
+  Hibát csak akkor kapsz, ha két beszélgetés épp dolgozik a ShadowMaillel.
+- **Beágyazott kép mellékletként:** ha egy levél egy képre csak a szövegében, egy megjegyzésben vagy egy
+  attribútumban hivatkozik (a levélben nem látszik), vagy SVG-képet ágyaz be, a kép most mellékletként jelenik
+  meg, és az **Összes mentése** is menti; eddig sehol nem látszott.
+- **Lista egy bekezdésben:** ha a levélíróban egy meglévő bekezdésben kérsz felsorolást vagy számozást, a lista
+  tisztán a bekezdés helyére kerül; eddig a küldött levél szöveges részében a lista előtt és után két-két üres sor
+  jelent meg.
+- **A lista eszközsora kijelölés közben:** osztott nézetben, keskeny listán a „N kijelölve” felirat és a
+  levélszám nem csúszik egymásra, és a gombok is elférnek.
+
+A kiadás ismert korlátai:
+
+- Windowson a fentieket nem mértük, csak Linuxon; a Windows-próba a kiadás előtt történik.
+- A piszkozatból küldött válasz jelölését IMAP-fiókon a felületen nem próbáltuk ki (a program saját tesztjei
+  mérik).
+- A Claude-kapcsolat javítását valódi Claude Desktoppal nem mértük, csak a program saját kapcsolódójával.
+- Szándékos: egy 100 000 leveles mappában a feladó vagy tárgy szerinti rendezés szűrővel 0,2-0,4 másodperc; egy
+  gyorsító index a teljes szinkront kb. 13%-kal lassítaná.
 
 ### Újdonságok a 0.20.0-ban, ismert korlátok
 

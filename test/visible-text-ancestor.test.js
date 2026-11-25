@@ -13,6 +13,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 import { visibleTextInfo, MAX_MATCH_WORK, TIME_LIMIT_MS } from '../core/mime/visible-text.js'
 import { prepareQuote, preparePaste } from '../core/mime/paste-prepare.js'
 import { newsletterHtml, complexNewsletterHtml } from './helpers/newsletter.js'
+import { Parser, DomHandler } from 'htmlparser2'
 import { retryWhenLoaded } from './helpers/load-retry.js'
 
 const repo = path.resolve(fileURLToPath(new URL('..', import.meta.url)))
@@ -142,10 +143,32 @@ test('the ceiling and the net stay; the complex newsletter (all rules in one cla
   assert.equal(prepareQuote(html, { clocks: still }).reason, 'complex')
 })
 
-test('the newsletter is formatted now: 2000 blocks quote and paste <= 300 ms, reader <= 200 ms; 5000 blocks 600 / 400 (best of 3)', async t => {
-  // wall-clock limits: on a loaded machine a failure is tried again (load-retry.js), on a quiet one it stands
+// The timed work against the machine: a multiple of the gauge, htmlparser2's own parse of the 5000-block newsletter
+// into a DOM (best of 5, no code of ours: a slowdown of the cascade itself does not hide in it), timed in the same run.
+// Measured on a quiet machine (parse 27-34 ms), in this test and alone: 2000 blocks quote and paste 3.4-5.9 x the gauge,
+// reader 1.9-3.9; 5000 blocks 8.7-14 / 5.1-8.2. The limits are about twice the highest: a slower machine (the Windows
+// build: 310 ms for the 2000-block quote, over the old 300 ms wall-clock limit) is slower in the gauge too.
+const LIMITS = [[2000, 12, 8], [5000, 28, 16]]
+function parseGaugeMs(html) {
+  let ms = Infinity
+  for (let i = 0; i < 5; i++) {
+    const t0 = performance.now()
+    const p = new Parser(new DomHandler(() => {}))
+    p.write(html)
+    p.end()
+    ms = Math.min(ms, performance.now() - t0)
+  }
+  return ms
+}
+
+test('the newsletter is formatted now, in a multiple of the parse gauge: 2000 blocks quote and paste <= 12, reader <= 8; 5000 blocks 28 / 16 (best of 3)', async t => {
+  // on a loaded machine a failure is tried again (load-retry.js), on a quiet one it stands
   await retryWhenLoaded(t, () => {
-    for (const [blocks, formatMs, readerMs] of [[2000, 300, 200], [5000, 600, 400]]) {
+    const gauge = parseGaugeMs(newsletterHtml({ blocks: 5000 }))
+    t.diagnostic(`parse gauge ${gauge.toFixed(1)} ms`)
+    for (const [blocks, formatTimes, readerTimes] of LIMITS) {
+      const formatMs = formatTimes * gauge
+      const readerMs = readerTimes * gauge
       const html = newsletterHtml({ blocks })
       const best = f => {
         let ms = Infinity
@@ -164,8 +187,8 @@ test('the newsletter is formatted now: 2000 blocks quote and paste <= 300 ms, re
       assert.equal(p.r.reason, undefined, `${blocks}: the paste is formatted`)
       assert.equal(v.r.cut, null, `${blocks}: the reader's text is whole`)
       t.diagnostic(`${blocks} blocks: quote ${Math.round(q.ms)} ms, paste ${Math.round(p.ms)} ms, reader ${Math.round(v.ms)} ms`)
-      assert.ok(q.ms <= formatMs && p.ms <= formatMs, `${blocks}: quote ${Math.round(q.ms)} / paste ${Math.round(p.ms)} ms`)
-      assert.ok(v.ms <= readerMs, `${blocks}: reader ${Math.round(v.ms)} ms`)
+      assert.ok(q.ms <= formatMs && p.ms <= formatMs, `${blocks}: quote ${Math.round(q.ms)} / paste ${Math.round(p.ms)} ms, the limit ${Math.round(formatMs)} (${formatTimes} x the gauge's ${gauge.toFixed(1)})`)
+      assert.ok(v.ms <= readerMs, `${blocks}: reader ${Math.round(v.ms)} ms, the limit ${Math.round(readerMs)} (${readerTimes} x the gauge's ${gauge.toFixed(1)})`)
     }
   })
 })

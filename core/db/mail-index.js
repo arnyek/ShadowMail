@@ -221,6 +221,10 @@ export class MailIndex {
       getByUid: p('SELECT * FROM messages WHERE account_id = ? AND folder = ? AND uid = ?'),
       byMsgId: p('SELECT * FROM messages WHERE account_id = ? AND message_id = ?'),
       byInReplyTo: p('SELECT * FROM messages WHERE account_id = ? AND in_reply_to = ?'),
+      // the replies to a message in one folder of the account (the reader's "You replied" line): the latest and how many
+      // the unary + keeps the planner on idx_messages_inreply: a message has few replies, a Sent folder has thousands of rows
+      latestReply: p('SELECT id, date FROM messages WHERE in_reply_to = ? AND +account_id = ? AND +folder = ? ORDER BY date DESC, id DESC LIMIT 1'),
+      replyCount: p('SELECT COUNT(*) AS n FROM messages WHERE in_reply_to = ? AND +account_id = ? AND +folder = ?'),
       // instr, not LIKE: a Message-ID may contain _ or %, which LIKE would read as wildcards
       byRef: p('SELECT * FROM messages WHERE account_id = ? AND instr(refs, ?) > 0'),
       // the folder rows alone (no messages read): folderList, and the base of folders()
@@ -613,6 +617,14 @@ export class MailIndex {
 
   pendingCount(accountId) {
     return this.s.pendingCount.get(accountId).n
+  }
+
+  /** The replies to Message-ID `messageId` in `folder` of the account: { id, date, count } of the latest, or null. */
+  replyIn(accountId, folder, messageId) {
+    if (!messageId || !folder) return null
+    const latest = this.s.latestReply.get(messageId, accountId, folder)
+    if (!latest) return null
+    return { id: latest.id, date: latest.date, count: this.s.replyCount.get(messageId, accountId, folder).n }
   }
 
   get(id) {
