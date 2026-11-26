@@ -14,9 +14,28 @@ import { Pop3Client } from '../../core/pop3/client.js'
 import { Pop3Fetcher } from '../../core/pop3/fetcher.js'
 import { errCode } from '../../core/log-safe.js'
 import { uploadLocalLabels } from '../../core/imap/label-upload.js'
+import { BodyGate } from '../../core/imap/body-gate.js'
+import { createLoopWatch } from './loop-watch.js'
 
 export const STATUS_THROTTLE_MS = 250
 export const IDLE_MAX_MS = 5 * 60_000 // re-issue IDLE before servers drop a quiet connection
+// a targeted (IDLE) run writes its log line only when it was slow: over this, or with a main-thread gap over 100 ms
+export const TARGETED_LOG_MS = 1000
+
+/**
+ * One sync run's diagnostic line (main.log), numbers and codes only: no folder name, address, server or user. The
+ * keys and their order are fixed (the line is read after a release to see what a startup costs on real data).
+ */
+export function syncLogLine(s) {
+  const condstore = s.kind === 'pop3' || s.condstore === null ? '-' : s.condstore ? 'yes' : 'no'
+  const n = v => (Number.isFinite(v) ? Math.round(v) : 0)
+  return `sync account=${n(s.accountId)} kind=${s.kind} condstore=${condstore} folders=${n(s.folders)} flags=${n(s.flags)} new=${n(s.added)} bodies=${n(s.bodies)} ms=${n(s.ms)} list_ms=${n(s.listMs)} meta_ms=${n(s.metaMs)} bodies_ms=${n(s.bodiesMs)} loop_max=${n(s.loopMax)} loop_over100=${n(s.loopOver100)} result=${/^[a-z_]+$/.test(s.result) ? s.result : 'error'}`
+}
+
+/** a targeted run only when it was slow (TARGETED_LOG_MS) or blocked the main thread over 100 ms; the others always */
+export function logsRun(s) {
+  return s.kind !== 'targeted' || s.ms > TARGETED_LOG_MS || s.loopOver100 > 0
+}
 
 /** Error of an interactive action (open, message actions); `code` is a stable, translatable key. */
 export class ActionError extends Error {
@@ -51,7 +70,11 @@ export class SyncManager {
     this.log = log
     this.now = now
     this.throttleMs = throttleMs
-    this.syncerOptions = syncerOptions
+    // one account's body phase at a time (core/imap/body-gate.js); the tests may give their own in syncerOptions
+    this.bodyGate = new BodyGate()
+    // the main thread's gaps during the runs, for their log lines (app/main/loop-watch.js): on only while a run is
+    this.loopWatch = createLoopWatch()
+    this.syncerOptions = { bodyGate: this.bodyGate, loopWatch: this.loopWatch, ...syncerOptions }
     this.idleOptions = idleOptions
     this.connect = connect || ((account, opts) => this.#connectImap(account, opts))
     this.connectPop3 = connectPop3 || (account => this.#connectPop3(account))
@@ -100,7 +123,12 @@ export class SyncManager {
     this.active = false
     const ids = [...this.entries.keys()]
     await Promise.all(ids.map(id => this.#stopAccount(id)))
+    this.loopWatch.stop()
     this.#queueStatus()
+  }
+
+  #logRun(summary) {
+    if (logsRun(summary)) this.log(syncLogLine(summary))
   }
 
   /** Settings changed (or a new account): restart it with the fresh row. */
@@ -207,6 +235,7 @@ export class SyncManager {
       name: e.name,
       running: s.running,
       phase: s.phase,
+      gateWait: Boolean(s.gateWait), // in the body phase, waiting for another account's batch (core/imap/body-gate.js)
       folder: s.folder,
       progress: s.progress,
       requeued: s.lastRequeued, // texts put back in the queue by a raised limit: "Újraindexelés"
@@ -238,6 +267,7 @@ export class SyncManager {
         now: this.now,
         onChange: change => this.#queueChange(change),
         onState: state => this.#onSyncState(entry, state),
+        onRunEnd: summary => this.#logRun(summary),
         searchText: this.searchText,
         ...this.syncerOptions,
       })
@@ -256,6 +286,7 @@ export class SyncManager {
       now: this.now,
       onChange: change => this.#queueChange(change),
       onState: state => this.#onSyncState(entry, state),
+      onRunEnd: summary => this.#logRun(summary),
       searchText: this.searchText,
       uploadLabels: this.labels ? client => uploadLocalLabels({ labels: this.labels, client, accountId: id, log: this.log }) : null,
       ...this.syncerOptions,

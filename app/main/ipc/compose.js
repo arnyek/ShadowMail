@@ -310,9 +310,11 @@ export function registerComposeIpc({
     return composer.saveDraft(sessionId, parseForm(form))
   })
 
-  handle('compose:send', async (_e, sessionId, form) => {
+  // options: { archive: true } "Küldés és archiválás" (the original into the Archive after a successful send)
+  handle('compose:send', async (_e, sessionId, form, options) => {
     if (!isSession(sessionId)) throw new BadRequest()
-    return composer.sendNow(sessionId, parseForm(form))
+    if (options !== undefined && options !== null && !(isPlainObject(options) && Object.keys(options).every(k => k === 'archive') && (options.archive === undefined || typeof options.archive === 'boolean'))) throw new BadRequest()
+    return composer.sendNow(sessionId, parseForm(form), { archive: Boolean(options && options.archive) })
   })
 
   // "Küldés később": the form as the send checks it, the time as a number of ms (the composer checks the range)

@@ -62,7 +62,8 @@ async function syncDelay(t, mode) {
   h.enable()
   s0.manager.startAll()
   await until(() => s0.manager.status()[0].lastFinished && s0.index.stats(s0.row.id).bodies >= 1)
-  if (svc) await until(() => idle(svc))
+  // the worker's results are written in batches (WRITE_WAIT_MS at most after the last one)
+  if (svc) await until(() => idle(svc) && refiner.writesPending() === 0)
   await sleep(30)
   h.disable()
   return { ...s0, svc, refiner, maxMs: h.max / 1e6 }

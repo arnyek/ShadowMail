@@ -132,17 +132,29 @@ test('a Chromium copy of a web page through the step and the rich sanitizer: the
     '<p>látható <a href="https://example.invalid/" style="color: rgb(26, 13, 171);">link</a></p>')
 })
 
-test('linear enough: a 1 MB web page copy in well under a second', () => {
+// 4 times the input, at most 8 times the time (best of 3; a quadratic pass would be 16 times). The absolute limit (1 MB
+// in under 1000 ms) failed under the parallel `npm test` on a fine build; its absolute time is a quiet machine's
+// question. Under 20 ms the ratio is timer noise; a loaded machine measures again (load-retry.js)
+test('linear enough: a 1 MB web page copy takes at most 8 times a 256 KB one', async t => {
   const block = '<p style="margin: 0px 0px 10px; line-height: 1.5; color: rgb(32, 33, 36);">Bekezdés <span style="font-weight: 700;">vastag</span> <span style="font-size: 0px;">rejtett</span> <a href="https://example.invalid/" style="color: rgb(26, 13, 171);">link</a></p>'
-  const html = block.repeat(Math.ceil((1024 * 1024) / block.length))
-  const runs = []
-  for (let i = 0; i < 3; i++) {
-    const t0 = performance.now()
-    const r = preparePaste(html)
-    runs.push(performance.now() - t0)
-    assert.equal(r.plain, false)
+  const page = bytes => block.repeat(Math.ceil(bytes / block.length))
+  const best = html => {
+    let min = Infinity
+    for (let i = 0; i < 3; i++) {
+      const t0 = performance.now()
+      const r = preparePaste(html)
+      min = Math.min(min, performance.now() - t0)
+      assert.equal(r.plain, false, 'formatted, not the plain fallback')
+    }
+    return min
   }
-  assert.ok(Math.min(...runs) < 1000, `best of 3: ${Math.min(...runs)} ms`)
+  const small = page(256 * 1024)
+  const big = page(1024 * 1024)
+  await retryWhenLoaded(t, () => {
+    const a = best(small)
+    const b = best(big)
+    assert.ok(b < 20 || b <= Math.max(a, 1) * 8, `256 KB: ${a.toFixed(0)} ms, 1 MB: ${b.toFixed(0)} ms (x${(b / Math.max(a, 1)).toFixed(1)})`)
+  })
 })
 
 test(`the paste's own time net: ${PASTE_TIME_LIMIT_MS} ms (the planner's decision), the reader's filter keeps its ${TIME_LIMIT_MS} ms`, () => {

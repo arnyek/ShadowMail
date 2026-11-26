@@ -629,6 +629,9 @@ export const en = {
   // Reader
   backToList: 'Back to the list',
   readerToolsLabel: 'Actions on the message',
+  // the right-click menu in a message (the items the main process offers)
+  readerContextMenu: { copyLink: 'Copy link', openLink: 'Open in browser', copyAddress: 'Copy email address', newMail: 'New message to this address', copy: 'Copy', selectAll: 'Select all' },
+  readerContextMenuLabel: 'Actions in the message',
   readerMore: 'More',
   readerDetailsShow: 'Show details',
   repliedLine: {
@@ -850,6 +853,9 @@ export const en = {
   composeLinkOk: 'Insert',
   composeSend: 'Send',
   composeSending: 'Sending…',
+  composeSendTitle: 'Send (Ctrl+Enter)',
+  composeSendArchive: 'Send and archive',
+  composeSendArchiveTitle: 'Send and archive (Ctrl+Shift+Enter)',
   composeSendLater: 'Send later…',
   composeMayHaveGone: 'The earlier send of this scheduled message did not finish properly: it may have gone out. If you send or schedule it again now, the recipient may get it twice.',
   schedule: {
@@ -955,6 +961,9 @@ export const en = {
     if (w.includes('kept_older_draft')) parts.push('Only an earlier save of it was kept in Drafts, not the sent text.')
     if (w.includes('draft_not_removed')) parts.push('The earlier draft was not removed from Drafts.')
     if (w.includes('origin_flag_failed')) parts.push('The “answered” mark was not set on the original message.')
+    if (w.includes('archive_rejected')) parts.push('The original message was not archived because a recipient was rejected.')
+    if (w.includes('archive_skipped')) parts.push('The original message was not archived because it was moved, deleted or archived meanwhile.')
+    if (w.includes('archive_failed')) parts.push('The original message could not be archived.')
     return parts.join(' ')
   },
   composeErrors: {

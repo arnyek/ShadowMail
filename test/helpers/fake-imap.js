@@ -58,6 +58,7 @@ export class FakeImapServer {
     this.clients = new Set()
     this.down = false
     this.rejectLogin = false
+    this.modseq = null // a number: CONDSTORE, every mailbox reports it as its HIGHESTMODSEQ (changedSince is not applied)
     this.loginAttempts = 0
     // server search: { path, text, before, startedAt, endedAt }; options below
     this.searchLog = []
@@ -182,6 +183,11 @@ class FakeImapClient extends EventEmitter {
 
   async connect() {}
 
+  // like imapflow's client.enabled (a Set of the extensions ENABLEd on the connection): CONDSTORE with server.modseq
+  get enabled() {
+    return new Set(this.server.modseq == null ? [] : ['CONDSTORE'])
+  }
+
   // like imapflow's client.capabilities (a Map); MOVE unless server.move === false, UIDPLUS per server.uidplus
   get capabilities() {
     const caps = new Map([['IMAP4rev1', true]])
@@ -240,7 +246,7 @@ class FakeImapClient extends EventEmitter {
     if (!mb) throw new Error(`no mailbox ${path}`)
     this.server.openLog.push({ path, readOnly, via: 'lock' })
     const uids = [...mb.messages.keys()]
-    this.mailbox = { path, uidValidity: BigInt(mb.uidValidity), exists: uids.length, highestModseq: null, readOnly }
+    this.mailbox = { path, uidValidity: BigInt(mb.uidValidity), exists: uids.length, highestModseq: this.server.modseq == null ? null : BigInt(this.server.modseq), readOnly }
     // like imapflow: a Set on SELECT (read-write) when the server sent PERMANENTFLAGS
     if (!readOnly && mb.permanentFlags) this.mailbox.permanentFlags = new Set(mb.permanentFlags)
     return { release: () => {} }
@@ -288,8 +294,11 @@ class FakeImapClient extends EventEmitter {
     const mb = this.server.mailboxes.get(this.mailbox.path)
     let uids
     if (typeof range === 'string') {
-      const min = Number(range.split(':')[0])
-      uids = [...mb.messages.keys()].filter(u => u >= min)
+      // `min:*` or `min:max` (the flag check without CONDSTORE asks in ranges)
+      const [a, b] = range.split(':')
+      const min = Number(a)
+      const max = b === undefined ? min : b === '*' ? Infinity : Number(b)
+      uids = [...mb.messages.keys()].filter(u => u >= min && u <= max)
     } else {
       uids = range
     }

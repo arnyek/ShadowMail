@@ -7,6 +7,7 @@ import path from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { resolveDataDir, electronPaths, ensureWritableDir, databasePath } from '../../core/paths.js'
 import { upgradeDatabase } from '../../core/db/upgrade.js'
+import { startCheckpointer } from '../../core/db/checkpoint.js'
 import { sqliteVersion } from '../../core/db/index.js'
 import { t, lang, setLanguage, hu } from '../renderer/i18n/index.js'
 import { readLanguage, writeLanguage } from '../../core/ui-language-file.js'
@@ -45,6 +46,9 @@ import { showMainWindow } from './window-front.js'
 import { noRecent } from './dialog-options.js'
 import { registerMailSchemes, handleMailProtocols, VIEW_SCHEME } from './protocols.js'
 import { frameReaderKey } from './reader-keys.js'
+import { ContextMenus } from './context-menu.js'
+import { registerContextMenuIpc } from './ipc/context-menu.js'
+import { randomUUID } from 'node:crypto'
 import { installNetGuard } from './net-guard.js'
 import { createRoutedIpc } from './routed-ipc.js'
 import { saveBeforeLock } from './lock.js'
@@ -133,6 +137,7 @@ let signatureSource = null
 let pastedSource = null
 let sealedStore = null // the session's SealedStore, closed (key wiped) on lock
 let searchWork = null // the session's search-text worker, refiner and re-index; stopped on lock
+let checkpointer = null // the session's WAL checkpoint worker (core/db/checkpoint.js); closed before the database
 let unlocked = null // what the unlocked session opened (db, services); null while locked
 let openMailto = null // a mailto: link of the message frame -> a filled composer window
 let saveAllForLock = null // the open composers save before a lock (ipc/compose.js)
@@ -233,6 +238,41 @@ function createComposerWindow(sessionId) {
   return win
 }
 
+/**
+ * A link of a message opened (a click, or "Megnyitás" in its right-click menu): only http(s) goes to the system
+ * browser, mailto: opens our own composer, javascript:, file: and the rest do nothing.
+ */
+function openFromMessage(url) {
+  let u = null
+  try {
+    u = new URL(url)
+  } catch {
+    // not a URL: nothing to open
+  }
+  if (u && (u.protocol === 'http:' || u.protocol === 'https:')) {
+    shell.openExternal(u.href).catch(err => log(`openExternal failed: ${errCode(err)}`))
+  } else if (u && u.protocol === 'mailto:') {
+    if (openMailto) openMailto(url)
+    else log('mailto link not opened: the composer is not ready')
+  } else {
+    log(`link not opened: ${u ? u.protocol : 'invalid url'}`)
+  }
+}
+
+// the right-click menu of a message (context-menu.js); "Mindet kijelöl" in the message frame: the focused frame's
+// selectAll (the page gives the focus back to the frame before it asks)
+const contextMenus = new ContextMenus({
+  act: {
+    writeText: text => clipboard.writeText(text),
+    open: url => openFromMessage(url),
+    selectAll: () => {
+      if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.selectAll()
+    },
+  },
+  newToken: () => randomUUID(),
+  log,
+})
+
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1100,
@@ -243,24 +283,16 @@ function createWindow() {
     webPreferences: webPreferences(),
   })
   const wc = mainWindow.webContents
-  // Links of the message frame open as popups (target=_blank): only http(s) goes to the system
-  // browser, mailto: opens our own composer, javascript:, file: and the rest do nothing.
+  // Links of the message frame open as popups (target=_blank)
   wc.setWindowOpenHandler(({ url }) => {
-    let u = null
-    try {
-      u = new URL(url)
-    } catch {
-      // not a URL: nothing to open
-    }
-    if (u && (u.protocol === 'http:' || u.protocol === 'https:')) {
-      shell.openExternal(u.href).catch(err => log(`openExternal failed: ${errCode(err)}`))
-    } else if (u && u.protocol === 'mailto:') {
-      if (openMailto) openMailto(url)
-      else log('mailto link not opened: the composer is not ready')
-    } else {
-      log(`link not opened: ${u ? u.protocol : 'invalid url'}`)
-    }
+    openFromMessage(url)
     return { action: 'deny' }
+  })
+  // the right click in a message: the menu's items and a token to the page, the link itself stays here
+  wc.on('context-menu', (event, params) => {
+    const frame = params.frame || null
+    const menu = contextMenus.open(params, { frameUrl: frame ? frame.url : null, isMainFrame: Boolean(frame) && frame === wc.mainFrame })
+    if (menu) wc.send('app:status', { kind: 'contextMenu', ...menu })
   })
   wc.on('will-navigate', event => event.preventDefault())
   // the message frame may only ever show our own mail-view: document (no meta refresh, no link inside it)
@@ -445,6 +477,7 @@ function main() {
     })
     // the view settings to disk now (prefs.js asks after a change, coalesced): a forced stop loses none of them
     registerPrefsIpc({ ipcMain, isTrustedSender, log })
+    registerContextMenuIpc({ ipcMain, menus: contextMenus, isMainWindow: event => Boolean(mainWindow) && !mainWindow.isDestroyed() && event.sender === mainWindow.webContents })
     ipcMain.handle('app:hello', event => {
       if (!isTrustedSender(event)) throw new Error('untrusted sender')
       // locked: no database is open, so no SQLite version (it comes from the database connection)
@@ -544,6 +577,16 @@ async function openSessionNow({ created = false } = {}) {
     }
     const opened = openUnlockedDatabase(vault, dataDir, { create: created })
     db = opened.db
+    // the WAL checkpoints off the main thread: the worker gets a copy of the key (structured clone at construction)
+    const ckptKey = vault.databaseKey()
+    try {
+      checkpointer = startCheckpointer({ db, file: databasePath(dataDir), key: ckptKey, log })
+    } catch (err) {
+      checkpointer = null
+      log(`db checkpoint worker: ${errCode(err)}, autocheckpoint back on`)
+    } finally {
+      ckptKey.fill(0)
+    }
     log(`database schema ${opened.migration.from} -> ${opened.migration.to}${opened.migration.backup ? ` (backup ${opened.migration.backup})` : ''}`)
   } catch (err) {
     log(`database open failed: ${errCode(err)}`)
@@ -569,7 +612,8 @@ async function openSessionNow({ created = false } = {}) {
  */
 function closeSession({ now = false } = {}) {
   if (!unlocked) return
-  const closing = { db, syncManager }
+  const closing = { db, syncManager, checkpointer }
+  checkpointer = null
   unlocked = null
   // the search-text worker stops first: what waits is dropped, nothing is written after this; a lost
   // local-source message clears its account's re-index flag (the database is still open here)
@@ -614,12 +658,16 @@ function closeSession({ now = false } = {}) {
   }
   if (now) {
     closing.syncManager.stopAll().catch(() => {})
+    if (closing.checkpointer) closing.checkpointer.stopNow()
     close()
     return
   }
+  // the checkpoint worker closes its connection FIRST (its key copy is long wiped); the main close makes the last one
   closing.syncManager
     .stopAll()
     .catch(err => log(`sync stop failed: ${errCode(err)}`))
+    .then(() => closing.checkpointer && closing.checkpointer.stop())
+    .catch(err => log(`db checkpoint worker: ${errCode(err)}`))
     .finally(close)
 }
 
@@ -642,12 +690,12 @@ function buildServices(ipcMain) {
   // re-index makes it for the rows stored before
   const searchService = new SearchTextService({ log })
   const searchSettings = openSettings(db)
-  const refiner = createSearchRefiner({ service: searchService, index, settings: searchSettings, sealed, log })
+  const refiner = createSearchRefiner({ service: searchService, index, settings: searchSettings, sealed, log, walGate: checkpointer })
   searchWork = { service: searchService, refiner, reindex: createFtsReindex({ index, store, sealed, settings: searchSettings, service: searchService, log, onComplex: item => refiner.retryLater(item) }) }
   // the labels (0.17.0): an IMAP account's on its server (keywords), POP3's in the database; the sync uploads the old local
   // ones of an IMAP account after its first full run
   const labels = new Labels(db)
-  const sm = new SyncManager({ store, index, notify, log, sealed, searchText: refiner, labels })
+  const sm = new SyncManager({ store, index, notify, log, sealed, searchText: refiner, labels, syncerOptions: { walGate: checkpointer } })
   syncManager = sm
   reader = new MessageReader({
     searchText: refiner,
@@ -716,6 +764,8 @@ function buildServices(ipcMain) {
   registerContactsIpc({ ipcMain, people, index, isTrustedSender, dialog, getWindow: () => mainWindow, log })
   const scheduledRows = new Scheduled(db)
   const composer = new Composer({
+    actions, // "Küldés és archiválás": the original archived in the list actions' queue
+    onOriginLeaving: change => notify({ kind: 'originLeaving', ...change }), // the main window greys the original out meanwhile
     scheduled: scheduledRows,
     labels, // an IMAP draft saved again keeps its labels (the old copy's keywords)
     index,

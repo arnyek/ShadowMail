@@ -11,7 +11,7 @@ Windows saját **Megnyitás/Mentés** ablaka megjegyzi a felhasználói registry
 utoljára (`HKCU\…\Explorer\ComDlg32\LastVisitedPidlMRU`, egy bejegyzés a `ShadowMail.exe` nevével): ezt a
 Windows írja, nem a program. A Windows „Legutóbbi fájlok” listájába a ShadowMail nem tesz bejegyzést.
 
-![A levéllista: oldalsáv a mappákkal, kereső a fejlécben, egysoros levélsorok előnézettel; az olvasatlan levél világosabb háttéren, vastag betűvel, a megválaszolt és a továbbított levél előtt ikon](docs/screenshots/readme-list.png)
+![A levéllista: oldalsáv a mappákkal, kereső a fejlécben, egysoros levélsorok előnézettel; az olvasatlan levél világosabb háttéren, vastag betűvel, a megválaszolt és a továbbított levél feladója után ikon](docs/screenshots/readme-list.png)
 
 (A képek tesztadattal készültek: `node scripts/ui-screenshots.mjs readme --set readme --out docs/screenshots`.)
 
@@ -58,6 +58,10 @@ Windows írja, nem a program. A Windows „Legutóbbi fájlok” listájába a S
 
 ### Billentyűk levélírásnál
 
+- A **Ctrl+Enter** elküldi a levelet (mint a **Küldés**). Válasznál és továbbításnál a **Küldés és archiválás** gomb
+  (és a **Ctrl+Shift+Enter**) a sikeres küldés után az eredeti levelet az Archívumba teszi; a gomb csak akkor látszik,
+  ha a fióknak van Archívuma, és az eredeti még nincs benne. Ha egy címzettet a szerver elutasít, az eredeti a helyén
+  marad. Nyitott párbeszédablak alatt egyik billentyű sem küld.
 - A **Tab** a Tárgyból közvetlenül a levél szövegére lép (a formázási gombokat kihagyja), a **Shift+Tab** a
   szövegből vissza a Tárgyra.
 - A formázási eszköztár a szövegből az **Alt+F10**-zel érhető el: a nyilak, a **Home** és az **End** lépked a gombok
@@ -241,6 +245,37 @@ színezhetsz, rendezhetsz és törölhetsz címkét.
 - **POP3-fióknál** a címke ezen a gépen tárolódik, és a levél minden helyi példányán látszik. Ha a levélnek nincs
   Message-ID és Date fejléce, egy újra letöltött példányán a címke nem látszik.
 - Claude (MCP) felteheti és leveheti a meglévő címkéket; létrehozni, átnevezni és törölni csak te tudsz.
+
+### Újdonságok a 0.22.0-ban, ismert korlátok
+
+- **Küldés és archiválás:** válasznál és továbbításnál a **Küldés és archiválás** gomb (és a **Ctrl+Shift+Enter**)
+  a sikeres küldés után az eredeti levelet az Archívumba teszi; a gomb csak akkor látszik, ha a fióknak van
+  Archívuma, és az eredeti még nincs benne. A **Ctrl+Enter** elküldi a levelet (mint a **Küldés**). Ha egy
+  címzettet a szerver elutasít, az eredeti a helyén marad.
+- **Jobb klikk a levélben:** a megnyitott levélben a jobb gomb (és a Shift+F10) menüt nyit: linken **Link
+  másolása** és **Megnyitás böngészőben**, e-mail címen **E-mail cím másolása** és **Új levél ide**, kijelölt
+  szövegen **Másolás**, máshol **Az összes kijelölése**. A Link másolása a link VALÓDI célcímét másolja, akkor is,
+  ha a link szövege mást mutat.
+- **Linkek a sima szöveges levélben:** a csak szöveges levél webcímei (`https://...`, `www....`) és e-mail címei
+  kattinthatók: a webcím a böngészőben, az e-mail cím a levélíróban nyílik; a látható szöveg nem változik.
+- **Szinkron akadás nélkül:** a nagy postafiókok letöltése (több tízezer levél, több fiók egyszerre) alatt az
+  ablak nem áll meg: a program kis darabokban ír, a fiókok levéltörzseit egymás után dolgozza fel, és a sok levelet
+  tartalmazó mappák jelzőit (olvasott, csillag) darabokban kérdezi le. Kilépéskor a `data` mappában nem marad
+  `-wal` és `-shm` fájl.
+- **Szinkron-napló:** a `main.log` szinkronizálásonként egy sort kap számokkal (lásd lent: Hibakereséshez); levél-
+  tartalom, mappanév, cím, szerver és felhasználó nincs benne.
+- **A válaszolt / továbbított jel a feladó után:** a jel a listasorban és a keresési találatban a feladó (az
+  Elküldött mappában a címzett) neve után, a cella jobb szélén áll, így a címkék és a tárgyak minden sorban egy
+  vonalban kezdődnek. Ha egy levélre válaszoltál ÉS továbbítottad is, egy ikon látszik, rámutatva mindkettőt mondja.
+
+A kiadás ismert korlátai:
+
+- Windowson a fentieket nem mértük, csak Linuxon; a Windows-próba a kiadás előtt történik.
+- Új levélről Windows-értesítés még nincs.
+- A fiókok levéltörzsei egymás után töltődnek le: ha egy fióknak lassú a szervere, a többi fiók új levele a
+  listában azonnal megjelenik, de a szövege (előnézet, keresés) egy adagnyi (legfeljebb 500 levél) letöltésig
+  várhat rá.
+- A sima szöveges levél linkjei a válasz-idézetben és a Forrás nézetben nem kattinthatók.
 
 ### Újdonságok a 0.21.0-ban, ismert korlátok
 
@@ -871,6 +906,9 @@ hozzájárulás szabályai: [CONTRIBUTING.md](CONTRIBUTING.md).
 - `SHADOWMAIL_SMOKE=1`: önellenőrző mód (az ablak megjelenése után ír egy rövid jelentést a
   `data\electron\logs` alá, és kilép). A csomag ellenőrzéséhez készült.
 - Naplók: `data\electron\logs\main.log`, a hálózati őr naplója: `data\electron\logs\net-guard.log`.
+- A `main.log` szinkron-sorai (`sync account=... kind=...`): szinkronizálásonként egy sor, csak számokkal (mappák,
+  flagek, új levelek, törzsek, időtartamok ms-ban, és a program leghosszabb akadása a futás alatt: `loop_max`). Levél-
+  tartalmat, mappanevet, címet, szervert és felhasználót nem tartalmaznak.
 
 ## Licenc
 

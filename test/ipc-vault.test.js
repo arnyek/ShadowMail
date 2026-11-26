@@ -108,7 +108,7 @@ test('the preload bridge exposes exactly these calls, each mapped to one IPC cha
     'compose.accounts', 'compose.addFiles', 'compose.addImage', 'compose.checked', 'compose.close', 'compose.discard', 'compose.initial', 'compose.lockDone', 'compose.onCloseRequested', 'compose.onLockRequested', 'compose.open', 'compose.ready',
     'compose.removeAttachment', 'compose.saveDraft', 'compose.schedule', 'compose.send', 'compose.suggest', 'compose.suspect',
     'contacts.addFromMessage', 'contacts.count', 'contacts.delete', 'contacts.export', 'contacts.get', 'contacts.importApply', 'contacts.importPreview', 'contacts.list', 'contacts.lookup', 'contacts.save',
-    'flushPrefs', 'folders.create', 'folders.deleteCount', 'folders.move', 'folders.remove', 'folders.rename', 'folders.reorder', 'folders.resetOrder', 'folders.setRole', 'folders.setSubscribed', 'folders.subscriptions',
+    'contextMenuChoose', 'flushPrefs', 'folders.create', 'folders.deleteCount', 'folders.move', 'folders.remove', 'folders.rename', 'folders.reorder', 'folders.resetOrder', 'folders.setRole', 'folders.setSubscribed', 'folders.subscriptions',
     'hello', 'labels.create', 'labels.list', 'labels.remove', 'labels.rename', 'labels.reorder', 'labels.setColor', 'mail.action', 'mail.allowImages', 'mail.count', 'mail.dragDrop', 'mail.dragFetch', 'mail.dragOut', 'mail.dragStart', 'mail.folders', 'mail.ids', 'mail.label', 'mail.labelState', 'mail.labelsOf', 'mail.list', 'mail.open', 'mail.openAttachment', 'mail.render', 'mail.replyInfo', 'mail.saveAllAttachments', 'mail.saveAttachment', 'mail.saveSource', 'mail.showSavedAttachments', 'mail.source',
     'mail.status', 'mail.sync', 'mail.thread', 'mcp.confirm', 'mcp.confirmSettings', 'mcp.confirmations', 'mcp.connectInfo', 'mcp.copy', 'mcp.openAck', 'mcp.recent', 'mcp.setConfirm', 'mcp.setEnabled', 'mcp.status', 'onStatus', 'scheduled.cancel', 'scheduled.list', 'scheduled.reschedule', 'scheduled.sendNow', 'search.cancel', 'search.local', 'search.pop3Old', 'search.server', 'setLanguage', 'taskbar.setEnabled', 'taskbar.status', 'vault.change', 'vault.confirmRecovery', 'vault.copyRecoveryCode', 'vault.create', 'vault.finishReset', 'vault.lock', 'vault.lockNotice', 'vault.newRecoveryCode', 'vault.recover', 'vault.reset', 'vault.saveRecoveryCode', 'vault.status', 'vault.unlock',
   ])
@@ -126,6 +126,7 @@ test('the preload bridge exposes exactly these calls, each mapped to one IPC cha
   assert.deepEqual(invoked.pop(), { channel: 'app:setLanguage', args: ['en'] })
 
   exposed.api.flushPrefs()
+  exposed.api.contextMenuChoose('t', 'copyLink')
   exposed.api.hello()
   exposed.api.vault.status()
   exposed.api.vault.create('a')
@@ -233,7 +234,7 @@ test('the preload bridge exposes exactly these calls, each mapped to one IPC cha
   exposed.api.contacts.export({ all: true, format: 'vcf' })
   exposed.api.contacts.lookup('a@example.invalid')
   assert.deepEqual(invoked.map(i => i.channel), [
-    'app:flushPrefs', 'app:hello', 'vault:status', 'vault:create', 'vault:unlock', 'vault:lock', 'vault:change', 'vault:reset', 'vault:lockNotice',
+    'app:flushPrefs', 'reader:contextMenu', 'app:hello', 'vault:status', 'vault:create', 'vault:unlock', 'vault:lock', 'vault:change', 'vault:reset', 'vault:lockNotice',
     'vault:recover', 'vault:newRecoveryCode', 'vault:confirmRecovery', 'vault:saveRecoveryCode',
     'vault:copyRecoveryCode', 'vault:finishReset',
     'accounts:list', 'accounts:save', 'accounts:delete', 'accounts:reorder', 'accounts:test', 'accounts:signatureImagePick', 'accounts:signatureImageRemove', 'accounts:signatureImage',

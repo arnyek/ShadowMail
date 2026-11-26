@@ -1314,6 +1314,27 @@ export function Mail({ collapsed = false, readerPane = 'none', searchSlot = null
       return m
     })
 
+  // "Küldés és archiválás" in a composer: its original leaves at once (greyed out, no action on it, as the list's own
+  // Archive shows it); archived, the refreshed list drops it (the mark kept a moment, as runAction does); not archived
+  // (a failed send, a refused recipient, skipped, failed), it comes back
+  useEffect(() => api.onStatus(payload => {
+    if (payload.kind !== 'originLeaving' || !Number.isInteger(payload.id)) return
+    const id = payload.id
+    const back = () => {
+      busyIds.current.delete(id)
+      setOverlay(prev => {
+        const m = new Map(prev)
+        m.delete(id)
+        return m
+      })
+    }
+    if (payload.leaving) {
+      busyIds.current.add(id)
+      setOverlay(prev => new Map(prev).set(id, { leaving: true }))
+    } else if (payload.archived) setTimeout(back, 400)
+    else back()
+  }), [])
+
   /**
    * Puts a label on ('add') or takes it off ('remove') the given messages: shown at once (a pending change), sent in
    * batches of 500 (the IPC's cap; a selection can be a whole folder). A failure takes the change back, shows the

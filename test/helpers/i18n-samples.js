@@ -146,6 +146,8 @@ export const SAMPLES = {
   composeSentWithWarnings: () => [
     [[], []],
     [['a@example.invalid', 'b@example.invalid'], ['sent_copy_failed', 'kept_as_draft', 'kept_older_draft', 'draft_not_removed', 'origin_flag_failed: x']],
+    [[], ['archive_rejected']],
+    [[], ['archive_skipped', 'archive_failed:server_refused']],
   ],
   composeError: () =>
     ['send', 'save', 'attach', 'discard'].flatMap(w => [...codes(en.composeErrors), ...Object.keys(en.actionErrors), 'timeout'].map(c => [c, ['x@example.invalid'], w])),

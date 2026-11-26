@@ -1,6 +1,6 @@
-// A replied or forwarded message shows its mark at the start of the row's text cell, in the list and in the search
-// hits: a reply icon for \Answered, a forward icon for $Forwarded (any case, as a server may write them), both in that
-// order, nothing without them; the words in the title and for a screen reader, in both languages.
+// A replied or forwarded message shows ONE mark at the end of the row's sender cell, in the list and in the search hits:
+// a reply icon for \Answered, a forward icon for $Forwarded alone (any case, as a server may write them), with both the
+// reply, nothing without them; the words in the title and once for a screen reader, in both languages.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { setupDom, mount } from './helpers/react-dom-env.js'
@@ -24,55 +24,56 @@ test('replyMarks: \\Answered and $Forwarded, in any case, as whole flags only', 
   assert.deepEqual(replyMarks(null), { answered: false, forwarded: false })
 })
 
-test('the row: the icons in order at the start of the text cell, their words in the title and for a screen reader', async () => {
+test('the row: ONE mark, at the end of the sender cell (none in the text cell), its words in the title and for a screen reader', async () => {
   const marksOf = async (flags, extra = {}) => {
     const { container } = await mount(h('div', null, h(RowText, { m: row(flags), ...extra })))
-    const text = container.querySelector('.col-text')
-    const marks = text.querySelector('.reply-marks')
+    const from = container.querySelector('.col-from')
+    const marks = from.querySelector('.reply-marks')
     return {
-      first: text.firstElementChild === marks,
       icons: marks ? [...marks.querySelectorAll('svg')].map(s => s.getAttribute('data-icon')) : [],
       title: marks ? marks.getAttribute('title') : null,
       hidden: marks ? marks.querySelector('.sr-only').textContent : null,
-      inMain: Boolean(container.querySelector('.col-main .reply-marks')),
-      textCopy: marks ? marks.classList.contains('reply-marks-text') : null,
-      // the sender cell's copy (shown by app.css in a narrow row instead of this one): the same marks, first there
-      fromCopy: (() => {
-        const from = container.querySelector('.col-from')
-        const c = from.querySelector('.reply-marks-from')
-        return c ? { first: from.firstElementChild === c, icons: [...c.querySelectorAll('svg')].map(s => s.getAttribute('data-icon')), title: c.getAttribute('title'), hidden: c.querySelector('.sr-only').textContent } : null
-      })(),
+      last: marks ? from.lastElementChild === marks : null,
+      cellClass: from.classList.contains('has-reply-marks'),
+      inText: container.querySelectorAll('.col-text .reply-marks').length,
       copies: container.querySelectorAll('.reply-marks').length,
+      hiddenWords: container.querySelectorAll('.reply-marks .sr-only').length,
     }
   }
   const replied = await marksOf('\\Seen \\Answered')
   assert.deepEqual(replied.icons, ['reply'])
-  assert.equal(replied.first, true, 'the first thing in the text cell')
-  assert.equal(replied.inMain, false, 'outside .col-main (the label group measures the room it has)')
   assert.equal(replied.title, hu.replyMarks.answered)
   assert.equal(replied.hidden, hu.replyMarks.answered)
-  assert.equal(replied.textCopy, true)
-  assert.equal(replied.copies, 2, 'two copies: the text cell and the sender cell (app.css shows one)')
-  assert.deepEqual(replied.fromCopy, { first: true, icons: ['reply'], title: hu.replyMarks.answered, hidden: hu.replyMarks.answered })
+  assert.equal(replied.last, true, 'after the name (app.css places it at the cell\'s right end)')
+  assert.equal(replied.cellClass, true, 'the cell keeps the mark\'s room (.has-reply-marks)')
+  assert.equal(replied.inText, 0, 'nothing in the text cell: the labels and the subject start at the same x')
+  assert.equal(replied.copies, 1, 'one copy: a screen reader reads the words once')
+  assert.equal(replied.hiddenWords, 1)
   const forwarded = await marksOf('$Forwarded')
-  assert.deepEqual(forwarded.icons, ['forward'])
+  assert.deepEqual(forwarded.icons, ['forward'], 'a forward alone keeps its icon')
   assert.equal(forwarded.title, hu.replyMarks.forwarded)
   const both = await marksOf('$Forwarded \\Answered')
-  assert.deepEqual(both.icons, ['reply', 'forward'], 'the reply first, then the forward')
+  assert.deepEqual(both.icons, ['reply'], 'both flags: one icon, the reply')
   assert.equal(both.title, hu.replyMarks.both)
-  assert.deepEqual(both.fromCopy, { first: true, icons: ['reply'], title: hu.replyMarks.both, hidden: hu.replyMarks.both },
-    'before the sender one icon (the name keeps the room), the words still both')
-  assert.deepEqual(forwarded.fromCopy && forwarded.fromCopy.icons, ['forward'], 'a forward alone keeps its icon there')
+  assert.equal(both.hidden, hu.replyMarks.both, 'the words name both')
+  assert.equal(both.copies, 1)
   const none = await marksOf('\\Seen')
   assert.deepEqual(none.icons, [])
   assert.equal(none.title, null, 'no mark without the flags')
   assert.equal(none.copies, 0)
+  assert.equal(none.cellClass, false, 'a row without a mark keeps its padding')
   // the list passes its own flags (a change not yet in m.flags): they win
   const listFlags = await marksOf('\\Seen', { flags: '\\Seen \\Answered' })
   assert.deepEqual(listFlags.icons, ['reply'])
-  // the Sent / Drafts recipient cell has the sender cell's copy too
-  const recipient = await marksOf('\\Answered', { recipient: true })
-  assert.deepEqual(recipient.fromCopy && recipient.fromCopy.icons, ['reply'])
+  // the Sent / Drafts recipient cell: the mark after the name and the "+N" (the count is never cut)
+  const sent = { ...row('\\Answered'), to_addrs: 'Első Ember <a@example.invalid>, b@example.invalid, c@example.invalid' }
+  const { container } = await mount(h('div', null, h(RowText, { m: sent, recipient: true })))
+  const cell = container.querySelector('.col-recipient')
+  assert.deepEqual([...cell.children].map(c => c.className), ['recipient-name', 'recipient-more', 'reply-marks'])
+  assert.equal(cell.classList.contains('has-reply-marks'), true)
+  assert.equal(container.querySelectorAll('.reply-marks').length, 1)
+  const empty = await mount(h('div', null, h(RowText, { m: { ...row('$Forwarded'), to_addrs: '', cc_addrs: '' }, recipient: true })))
+  assert.equal(empty.container.querySelector('.col-recipient .reply-marks svg').getAttribute('data-icon'), 'forward', 'no recipient: the mark still there')
 })
 
 test('the words in both languages', () => {

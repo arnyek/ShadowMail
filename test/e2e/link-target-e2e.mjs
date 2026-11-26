@@ -11,7 +11,7 @@
 // domain gets the red warning with the real host and the text's host, a subdomain of the same domain and a text that is
 // not an address do not; a punycode host shows in both forms; mailto shows the address; "user@host" URLs show the real
 // host; a long URL keeps its host visible and cuts the middle; Tab onto a link shows it; the bar never takes the
-// pointer; the frame's sandbox is unchanged; a plain-text message has no link and no bar. Two languages: E2E_LANG=en|hu.
+// pointer; the frame's sandbox is unchanged; a plain-text message's addresses are links with the bar too. Two languages: E2E_LANG=en|hu.
 // Playwright: PW=<path of the playwright package> (default: the repo's playwright-core devDependency).
 import fs from 'node:fs'
 import os from 'node:os'
@@ -116,6 +116,7 @@ try {
       if (!b) return null
       const q = s => b.querySelector(s)
       const box = el => {
+        if (!el) return null // a plain-text message has no frame
         const r = el.getBoundingClientRect()
         return { left: r.left, right: r.right, top: r.top, bottom: r.bottom }
       }
@@ -323,14 +324,20 @@ try {
   check('the focus leaves the frame: the bar goes', await until(async () => (await bar.count()) === 0))
   await page.getByRole('button', { name: t.backToList, exact: true }).click()
 
-  // 14. a plain-text message: no link, no bar (the owner's decision: no linkify)
+  // 14. a plain-text message: its addresses are links (the owner's later decision), the bar shows the real target
   await page.locator('.msg-row', { hasText: 'Sima szoveg' }).click()
   await page.locator('pre.mail-text').waitFor()
-  check('plain text: no link in the body', (await page.locator('pre.mail-text a').count()) === 0)
+  const plainHrefs = await page.locator('pre.mail-text a').evaluateAll(as => as.map(a => a.getAttribute('href')))
+  check('plain text: the web and the e-mail address are links', JSON.stringify(plainHrefs) === JSON.stringify(['https://otpbank-login.example.com/belepes', 'mailto:info@example.com']), JSON.stringify(plainHrefs))
+  check('plain text: the shown text unchanged', (await page.locator('pre.mail-text').innerText()).trim() === 'Nezd meg: https://otpbank-login.example.com/belepes es info@example.com')
   const text = await page.locator('pre.mail-text').boundingBox()
-  await page.mouse.move(text.x + 120, text.y + 10)
-  await sleep(400)
-  check('plain text: no bar', (await bar.count()) === 0)
+  await page.mouse.move(text.x + text.width - 6, text.y + text.height - 4)
+  await sleep(300)
+  check('plain text: beside the links no bar', (await bar.count()) === 0)
+  await page.locator('pre.mail-text a').first().hover()
+  check('plain text: over the web link the bar with its real target', await until(async () => (await bar.count()) === 1 && (await barState()).domain === 'example.com'), JSON.stringify(await barState()))
+  await page.mouse.move(text.x + text.width - 6, text.y + text.height - 4)
+  check('plain text: off the link the bar goes', await until(async () => (await bar.count()) === 0))
   check('no console error', problems.length === 0, problems.join(' | '))
 } catch (err) {
   check('run', false, err.stack)

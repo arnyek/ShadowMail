@@ -18,16 +18,29 @@ import { analyzeStructure, extractReferences, fmtAddr, fmtAddrs } from '../mime/
 import { bodyFromSource } from '../mime/text.js'
 import { hasBrokenHeader, headerColumns } from '../mime/message.js'
 import { BODY_STATE } from '../db/mail-index.js'
+import { BODY_TX, FLAG_TX, INSERT_TX, inSlices, tick } from '../db/write-slices.js'
 import { applyBodyLimit, bodyCutoff, withinBodyLimit } from '../db/body-limit.js'
 import { classifyError } from '../accounts/probe.js'
 
 export { bodyCutoff }
 const META_CHUNK = 200
+// without CONDSTORE the flag check asks every known message: in UID ranges of this many known UIDs, one after the other
+// (100 000 known messages, the sync's own run over real imapflow: one `min:*` FETCH gave a 1 s main-thread block,
+// ranges of 5 000 still 165 ms on the first one, 2 000 at most 50 ms, measured)
+export const FLAG_CHUNK = 2000
 const BODY_CHUNK = 25
 export const BODY_FETCH_BYTES = 256 * 1024
 // The raw header fields a broken envelope is decoded from anew (raw 8-bit, not UTF-8: imapflow reads them as UTF-8 and
 // gives U+FFFD); content-type gives the charset (raw-headers.js).
 export const HEADER_REPAIR_FIELDS = Object.freeze(['subject', 'from', 'to', 'cc', 'content-type'])
+
+/** the known UIDs (any order) as `first:last` ranges of at most `size` UIDs each, ascending */
+export function flagRanges(uids, size = FLAG_CHUNK) {
+  const sorted = Uint32Array.from(uids).sort()
+  const out = []
+  for (let i = 0; i < sorted.length; i += size) out.push(`${sorted[i]}:${sorted[Math.min(i + size, sorted.length) - 1]}`)
+  return out
+}
 
 const chunks = (arr, n) => {
   const out = []
@@ -104,7 +117,21 @@ export class Syncer {
     sealed = null,
     searchText = null,
     uploadLabels = null,
+    walGate = null,
+    bodyGate = null,
+    loopWatch = null,
+    onRunEnd = null,
   }) {
+    // the run's diagnostic summary (app/main/sync-manager.js logs it): onRunEnd(summary) after every run, the main
+    // thread's gaps from loopWatch.begin() (app/main/loop-watch.js); runStats: the counters of the run in work
+    this.loopWatch = loopWatch
+    this.onRunEnd = onRunEnd
+    this.runStats = null
+    // BodyGate (core/imap/body-gate.js): one account's body phase at a time, held per batch; null: no gate
+    this.bodyGate = bodyGate
+    this.gateReq = null // the gate request of the body batch in work (a stop cancels it)
+    // { wait() }: between the write slices, a checkpoint of a grown WAL is awaited (core/db/checkpoint.js); null: none
+    this.walGate = walGate
     this.uploadLabels = uploadLabels
     this.labelUploadDone = false
     this.sealed = sealed // SealedStore of data/store: a message gone from the server takes its file
@@ -151,6 +178,7 @@ export class Syncer {
       lastRemoved: 0,
       lastCleared: 0,
       lastRequeued: 0,
+      gateWait: false, // the body phase waits for the shared gate (another account's batch is in work)
     }
   }
 
@@ -186,6 +214,8 @@ export class Syncer {
   stop() {
     this.stopped = true
     this.started = false
+    // a body batch waiting for (or holding) the shared gate lets it go: no other account waits for a stopped one
+    if (this.gateReq) this.gateReq.cancel()
     this.queued = null // a request waiting behind the running one must not log in after a stop
     clearTimeout(this.timer)
     this.timer = null
@@ -259,6 +289,88 @@ export class Syncer {
     if (this.stopped) throw new SyncStopped()
   }
 
+  /** one body batch under the shared gate: waits for its turn (first come, first served); -> its release */
+  async _bodyTurn() {
+    if (!this.bodyGate) return () => {}
+    const req = this.bodyGate.acquire()
+    this.gateReq = req
+    this.state.gateWait = true
+    const release = await req.ready
+    this.state.gateWait = false
+    if (!release || this.stopped) {
+      if (release) release()
+      if (this.gateReq === req) this.gateReq = null
+      throw new SyncStopped()
+    }
+    return () => {
+      if (this.gateReq === req) this.gateReq = null
+      release()
+    }
+  }
+
+  /** before a write slice: the checkpoint some writer waits for, or one started now over the limit (or null) */
+  _walHold() {
+    return this.walGate && this.walGate.gate ? this.walGate.gate() : null
+  }
+
+  /** after a write slice: a WAL grown past the gate's limit is checkpointed off the main thread first (awaited) */
+  async _walWait() {
+    if (!this.walGate) return
+    await this.walGate.wait()
+    this._checkStopped()
+  }
+
+  /**
+   * The body phase's rows BODY_TX per transaction; each slice goes to the refiner right after its write, in the same
+   * turn (refineSearchText registers it before anything waits), so a stop between two slices leaves no written row
+   * unseen: a lock clears its local account's re-index flag, as with one write per batch.
+   */
+  async _setBodies(results, accountId, local) {
+    const refines = []
+    try {
+      await inSlices(results, BODY_TX, slice => {
+        const n = this.index.setBodies(slice)
+        refines.push(this.refineSearchText(slice, accountId, local))
+        return n
+      }, () => this._checkStopped(), () => this._walHold())
+    } catch (err) {
+      await Promise.allSettled(refines)
+      throw err
+    }
+    await Promise.all(refines)
+  }
+
+  /** a run starts: its counters (kind: full | targeted | pop3) and its main-thread gap window */
+  _runBegin(kind) {
+    this.runStats = { kind, condstore: null, folders: 0, flags: 0, bodies: 0, listMs: 0, metaMs: 0, bodiesMs: 0 }
+    return { t0: performance.now(), loop: this.loopWatch ? this.loopWatch.begin() : null }
+  }
+
+  /** fn timed into the run's counter `key` (ms) */
+  async _timed(key, fn) {
+    const t = performance.now()
+    try {
+      return await fn()
+    } finally {
+      if (this.runStats) this.runStats[key] += performance.now() - t
+    }
+  }
+
+  /** a run ended (err: its error, or null): one summary to onRunEnd, numbers and codes only */
+  _runEnd(begun, err) {
+    const loop = begun.loop ? begun.loop.end() : { max: 0, over: 0 }
+    const s = this.runStats
+    this.runStats = null
+    if (!this.onRunEnd || !s) return
+    const result = err ? (err.code === 'SYNC_STOPPED' ? 'stopped' : this.state.errorCode || 'error') : this.state.errorCode || 'ok'
+    const ms = n => Math.round(n)
+    try {
+      this.onRunEnd({ accountId: this.account.id, kind: s.kind, condstore: s.condstore, folders: s.folders, flags: s.flags, added: this.state.lastAdded, bodies: s.bodies, ms: ms(performance.now() - begun.t0), listMs: ms(s.listMs), metaMs: ms(s.metaMs), bodiesMs: ms(s.bodiesMs), loopMax: loop.max, loopOver100: loop.over, result })
+    } catch {
+      // a broken log hook must not fail the sync
+    }
+  }
+
   async _run({ full = false, folders: only } = {}) {
     this._checkStopped() // before connecting: a stopped syncer never logs in
     const t0 = Date.now()
@@ -271,6 +383,8 @@ export class Syncer {
     const accountId = this.account.id
     Object.assign(st, { running: true, phase: 'connecting', lastAdded: 0, lastRemoved: 0, lastCleared: 0, lastRequeued: 0 })
     this._emitState()
+    const begun = this._runBegin(only ? 'targeted' : 'full')
+    let runErr = null
     const connect = async () => {
       const c = await this.connect()
       c.on('error', err => {
@@ -286,6 +400,8 @@ export class Syncer {
       st.lastCleared = limit.cleared
       st.lastRequeued = limit.requeued
       const client = (ctx.client = await connect())
+      // CONDSTORE as imapflow enabled it on this connection (without it the flag check asks every known message)
+      this.runStats.condstore = Boolean(client.enabled && typeof client.enabled.has === 'function' && client.enabled.has('CONDSTORE'))
       this._checkStopped()
       let folders
       let writesAtList = null
@@ -299,7 +415,7 @@ export class Syncer {
         // read before the LIST: a folder path the app writes from here on is not in it (see the clean-up below)
         writesAtList = this.index.folderWriteCount(accountId)
         // only the server's own SPECIAL-USE flag is stored (special_use), never imapflow's guess from the name
-        const listed = (await listSyncFolders(client, this.folderOptions)).map(f => ({ ...f, specialUse: serverSpecialUse(f) }))
+        const listed = (await this._timed('listMs', () => listSyncFolders(client, this.folderOptions))).map(f => ({ ...f, specialUse: serverSpecialUse(f) }))
         // only the subscribed folders (and the kept and role ones) show and sync; the rows from before the upgrade get
         // their kept flag now, so nothing that showed disappears (migration 12). Only when the LIST tells the subscriptions:
         // with LSUB refused imapflow says "subscribed" of every folder, and deciding then would drop the unsubscribed
@@ -309,17 +425,20 @@ export class Syncer {
         folders = shownFolders(listed, { kept: this.index.keptFolders(accountId), roles })
       }
       const folderErrors = []
-      for (const f of folders) {
-        this._checkStopped()
-        this._setState({ phase: 'metadata', folder: f.path, progress: null })
-        try {
-          if (await this.syncFolder(client, f, cutoff, full)) this._changed([f.path])
-        } catch (err) {
-          if (isConnectionLoss(err)) throw err
-          // A folder the server refuses (NO/BAD) is skipped untouched; the others still sync.
-          folderErrors.push(`${f.path}: ${err.message}`)
+      await this._timed('metaMs', async () => {
+        for (const f of folders) {
+          this._checkStopped()
+          this._setState({ phase: 'metadata', folder: f.path, progress: null })
+          try {
+            if (await this.syncFolder(client, f, cutoff, full)) this._changed([f.path])
+            this.runStats.folders++
+          } catch (err) {
+            if (isConnectionLoss(err)) throw err
+            // A folder the server refuses (NO/BAD) is skipped untouched; the others still sync.
+            folderErrors.push(`${f.path}: ${err.message}`)
+          }
         }
-      }
+      })
       // a folder the app created, renamed or moved since the LIST is not in it: the clean-up would drop its rows (they
       // come back at the next run with new message ids, the local data on them lost), and the roles would be decided
       // over the old paths. Both wait for the next full run (a rename or a move asks for one; otherwise the interval)
@@ -332,7 +451,7 @@ export class Syncer {
       }
       this._checkStopped()
       this._setState({ phase: 'bodies', folder: null, progress: null })
-      await this.syncBodies(ctx)
+      await this._timed('bodiesMs', () => this.syncBodies(ctx))
       if (!only && this.uploadLabels && !this.labelUploadDone) {
         this._checkStopped()
         const up = await this.uploadLabels(ctx.client)
@@ -345,6 +464,7 @@ export class Syncer {
         errorCode: folderErrors.length ? 'folder' : null,
       })
     } catch (err) {
+      runErr = err
       if (err.code !== 'SYNC_STOPPED') {
         st.lastError = err.message
         st.errorCode = err.code === 'NO_PASSWORD' ? 'no_password' : classifyError(err)
@@ -353,6 +473,7 @@ export class Syncer {
     } finally {
       Object.assign(st, { running: false, phase: 'idle', folder: null, progress: null, lastDurationMs: Date.now() - t0 })
       this._emitState()
+      this._runEnd(begun, runErr)
       if (ctx.client) await ctx.client.logout().catch(() => ctx.client.close())
     }
   }
@@ -458,7 +579,9 @@ export class Syncer {
           rows.push(this.toRow(f.path, msg, cutoff))
         }
         await this.repairNewHeaders(client, rows)
-        const added = this.index.insertMany(rows)
+        this._checkStopped()
+        const added = await inSlices(rows, INSERT_TX, slice => this.index.insertMany(slice), () => this._checkStopped(), () => this._walHold())
+        await this._walWait()
         this.state.lastAdded += added
         if (added) {
           changed = true
@@ -492,13 +615,18 @@ export class Syncer {
         if (useModseq) opts.changedSince = BigInt(saved.highest_modseq)
         const flagsByUid = new Map(known.map(r => [r.uid, r.flags]))
         const updates = []
-        for await (const msg of client.fetch(`${minUid}:*`, { uid: true, flags: true }, opts)) {
-          if (!flagsByUid.has(msg.uid)) continue
-          const flags = [...(msg.flags || [])].join(' ')
-          if (flags !== flagsByUid.get(msg.uid)) updates.push({ uid: msg.uid, flags })
+        // CONDSTORE: one FETCH of the changes since the saved modseq; without it: the known UIDs in ranges
+        const ranges = useModseq ? [`${minUid}:*`] : flagRanges(known.map(r => r.uid))
+        for (const range of ranges) {
+          for await (const msg of client.fetch(range, { uid: true, flags: true }, opts)) {
+            if (this.runStats) this.runStats.flags++
+            if (!flagsByUid.has(msg.uid)) continue
+            const flags = [...(msg.flags || [])].join(' ')
+            if (flags !== flagsByUid.get(msg.uid)) updates.push({ uid: msg.uid, flags })
+          }
         }
         if (updates.length) {
-          this.index.setFlagsMany(accountId, f.path, updates)
+          await inSlices(updates, FLAG_TX, slice => this.index.setFlagsMany(accountId, f.path, slice), () => this._checkStopped(), () => this._walHold())
           changed = true
         }
       }
@@ -619,50 +747,64 @@ export class Syncer {
     const total = this.index.pendingCount(accountId)
     let done = 0
     while (true) {
-      const batch = this.index.pendingBodies(accountId, 500)
-      if (!batch.length) break
-      const byFolder = new Map()
-      for (const r of batch) {
-        if (!byFolder.has(r.folder)) byFolder.set(r.folder, [])
-        byFolder.get(r.folder).push(r)
-      }
-      for (const [folder, rows] of byFolder) {
-        for (const part of chunks(rows, BODY_CHUNK)) {
-          let results
-          try {
-            results = await this.fetchBodies(ctx, folder, part)
-          } catch (err) {
-            const lost = isConnectionLoss(err)
-            if (!lost && !isServerRefusal(err)) throw err
-            // Some servers drop the connection on a broken message (Dovecot), others answer NO for it
-            // (Gmail: "Some messages could not be FETCHed"). Retry one by one, mark the
-            // culprit as failed and go on, so one message cannot stall the account's text index.
-            results = []
-            let bad = 0
-            for (const r of part) {
-              try {
-                results.push(...(await this.fetchBodies(ctx, folder, [r])))
-              } catch (err2) {
-                if (isConnectionLoss(err2)) {
-                  // many "broken" messages means the server is the problem: do not mark them
-                  if (++bad > 3) throw err2
-                } else if (isServerRefusal(err2)) {
-                  bad++
-                } else throw err2
-                results.push({ id: r.id, text: '', preview: null, state: BODY_STATE.FAILED })
-              }
-            }
-            // the server refused EVERY message of the chunk: its problem (busy, folder gone), not theirs
-            if (!lost && part.length > 1 && bad === part.length) throw err
-          }
-          this._checkStopped()
-          this.index.setBodies(results)
-          await this.refineSearchText(results, accountId, false)
-          done += part.length
-          this._setState({ progress: { done, total } })
-        }
+      // the batch under the shared gate: another account's body phase waits for it (and this one for theirs)
+      const release = await this._bodyTurn()
+      try {
+        if (!(await this.bodyBatch(ctx, accountId, total, done, n => (done = n)))) break
+      } finally {
+        release()
       }
     }
+  }
+
+  /** one batch of up to 500 pending rows; -> false when there was none */
+  async bodyBatch(ctx, accountId, total, done, setDone) {
+    const batch = this.index.pendingBodies(accountId, 500)
+    if (!batch.length) return false
+    const byFolder = new Map()
+    for (const r of batch) {
+      if (!byFolder.has(r.folder)) byFolder.set(r.folder, [])
+      byFolder.get(r.folder).push(r)
+    }
+    for (const [folder, rows] of byFolder) {
+      for (const part of chunks(rows, BODY_CHUNK)) {
+        let results
+        try {
+          results = await this.fetchBodies(ctx, folder, part)
+        } catch (err) {
+          const lost = isConnectionLoss(err)
+          if (!lost && !isServerRefusal(err)) throw err
+          // Some servers drop the connection on a broken message (Dovecot), others answer NO for it
+          // (Gmail: "Some messages could not be FETCHed"). Retry one by one, mark the
+          // culprit as failed and go on, so one message cannot stall the account's text index.
+          results = []
+          let bad = 0
+          for (const r of part) {
+            try {
+              results.push(...(await this.fetchBodies(ctx, folder, [r])))
+            } catch (err2) {
+              if (isConnectionLoss(err2)) {
+                // many "broken" messages means the server is the problem: do not mark them
+                if (++bad > 3) throw err2
+              } else if (isServerRefusal(err2)) {
+                bad++
+              } else throw err2
+              results.push({ id: r.id, text: '', preview: null, state: BODY_STATE.FAILED })
+            }
+          }
+          // the server refused EVERY message of the chunk: its problem (busy, folder gone), not theirs
+          if (!lost && part.length > 1 && bad === part.length) throw err
+        }
+        this._checkStopped()
+        await this._setBodies(results, accountId, false)
+        await this._walWait()
+        done += part.length
+        if (this.runStats) this.runStats.bodies += part.length
+        setDone(done)
+        this._setState({ progress: { done, total } })
+      }
+    }
+    return true
   }
 
   /** the indexed rows' sources to the worker thread; waits while its queue is full (back-pressure). */
@@ -696,8 +838,11 @@ export class Syncer {
     // Parse after the fetch: no other IMAP command may run inside the fetch loop.
     const idByUid = new Map(part.map(r => [r.uid, r.id]))
     const results = []
+    let parsed = 0
     for (const msg of raw) {
       if (!idByUid.has(msg.uid)) continue
+      // one message's parse at a time on the main thread, a turn of the event loop between two
+      if (parsed++) await tick()
       const body = await bodyFromSource(msg.source, { oldText: Boolean(this.searchText) })
       results.push({ id: idByUid.get(msg.uid), ...body, source: this.searchText && body.state === BODY_STATE.INDEXED ? msg.source : null })
       idByUid.delete(msg.uid)

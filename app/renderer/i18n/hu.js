@@ -624,6 +624,9 @@ export const hu = {
   // Reader
   backToList: 'Vissza a listához',
   readerToolsLabel: 'Műveletek a levélen',
+  // the right-click menu in a message (the items the main process offers)
+  readerContextMenu: { copyLink: 'Link másolása', openLink: 'Megnyitás böngészőben', copyAddress: 'E-mail cím másolása', newMail: 'Új levél ide', copy: 'Másolás', selectAll: 'Az összes kijelölése' },
+  readerContextMenuLabel: 'Műveletek a levélben',
   readerMore: 'További',
   readerDetailsShow: 'Részletek megjelenítése',
   repliedLine: {
@@ -848,6 +851,9 @@ export const hu = {
   composeLinkOk: 'Beszúrás',
   composeSend: 'Küldés',
   composeSending: 'Küldés…',
+  composeSendTitle: 'Küldés (Ctrl+Enter)',
+  composeSendArchive: 'Küldés és archiválás',
+  composeSendArchiveTitle: 'Küldés és archiválás (Ctrl+Shift+Enter)',
   composeSendLater: 'Küldés később…',
   composeMayHaveGone: 'Ennek az időzített levélnek a korábbi küldése nem fejeződött be rendesen: kimehetett. Ha most elküldöd vagy újra időzíted, a címzett kétszer is megkaphatja.',
   schedule: {
@@ -952,6 +958,9 @@ export const hu = {
     if (w.includes('kept_older_draft')) parts.push('A Piszkozatok között csak egy korábbi mentése maradt meg, nem az elküldött szöveg.')
     if (w.includes('draft_not_removed')) parts.push('A korábbi piszkozat nem törlődött a Piszkozatok közül.')
     if (w.includes('origin_flag_failed')) parts.push('Az eredeti levélen a „megválaszolva” jelzés nem állítódott be.')
+    if (w.includes('archive_rejected')) parts.push('Az eredeti levelet nem archiváltam, mert egy címzett elutasította.')
+    if (w.includes('archive_skipped')) parts.push('Az eredeti levelet nem archiváltam, mert közben máshová került, törlődött vagy már archiválva van.')
+    if (w.includes('archive_failed')) parts.push('Az eredeti levelet nem sikerült archiválni.')
     return parts.join(' ')
   },
   composeErrors: {

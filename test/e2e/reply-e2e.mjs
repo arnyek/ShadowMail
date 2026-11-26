@@ -116,10 +116,10 @@ try {
   await page.getByRole('button', { name: t.vaultUnlockButton, exact: true }).click()
   await page.locator('.msg-row', { hasText: 'Ajánlat kérés' }).click({ timeout: 20_000 })
   await page.locator('.reader .mail-text').waitFor()
-  // the list row's marks (replied / forwarded), the text cell's copy (both icons; which copy shows by the row's width is
-  // reply-marks-e2e's), and a mark on the page that a reload would lose
+  // the list row's mark (replied / forwarded: one icon at the sender cell's end, its place is reply-marks-e2e's), and a
+  // mark on the page that a reload would lose
   const rowMarks = () => page.locator('.msg-row', { hasText: 'Ajánlat kérés' }).evaluate(r => {
-    const m = r.querySelector('.reply-marks-text')
+    const m = r.querySelector('.reply-marks')
     return m ? { icons: [...m.querySelectorAll('svg')].map(s => s.getAttribute('data-icon')), title: m.getAttribute('title') } : null
   })
   check('before the reply: no replied / forwarded mark on the row', (await rowMarks()) === null)
@@ -144,7 +144,7 @@ try {
   await page.waitForTimeout(300)
   const flags = await page.evaluate(async id => (await window.shadowMail.mail.list({ accountId: id, folder: 'INBOX' })).rows[0].flags, accountId)
   check('reply: the original is \\Answered (POP3: here)', flags.split(' ').includes('\\Answered'), flags)
-  await page.waitForFunction(() => document.querySelector('.msg-row .reply-marks-text svg[data-icon="reply"]'), null, { timeout: 5000 }).catch(() => {})
+  await page.waitForFunction(() => document.querySelector('.msg-row .reply-marks svg[data-icon="reply"]'), null, { timeout: 5000 }).catch(() => {})
   const afterReply = await rowMarks()
   check('reply: the list row shows the reply mark at once, no reload', JSON.stringify(afterReply?.icons) === '["reply"]' && afterReply.title === t.replyMarks.answered && (await page.evaluate(() => window.__noReload === true)), JSON.stringify(afterReply))
 
@@ -168,9 +168,9 @@ try {
   await page.waitForTimeout(300)
   const flags2 = await page.evaluate(async id => (await window.shadowMail.mail.list({ accountId: id, folder: 'INBOX' })).rows[0].flags, accountId)
   check('forward: the original is $Forwarded too', flags2.split(' ').includes('$Forwarded') && flags2.split(' ').includes('\\Answered'), flags2)
-  await page.waitForFunction(() => document.querySelector('.msg-row .reply-marks-text svg[data-icon="forward"]'), null, { timeout: 5000 }).catch(() => {})
+  await page.waitForFunction(both => document.querySelector('.msg-row .reply-marks')?.getAttribute('title') === both, t.replyMarks.both, { timeout: 5000 }).catch(() => {})
   const afterForward = await rowMarks()
-  check('forward: the list row shows both marks, the reply first, no reload', JSON.stringify(afterForward?.icons) === '["reply","forward"]' && afterForward.title === t.replyMarks.both && (await page.evaluate(() => window.__noReload === true)), JSON.stringify(afterForward))
+  check('forward: the list row\'s one mark (the reply icon) names both, no reload', JSON.stringify(afterForward?.icons) === '["reply"]' && afterForward.title === t.replyMarks.both && (await page.evaluate(() => window.__noReload === true)), JSON.stringify(afterForward))
   const sent = await page.evaluate(async id => (await window.shadowMail.mail.list({ accountId: id, folder: 'Sent' })).rows.map(r => r.subject), accountId)
   check('three copies in Sent', sent.length === 3, JSON.stringify(sent))
 } catch (err) {

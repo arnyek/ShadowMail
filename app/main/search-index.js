@@ -17,18 +17,78 @@
 // tried ONCE more, later, when the worker has nothing else to do; one busy moment should not leave it unsearchable for
 // good. Only a message with a stored source (storePath: a path, no bytes held), at most MAX_RETRIES waiting, each id once
 // per session; it lives in memory only (a lock or a quit drops it, the account's flag stays as it is).
+// Write-back: the worker's results wait in a queue; a drainer writes WRITE_BATCH of them in ONE transaction (at once,
+// on setImmediate, when that many wait; otherwise WRITE_WAIT_MS after the first one, with what has come), then yields,
+// so the main thread never holds a long run of FTS writes (one autocommit per message cost twice the time, and every
+// commit is a new FTS segment to merge). The results come one by one from the worker: without the wait every batch
+// was one message (measured: 31 944 transactions for 32 000). A message counts as written (leaves `open`) only after
+// its transaction ran: stop() drops the queue and clears the flag of every local account that had one waiting.
+export const WRITE_BATCH = 10
+export const WRITE_WAIT_MS = 100
 export const FLAG = id => `fts_visible_v1:${id}`
 export const FLAG_DONE = 'done'
 export const RETRY_DELAY_MS = 5 * 60_000
 export const MAX_RETRIES = 1000
 
-export function createSearchRefiner({ service, index, settings, sealed = null, log = () => {}, retryDelayMs = RETRY_DELAY_MS, maxRetries = MAX_RETRIES }) {
+export function createSearchRefiner({ service, index, settings, sealed = null, log = () => {}, retryDelayMs = RETRY_DELAY_MS, maxRetries = MAX_RETRIES, walGate = null }) {
   let alive = true
   const open = new Map() // token -> meta of a registered message whose text is not written yet
   let token = 0
   const later = new Map() // id -> item: a complex message waiting for its one retry
   const tried = new Set() // ids queued for a retry this session (never twice)
   let timer = null
+  const queue = [] // { t, item, r, retry }: results waiting for their write
+  let drainer = null // setImmediate: a full batch waits
+  let waiter = null // setTimeout: a partial batch waits for more
+  const inTx = typeof index.inTransaction === 'function' ? fn => index.inTransaction(fn) : fn => fn()
+  const plan = () => {
+    if (!alive || !queue.length) return
+    if (queue.length >= WRITE_BATCH) {
+      clearTimeout(waiter)
+      waiter = null
+      if (!drainer) drainer = setImmediate(drain)
+    } else if (!drainer && !waiter) {
+      waiter = setTimeout(drain, WRITE_WAIT_MS)
+      if (waiter.unref) waiter.unref()
+    }
+  }
+  const drain = () => {
+    drainer = null
+    clearTimeout(waiter)
+    waiter = null
+    if (!alive) return
+    // a WAL checkpoint the sync waits for (core/db/checkpoint.js): no write until it ends, so it can catch up
+    const hold = walGate && walGate.gate && walGate.gate()
+    if (hold) {
+      hold.then(() => plan(), () => plan())
+      return
+    }
+    const batch = queue.splice(0, WRITE_BATCH)
+    try {
+      inTx(() => {
+        for (const { item, r } of batch) {
+          try {
+            index.setSearchBody(item.id, r.text)
+            // an HTML over the main thread's cap: its preview comes from here (the row has none until then)
+            if (r.preview !== null && r.preview !== undefined) index.setLatePreview(item.id, r.preview)
+          } catch (err) {
+            log(`search text: not written (${err && err.code ? err.code : 'error'})`)
+          }
+        }
+      })
+    } catch (err) {
+      log(`search text: not written (${err && err.code ? err.code : 'error'})`)
+    }
+    for (const { t, item, r, retry } of batch) {
+      open.delete(t)
+      if (r.complex && !retry) retryLater(item)
+    }
+    plan()
+  }
+  const enqueue = entry => {
+    queue.push(entry)
+    plan()
+  }
   const schedule = () => {
     if (timer || !alive || !later.size) return
     timer = setTimeout(retry, retryDelayMs)
@@ -82,17 +142,10 @@ export function createSearchRefiner({ service, index, settings, sealed = null, l
         admitted()
         const r = await pending
         if (!alive) return
+        // written in a batch: it stays in `open` until its transaction ran (a lock before that clears its flag)
+        if (r && !r.failed) return enqueue({ t, item, r, retry })
         open.delete(t)
-        if (r && !r.failed) {
-          try {
-            index.setSearchBody(item.id, r.text)
-            // an HTML over the main thread's cap: its preview comes from here (the row has none until then)
-            if (r.preview !== null && r.preview !== undefined) index.setLatePreview(item.id, r.preview)
-          } catch (err) {
-            log(`search text: not written (${err && err.code ? err.code : 'error'})`)
-          }
-          if (r.complex && !retry) retryLater(item)
-        } else if (!r && item.local && !retry) lost(item.accountId)
+        if (!r && item.local && !retry) lost(item.accountId)
         // r.failed: not for this message (the service logged its code); its row keeps the old text, nothing to redo
       } finally {
         admitted()
@@ -127,6 +180,10 @@ export function createSearchRefiner({ service, index, settings, sealed = null, l
       return this.refineMany([item])
     },
     retryLater,
+    /** Results waiting for their write (tests, measurements). */
+    writesPending() {
+      return queue.length
+    },
     /** Waiting for their quiet retry (tests, measurements). */
     retrying() {
       return [...later.keys()]
@@ -136,6 +193,11 @@ export function createSearchRefiner({ service, index, settings, sealed = null, l
       alive = false
       clearTimeout(timer)
       timer = null
+      clearImmediate(drainer)
+      drainer = null
+      clearTimeout(waiter)
+      waiter = null
+      queue.length = 0 // nothing is written after this; their messages are still in `open`
       later.clear()
       service.stop()
       const accounts = new Set([...open.values()].filter(m => m.local).map(m => m.accountId))

@@ -671,6 +671,13 @@ source.unmarked (2);… és további 2 láthatatlan karakter (nincs egyenként j
 source.cutByMarks;"… a jelölésekkel a szöveg hosszabb lenne 2 MB-nál, a vége nem látszik. A teljes levélhez mentsd .eml-ként.";"… with the marks the text would be longer than 2 MB, so its end is not shown. For the full message, save it as .eml."
 backToList;Vissza a listához;Back to the list
 readerToolsLabel;Műveletek a levélen;Actions on the message
+readerContextMenu.copyLink;Link másolása;Copy link
+readerContextMenu.openLink;Megnyitás böngészőben;Open in browser
+readerContextMenu.copyAddress;E-mail cím másolása;Copy email address
+readerContextMenu.newMail;Új levél ide;New message to this address
+readerContextMenu.copy;Másolás;Copy
+readerContextMenu.selectAll;Az összes kijelölése;Select all
+readerContextMenuLabel;Műveletek a levélben;Actions in the message
 readerMore;További;More
 readerDetailsShow;Részletek megjelenítése;Show details
 repliedLine.on;"Válaszoltál: ";"You replied: "
@@ -922,6 +929,9 @@ composeLinkUrl;Cím (https://… vagy mailto:…);Address (https://… or mailto
 composeLinkOk;Beszúrás;Insert
 composeSend;Küldés;Send
 composeSending;Küldés…;Sending…
+composeSendTitle;Küldés (Ctrl+Enter);Send (Ctrl+Enter)
+composeSendArchive;Küldés és archiválás;Send and archive
+composeSendArchiveTitle;Küldés és archiválás (Ctrl+Shift+Enter);Send and archive (Ctrl+Shift+Enter)
 composeSendLater;Küldés később…;Send later…
 composeMayHaveGone;"Ennek az időzített levélnek a korábbi küldése nem fejeződött be rendesen: kimehetett. Ha most elküldöd vagy újra időzíted, a címzett kétszer is megkaphatja.";"The earlier send of this scheduled message did not finish properly: it may have gone out. If you send or schedule it again now, the recipient may get it twice."
 schedule.title;Küldés később;Send later

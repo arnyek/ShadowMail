@@ -483,6 +483,11 @@ export class MailIndex {
     return this.s.setSearchBody.run({ id, text: text || '' }).changes > 0
   }
 
+  /** fn inside one write transaction (the search refiner's batched write-back); -> fn's result */
+  inTransaction(fn) {
+    return this.db.transaction(fn)()
+  }
+
   /** the worker's late preview (an HTML over the main thread's cap); written only into an indexed row without one. */
   setLatePreview(id, preview) {
     return typeof preview === 'string' && this.s.setLatePreview.run({ id, preview }).changes > 0

@@ -75,6 +75,7 @@ export class MailActions {
    * @param action     one of ACTIONS
    * @param target     folder path for 'move'
    * @param permanent  'delete' inside the Trash / without a Trash: the user confirmed
+   * @param still      (rows) => boolean, checked when the action runs (in the queue): false -> not_found, nothing done
    * @returns { done, final: boolean } final = deleted for good
    * Throws ActionError: not_found, mixed_selection, bad_target, confirm_needed, server_refused,
    * sync_stopped, locked, connection_refused, connection_lost, ...
@@ -91,9 +92,10 @@ export class MailActions {
 
   #queue = Promise.resolve()
 
-  async #run({ ids, action, target = null, permanent = false }) {
+  async #run({ ids, action, target = null, permanent = false, still = null }) {
     const rows = ids.map(id => this.index.get(id))
     if (!rows.length || rows.some(r => !r)) throw new ActionError('not_found')
+    if (still && !still(rows)) throw new ActionError('not_found')
     const { account_id: accountId, folder } = rows[0]
     if (rows.some(r => r.account_id !== accountId || r.folder !== folder)) throw new ActionError('mixed_selection')
     const account = this.store.getRow(accountId)

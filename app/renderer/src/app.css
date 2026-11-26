@@ -1416,6 +1416,13 @@ main.app > .error {
   font: inherit;
 }
 
+/* the addresses of a plain-text body as links: on the reader's --c-bg, the --c-accent / --c-bg pair of the contrast test
+   (4.5:1 on every theme) */
+.mail-text a {
+  color: var(--c-accent);
+  text-decoration: underline;
+}
+
 .warn {
   color: var(--c-warning-text);
 }
@@ -1582,14 +1589,23 @@ main.app > .error {
   color: var(--c-accent);
 }
 
-/* the replied / forwarded marks at the start of a row's text cell (the list and the search hits): a flex child of
-   .col-text, never shrinking, in the secondary text color on every row state */
+/* the replied / forwarded mark: ONE icon at the sender cell's right end, in a fixed place (RowText.jsx ReplyMarks), in
+   the list and the search hits, the Sent / Drafts recipient cell too: absolutely placed in the cell's right padding,
+   vertically centered, so the name (or "Name +2") ends before it with its ellipsis and the text cell holds no mark: the
+   labels and the subject start at the same x in every row. A row with a mark has the wider padding (the mark's room);
+   a row without one keeps its padding. In the secondary text color on every row state */
+.col-from.has-reply-marks {
+  position: relative;
+  padding-right: 30px;
+}
+
 .reply-marks {
+  position: absolute;
+  top: 50%;
+  right: 10px;
   display: inline-flex;
-  flex: none;
   align-items: center;
-  gap: 2px;
-  margin-right: var(--space-1);
+  transform: translateY(-50%);
   color: var(--c-text-2);
 }
 
@@ -1598,39 +1614,26 @@ main.app > .error {
   height: 14px;
 }
 
-/* the sender cell's copy: hidden in a wide row (the text cell's copy shows) */
-.reply-marks-from {
-  display: none;
-  vertical-align: middle;
-}
-
-/* the row's own box decides which copy shows (the scrollbar is not in it) */
 .msg-row,
 .result-open {
   container: row-box / inline-size;
 }
 
-/* where the text cell gets narrower than both marks (two icons, the gap, the margin: 34 px), they move before the
-   sender, which keeps >= 96 px there. The query reads the row's CONTENT box (its padding out, the scrollbar not in it).
-   Measured (the list divider swept 1 px at a time): the text cell is the content box less 312 px (normal density) / 292 px
-   (compact) in the list, less 232 / 224 px in the search hits; the tracks are px tokens, so the font does not move it.
-   In the list's narrow form (msg-list < 351 px, a smaller edge and checkbox) the text cell is the content box less
-   300 / 288 px and the content box at most 327 px: the normal row is under its switch, the marks before the sender; the
-   compact one has its marks in the text cell at 326-327 px (38-39 px cell) and before the sender under 326 px, also
-   where the cell would just hold them (322-325 px: 34-37 px).
-   Under the switch the sender cell's right padding is 4 px instead of 16 (the name's room; the tracks do not move, so
-   neither does the date) */
+/* a narrow row: the sender cell's right padding is 4 px instead of 16 (the name's room; the tracks do not move, so
+   neither does the date), a row with a mark 22 px with the mark 4 px from the edge. The query reads the row's CONTENT
+   box (its padding out, the scrollbar not in it); the widths are the ones the earlier marks in the text cell switched
+   at (measured by sweeping the list divider), kept so a row without a mark looks as before */
 @container row-box (width < 346px) {
   :root:not([data-density="compact"]) .msg-row .col-from {
     padding-right: var(--space-1);
   }
 
-  :root:not([data-density="compact"]) .msg-row .reply-marks-text {
-    display: none;
+  :root:not([data-density="compact"]) .msg-row .col-from.has-reply-marks {
+    padding-right: 22px;
   }
 
-  :root:not([data-density="compact"]) .msg-row .reply-marks-from {
-    display: inline-flex;
+  :root:not([data-density="compact"]) .msg-row .reply-marks {
+    right: var(--space-1);
   }
 }
 
@@ -1639,12 +1642,12 @@ main.app > .error {
     padding-right: var(--space-1);
   }
 
-  [data-density="compact"] .msg-row .reply-marks-text {
-    display: none;
+  [data-density="compact"] .msg-row .col-from.has-reply-marks {
+    padding-right: 22px;
   }
 
-  [data-density="compact"] .msg-row .reply-marks-from {
-    display: inline-flex;
+  [data-density="compact"] .msg-row .reply-marks {
+    right: var(--space-1);
   }
 }
 
@@ -1653,12 +1656,12 @@ main.app > .error {
     padding-right: var(--space-1);
   }
 
-  :root:not([data-density="compact"]) .result-open .reply-marks-text {
-    display: none;
+  :root:not([data-density="compact"]) .result-open .col-from.has-reply-marks {
+    padding-right: 22px;
   }
 
-  :root:not([data-density="compact"]) .result-open .reply-marks-from {
-    display: inline-flex;
+  :root:not([data-density="compact"]) .result-open .reply-marks {
+    right: var(--space-1);
   }
 }
 
@@ -1667,12 +1670,12 @@ main.app > .error {
     padding-right: var(--space-1);
   }
 
-  [data-density="compact"] .result-open .reply-marks-text {
-    display: none;
+  [data-density="compact"] .result-open .col-from.has-reply-marks {
+    padding-right: 22px;
   }
 
-  [data-density="compact"] .result-open .reply-marks-from {
-    display: inline-flex;
+  [data-density="compact"] .result-open .reply-marks {
+    right: var(--space-1);
   }
 }
 
@@ -2223,6 +2226,26 @@ main.app > .error {
 
 .compose-actions button {
   align-self: center;
+}
+
+/* "Küldés és archiválás": in a narrow composer only its icon (the name stays in its aria-label and title). The
+   footer is the container: its own width decides, measured in test/e2e/send-archive-e2e.mjs (with the name the
+   footer needs ~700 px of content). Narrower than one row of buttons, the footer wraps instead of running over. */
+.compose-actions {
+  container: compose-actions / inline-size;
+  flex-wrap: wrap;
+  row-gap: var(--space-2);
+}
+
+@container compose-actions (width < 720px) {
+  .compose-send-archive-text {
+    display: none;
+  }
+
+  .compose-actions > .compose-send-archive {
+    width: var(--control-h);
+    padding: 0;
+  }
 }
 
 .compose-saved {

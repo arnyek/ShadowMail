@@ -85,6 +85,7 @@ test('openMailto: a composer window filled from the link; the page gets the form
     ok: true,
     form: { accountId: null, to: 'anna@example.invalid', cc: 'cili@example.invalid', subject: 'Kérdés', body: '<p>Szia</p><p>&lt;b&gt;x&lt;/b&gt;</p>', quote: '', inReplyTo: null, references: [] },
     attachments: [],
+    archivable: false, // a new message: no original to archive
   })
   assert.ok(!JSON.stringify(init).includes('rejtett'), 'no Bcc from a link')
 })
@@ -97,7 +98,7 @@ test('openMailto: a link we do not take opens nothing and is logged; a new messa
   assert.equal(s.composer.sessions.size, 0, 'no session left behind')
   assert.match(s.logged.join('\n'), /mailto link not opened/)
   const { sessionId } = await s.call('compose:open')
-  assert.deepEqual(await s.call('compose:initial', sessionId), { ok: true, form: null, attachments: [] })
+  assert.deepEqual(await s.call('compose:initial', sessionId), { ok: true, form: null, attachments: [], archivable: false })
   assert.deepEqual(await s.call('compose:initial', 'not-a-session'), { ok: false, error: 'bad_request' })
   assert.deepEqual(await s.call('compose:initial', '00000000-0000-0000-0000-000000000000'), { ok: false, error: 'no_session', draftSaved: undefined, detail: undefined })
   assert.deepEqual(await s.handlers.get('compose:initial')({ ok: false }, sessionId), { ok: false, error: 'untrusted_sender' })

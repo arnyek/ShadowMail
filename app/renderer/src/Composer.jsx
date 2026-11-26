@@ -527,6 +527,8 @@ export function Composer({ sessionId }) {
   // the message went out: the window only shows what happened, nothing is saved or sent again
   const [sent, setSent] = useState(false)
   const sentRef = useRef(false)
+  // a reply or forward whose original can be archived now (the main process decides): "Küldés és archiválás" shows
+  const [archivable, setArchivable] = useState(false)
   const bodyTouched = useRef(false)
   const editor = useRef(null)
   const formRef = useRef(null)
@@ -597,6 +599,7 @@ export function Composer({ sessionId }) {
       const account = (form && res.accounts.find(a => a.id === form.accountId)) || res.accounts[0]
       setAccountId(account.id)
       if (init.ok && init.attachments.length) setAttachments(init.attachments)
+      setArchivable(Boolean(init.ok && init.archivable))
       if (form) {
         // reply / forward, or a mailto: link. The quote, or the link's body (escaped plain
         // text), goes through the composer sanitizer like a paste.
@@ -711,16 +714,17 @@ export function Composer({ sessionId }) {
     setAsk({ kind: 'resend', next, later })
     return true
   }
-  const send = async () => {
+  // archive: "Küldés és archiválás", the original into the Archive after a successful send (the main process checks it again)
+  const send = async (archive = false) => {
     setError(null)
     if (!to.trim() && !cc.trim() && !bcc.trim()) {
       setError(t.composeErrors.no_recipients)
       return
     }
-    if (askResend(send)) return
+    if (askResend(() => send(archive))) return
     setBusy('sending')
     const token = draft.current.beginSave()
-    const res = await api.compose.send(sessionId, formRef.current())
+    const res = await api.compose.send(sessionId, formRef.current(), archive ? { archive: true } : undefined)
     setBusy(null)
     if (!res.ok) {
       setError(t.composeError(res.error, res.detail) + (res.draftSaved ? ` ${t.composeKeptAsDraft}` : ''))
@@ -745,6 +749,27 @@ export function Composer({ sessionId }) {
 
   // "Küldés később": the same checks as the send, then the window closes (the main window shows the notice)
   const [scheduling, setScheduling] = useState(false)
+
+  // Ctrl+Enter sends, Ctrl+Shift+Enter sends and archives (only when the original can be archived), anywhere in this
+  // window; not while a dialog or a menu is open, nor while sending or after the send. The questions before a send
+  // (the resend question) come as from the buttons.
+  const sendKeys = useRef(null)
+  sendKeys.current = { send, ready: busy === null && Boolean(accountId) && !sent, archivable }
+  useEffect(() => {
+    const onKey = e => {
+      if (e.key !== 'Enter' || !e.ctrlKey || e.altKey || e.metaKey || e.repeat || e.isComposing) return
+      // a field took the key for itself (the recipient suggestions: Enter picks one): no send with it
+      if (e.defaultPrevented) return
+      const { send: go, ready, archivable: canArchive } = sendKeys.current
+      if (!ready || sentRef.current || busyRef.current) return
+      if (document.querySelector('[role="dialog"], [role="alertdialog"], [role="menu"]')) return
+      if (e.shiftKey && !canArchive) return
+      e.preventDefault()
+      go(e.shiftKey)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
   const schedule = async sendAt => {
     setScheduling(false)
     setError(null)
@@ -1194,7 +1219,21 @@ export function Composer({ sessionId }) {
         </ul>
       )}
       <footer className="compose-actions">
-        <Button variant="primary" icon="send" onClick={send} disabled={busy !== null || !accountId || sent}>{busy === 'sending' ? t.composeSending : t.composeSend}</Button>
+        <Button variant="primary" icon="send" onClick={() => send()} disabled={busy !== null || !accountId || sent} title={t.composeSendTitle} aria-keyshortcuts="Control+Enter">{busy === 'sending' ? t.composeSending : t.composeSend}</Button>
+        {archivable && (
+          <Button
+            variant="outlined"
+            icon="archive"
+            className="compose-send-archive"
+            onClick={() => send(true)}
+            disabled={busy !== null || !accountId || sent}
+            aria-label={t.composeSendArchive}
+            title={t.composeSendArchiveTitle}
+            aria-keyshortcuts="Control+Shift+Enter"
+          >
+            <span className="compose-send-archive-text">{t.composeSendArchive}</span>
+          </Button>
+        )}
         <Button variant="outlined" className="compose-send-later" onClick={() => setScheduling(true)} disabled={busy !== null || !accountId || sent}>{t.composeSendLater}</Button>
         <IconButton icon="formatToggle" label={t.composeFormatting} title={t.composeFormattingHint} pressed={showFormat} onClick={() => setShowFormat(f => !f)} />
         <IconButton icon="attachment" label={t.composeAttach} disabled={sent} onClick={() => addFiles(null)} />

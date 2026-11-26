@@ -26,21 +26,23 @@ export function replyMarks(flags) {
   return { answered: set.has('\\answered'), forwarded: set.has('$forwarded') }
 }
 
+const hasReplyMarks = flags => {
+  const { answered, forwarded } = replyMarks(flags)
+  return answered || forwarded
+}
+
 /**
- * The marks: a reply and / or a forward icon, their words in the title and for a screen reader. A row draws them twice,
- * at the start of the text cell and before the sender (`place` text / from); app.css shows one of the two by the row's
- * width (in a narrow row the text cell has no room left for them), the other is display: none, so a screen reader reads
- * them once. Before the sender, with both flags, one icon (the reply): the name keeps the room; the title and the hidden
- * words still name both.
+ * The mark: ONE icon (the reply; a forward alone: the forward), at the sender cell's right end in a fixed place
+ * (app.css .has-reply-marks), so the labels and the subject start at the same x in every row; its words (with both flags
+ * both of them) in the title and once for a screen reader.
  */
-function ReplyMarks({ flags, place }) {
+function ReplyMarks({ flags }) {
   const { answered, forwarded } = replyMarks(flags)
   if (!answered && !forwarded) return null
   const words = answered && forwarded ? t.replyMarks.both : answered ? t.replyMarks.answered : t.replyMarks.forwarded
   return (
-    <span className={`reply-marks reply-marks-${place}`} title={words}>
-      {answered ? <Icon name="reply" /> : null}
-      {forwarded && !(answered && place === 'from') ? <Icon name="forward" /> : null}
+    <span className="reply-marks" title={words}>
+      <Icon name={answered ? 'reply' : 'forward'} />
       <span className="sr-only">{words}</span>
     </span>
   )
@@ -52,14 +54,15 @@ const fmtAddress = a => (a.name ? `${a.name} <${a.address}>` : a.address)
  * The recipient in the sender's place: the first To (with an empty To the first Cc, then Bcc), its name or, without one,
  * its address, and "+N" for the others; the name is cut, the count never. The tooltip lists them all.
  */
-function RecipientCell({ m, Cell, cellProps, marks }) {
+function RecipientCell({ m, Cell, cellProps, flags }) {
   const r = recipientLabel(m)
-  if (!r) return <Cell {...cellProps} className="col-from col-recipient" data-recipient="none">{marks}{t.noRecipient}</Cell>
+  const className = `col-from col-recipient${hasReplyMarks(flags) ? ' has-reply-marks' : ''}`
+  if (!r) return <Cell {...cellProps} className={className} data-recipient="none">{t.noRecipient}<ReplyMarks flags={flags} /></Cell>
   return (
-    <Cell {...cellProps} className="col-from col-recipient" data-recipient="" title={r.all.map(fmtAddress).join(', ')}>
-      {marks}
+    <Cell {...cellProps} className={className} data-recipient="" title={r.all.map(fmtAddress).join(', ')}>
       <span className="recipient-name">{r.name || r.address}</span>
       {r.more ? <span className="recipient-more">{` +${r.more}`}</span> : null}
+      <ReplyMarks flags={flags} />
     </Cell>
   )
 }
@@ -73,18 +76,15 @@ export function RowText({ m, preview, before = null, subjectClass = '', previewC
   return (
     <>
       {recipient ? (
-        <RecipientCell m={m} Cell={Cell} cellProps={cellProps} marks={<ReplyMarks flags={flags} place="from" />} />
+        <RecipientCell m={m} Cell={Cell} cellProps={cellProps} flags={flags} />
       ) : (
-        <Cell {...cellProps} className="col-from" title={m.from_addr || undefined}>
-          <ReplyMarks flags={flags} place="from" />
+        <Cell {...cellProps} className={`col-from${hasReplyMarks(flags) ? ' has-reply-marks' : ''}`} title={m.from_addr || undefined}>
           {sender}
+          <ReplyMarks flags={flags} />
         </Cell>
       )}
       {/* the cell's tooltip names the labels in every form of the group (in the narrowest the group is not drawn) */}
       <Cell {...cellProps} className="col-text" title={labelTitle ? t.labels.group(labelTitle) : undefined}>
-        {/* the replied / forwarded marks first (the wide row's copy), outside .col-main: the label group's form measures the
-            room it has */}
-        <ReplyMarks flags={flags} place="text" />
         {before}
         {/* the labels, the subject and the preview in their own box: the labels' form comes from ITS width (what is left
             after the search hit's account / folder tag), app.css @container msg-text */}

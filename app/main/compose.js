@@ -24,7 +24,7 @@ import { applyFlagChange } from './actions.js'
 import { sendRaw } from '../../core/smtp/send.js'
 import { SHOWN_WIDTH, shownWidth } from '../../core/smtp/image-width.js'
 import { classifyError } from '../../core/accounts/probe.js'
-import { assignRoles } from '../../core/imap/folders.js'
+import { assignRoles, inArchive } from '../../core/imap/folders.js'
 import { safeFileName, parseMessage } from '../../core/mime/message.js'
 import { bodyFromSource } from '../../core/mime/text.js'
 import { fmtAddrs } from '../../core/mime/envelope.js'
@@ -145,8 +145,13 @@ export class Composer {
    * @param requestSync     (accountId, folders)
    * @param onChange        ({ accountId, folders }) after a local (POP3) change
    * @param send            sendRaw (injected in tests)
+   * @param actions         MailActions: "Küldés és archiválás" archives the original through its queue; null: never
+   * @param onOriginLeaving  ({ id, leaving, archived }) the original of a send and archive: leaving at the start (the main
+   *                         window greys it out at once), and at the end (archived, or back)
    */
-  constructor({ index, store, contacts, storeDir, sealed = null, dataDir = null, withConnection, reader = null, decodeImage = null, uprightImage = null, requestSync = () => {}, onChange = () => {}, send = sendRaw, now = () => Date.now(), log = () => {}, searchText = null, scheduled = null, onScheduledChange = () => {}, labels = null }) {
+  constructor({ actions = null, onOriginLeaving = () => {}, index, store, contacts, storeDir, sealed = null, dataDir = null, withConnection, reader = null, decodeImage = null, uprightImage = null, requestSync = () => {}, onChange = () => {}, send = sendRaw, now = () => Date.now(), log = () => {}, searchText = null, scheduled = null, onScheduledChange = () => {}, labels = null }) {
+    this.actions = actions
+    this.onOriginLeaving = onOriginLeaving
     this.labels = labels // core/db/labels.js Labels: an IMAP draft saved again keeps its old copy's label keywords, or null
     this.decodeImage = decodeImage // bytes -> { width, height } | null (Electron nativeImage), for a pasted image; null: none
     this.uprightImage = uprightImage // (bytes, type, orientation) -> bytes turned upright (app/main/image-codec.js)
@@ -445,10 +450,52 @@ export class Composer {
     return form
   }
 
-  /** The starting form of a prepared session (or null for a new message) and its attachments. */
+  /**
+   * The starting form of a prepared session (or null for a new message) and its attachments. archivable: the session
+   * answers or forwards an original that "Küldés és archiválás" can archive now (#originArchivable).
+   */
   initial(sessionId) {
     const s = this.#session(sessionId)
-    return { form: s.initial, attachments: this.attachmentList(sessionId) }
+    return { form: s.initial, attachments: this.attachmentList(sessionId), archivable: Boolean(s.origin) && this.#originArchivable(s.origin) }
+  }
+
+  /**
+   * The original's row if it is still the one the session found, where it found it (the same id, account, Message-ID
+   * and folder), else null. Stricter than #markOrigin: a moved or deleted original is never archived.
+   */
+  #originHere(origin, row = this.index.get(origin.id)) {
+    if (!row || row.id !== origin.id || row.account_id !== origin.accountId || row.folder !== origin.folder) return null
+    if (origin.messageId && row.message_id !== origin.messageId) return null
+    return row
+  }
+
+  /** The original can be archived: still in place, the account has an Archive, and it is not in it nor in a folder under it (the list's Archive button's rule). */
+  #originArchivable(origin) {
+    const row = this.actions && this.#originHere(origin)
+    if (!row) return false
+    const folders = this.index.folderList(row.account_id)
+    const archive = [...assignRoles(folders)].find(([, r]) => r === 'archive')?.[0]
+    return Boolean(archive) && !inArchive(folders, archive, row.folder)
+  }
+
+  /**
+   * "Küldés és archiválás", after the send and the original's flag: the original into the Archive through MailActions
+   * (its queue, its yearly mode, its errors). -> the warnings. A refused recipient: not archived (the original in its
+   * folder helps to send again). Moved, deleted or archived meanwhile, also while it waited in the queue: skipped.
+   */
+  async #archiveOrigin(s, rejected) {
+    if (rejected.length) return ['archive_rejected']
+    const origin = s.origin
+    if (!origin || !this.#originArchivable(origin)) return ['archive_skipped']
+    try {
+      // still: checked when the action runs; a list action queued before it may have moved the original
+      await this.actions.run({ ids: [origin.id], action: 'archive', still: rows => Boolean(this.#originHere(origin, rows[0])) })
+      return []
+    } catch (err) {
+      if (err && (err.code === 'not_found' || err.code === 'bad_target') && !this.#originArchivable(origin)) return ['archive_skipped']
+      this.log(`archive after the send failed (${errCode(err)})`)
+      return [`archive_failed:${(err && err.code) || 'unknown'}`]
+    }
   }
 
   /**
@@ -1028,9 +1075,23 @@ export class Composer {
    * On failure: the message is kept as a draft (best effort) and ActionError(code) is thrown with
    * `draftSaved` telling whether that worked.
    */
-  async sendNow(sessionId, form, { addPeople = true, draftOnFail = true } = {}) {
+  async sendNow(sessionId, form, { addPeople = true, draftOnFail = true, archive = false } = {}) {
     const s = this.#session(sessionId)
-    return this.#exclusive(s, () => this.#sendNow(s, form, { addPeople, draftOnFail }))
+    return this.#exclusive(s, async () => {
+      // "Küldés és archiválás": the original leaves the main window's list at once, as with the list's Archive; it comes
+      // back when the send fails or the archive was not done
+      const leaving = archive && !s.sent && s.origin && this.#originArchivable(s.origin) ? s.origin.id : null
+      if (leaving === null) return this.#sendNow(s, form, { addPeople, draftOnFail, archive })
+      this.onOriginLeaving({ id: leaving, leaving: true })
+      let archived = false
+      try {
+        const res = await this.#sendNow(s, form, { addPeople, draftOnFail, archive })
+        archived = !res.warnings.some(w => w.startsWith('archive_'))
+        return res
+      } finally {
+        this.onOriginLeaving({ id: leaving, leaving: false, archived })
+      }
+    })
   }
 
   /**
@@ -1209,7 +1270,8 @@ export class Composer {
 
   // addPeople false (an MCP send): the recipients are not added to the address book (the send-confirmation switch
   // lets mail go without the Modal only to the book; it must grow only from the user's own decisions)
-  async #sendNow(s, form, { addPeople = true, draftOnFail = true } = {}) {
+  // archive: "Küldés és archiválás" (the composer's button only; the scheduler and Claude's send never ask for it)
+  async #sendNow(s, form, { addPeople = true, draftOnFail = true, archive = false } = {}) {
     // Once sent (even with refused recipients) the session sends nothing again: a second send would go
     // to everyone again, with a new Message-ID.
     if (s.sent) throw new ActionError('already_sent')
@@ -1277,6 +1339,8 @@ export class Composer {
         warnings.push(`origin_flag_failed:${err.code || 'unknown'}`)
       }
     }
+    // after the flag: a MOVE gives the original a new UID in the Archive, the flag travels with it
+    if (archive) warnings.push(...(await this.#archiveOrigin(s, rejected)))
     // a refused address is not a contact; the page shows the refused ones
     const refused = new Set(rejected.map(a => String(a).toLowerCase()))
     this.contacts.recordSent(recipients.filter(r => !refused.has(String(r.address || r).toLowerCase())), this.now(), { addPeople })

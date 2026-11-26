@@ -20,6 +20,7 @@ import { applyBodyLimit, DAY_MS } from '../db/body-limit.js'
 import { BODY_STATE } from '../db/mail-index.js'
 import { parseMessage, hasBrokenHeader, headerColumns } from '../mime/message.js'
 import { bodyFromSource } from '../mime/text.js'
+import { tick } from '../db/write-slices.js'
 import { fmtAddrs } from '../mime/envelope.js'
 import { assignRoles } from '../imap/folders.js'
 import { RECIPIENT_ROLES } from '../mime/recipient-label.js'
@@ -129,25 +130,44 @@ export class Pop3Fetcher extends Syncer {
     this._setState({ phase: 'bodies', folder: null, progress: { done, total } })
     for (;;) {
       this._checkStopped()
-      const batch = this.index.pendingLocalBodies(accountId, 200)
-      if (!batch.length) break
-      const items = []
-      for (const r of batch) {
-        let source = null
-        try {
-          source = this.sealed.read(r.store_path)
-        } catch {
-          // the file is gone or damaged: state 2 (failed), the row and its headers stay
-        }
-        const body = await bodyFromSource(source, { oldText: Boolean(this.searchText) })
-        items.push({ id: r.id, text: body.text, state: body.state, preview: body.preview, storePath: this.searchText && body.state === 1 ? r.store_path : null })
+      // the batch under the shared gate (core/imap/body-gate.js): one account's body phase at a time
+      const release = await this._bodyTurn()
+      try {
+        const n = await this.#localBodyBatch(accountId)
+        if (!n) break
+        done += n
+        if (this.runStats) this.runStats.bodies += n
+        this._setState({ progress: { done, total } })
+      } finally {
+        release()
       }
-      this.index.setBodies(items)
-      await this.refineSearchText(items, accountId, true)
-      done += items.length
-      this._setState({ progress: { done, total } })
     }
     return done
+  }
+
+  /** one batch of up to 200 local rows: parsed, written, handed to the worker; -> how many */
+  async #localBodyBatch(accountId) {
+    const batch = this.index.pendingLocalBodies(accountId, 200)
+    if (!batch.length) return 0
+    const items = []
+    for (const r of batch) {
+      // one message's parse at a time on the main thread, a turn of the event loop between two
+      if (items.length) {
+        await tick()
+        this._checkStopped()
+      }
+      let source = null
+      try {
+        source = this.sealed.read(r.store_path)
+      } catch {
+        // the file is gone or damaged: state 2 (failed), the row and its headers stay
+      }
+      const body = await bodyFromSource(source, { oldText: Boolean(this.searchText) })
+      items.push({ id: r.id, text: body.text, state: body.state, preview: body.preview, storePath: this.searchText && body.state === 1 ? r.store_path : null })
+    }
+    await this._setBodies(items, accountId, true)
+    await this._walWait()
+    return items.length
   }
 
   /**
@@ -215,6 +235,8 @@ export class Pop3Fetcher extends Syncer {
     const accountId = account.id
     Object.assign(st, { running: true, phase: 'connecting', lastAdded: 0, lastRemoved: 0, lastCleared: 0, lastRequeued: 0 })
     this._emitState()
+    const begun = this._runBegin('pop3')
+    let runErr = null
     let client = null
     let quitClean = false
     try {
@@ -222,7 +244,7 @@ export class Pop3Fetcher extends Syncer {
       const limit = applyBodyLimit(this.index, account, this.now())
       st.lastCleared = limit.cleared
       st.lastRequeued = limit.requeued
-      if (await this.#localBodies()) this._changed(['INBOX'])
+      if (await this._timed('bodiesMs', () => this.#localBodies())) this._changed(['INBOX'])
       await this.#localBcc()
       const repaired = await this.#localHeaders()
       if (repaired.length) this._changed(repaired)
@@ -231,7 +253,8 @@ export class Pop3Fetcher extends Syncer {
       client = await this.connect()
       this.activeClient = client
       this._checkStopped()
-      const onServer = await client.uidl()
+      const onServer = await this._timed('listMs', () => client.uidl())
+      this.runStats.folders = 1 // the one INBOX
       this._checkStopped()
       const counts = new Map()
       for (const m of onServer) counts.set(m.uidl, (counts.get(m.uidl) || 0) + 1)
@@ -259,6 +282,7 @@ export class Pop3Fetcher extends Syncer {
       let added = 0
       const refused = new Set()
       const taken = new Set()
+      const metaStart = performance.now()
       for (const m of fresh) {
         if (taken.has(m.uidl)) continue
         this._checkStopped()
@@ -322,6 +346,7 @@ export class Pop3Fetcher extends Syncer {
         if (id) added++
         this._setState({ progress: { done: added, total: freshCount } })
       }
+      this.runStats.metaMs += performance.now() - metaStart
       const skipped = refused.size
       st.lastAdded = added
       st.lastSkipped = skipped
@@ -357,7 +382,7 @@ export class Pop3Fetcher extends Syncer {
 
       // the new rows: beyond the limit -> headers only; inside -> text from the file
       applyBodyLimit(this.index, account, this.now())
-      await this.#localBodies()
+      await this._timed('bodiesMs', () => this.#localBodies())
       if (added) this._changed(['INBOX'])
       Object.assign(st, {
         lastFinished: new Date(this.now()).toISOString(),
@@ -365,6 +390,7 @@ export class Pop3Fetcher extends Syncer {
         errorCode: skipped ? 'partial' : null,
       })
     } catch (err) {
+      runErr = err
       if (err.code !== 'SYNC_STOPPED') {
         st.lastError = err.message
         st.errorCode = err.code === 'NO_PASSWORD' ? 'no_password' : err.code === 'UIDL_UNSUPPORTED' ? 'uidl_unsupported' : classifyError(err)
@@ -373,6 +399,7 @@ export class Pop3Fetcher extends Syncer {
     } finally {
       Object.assign(st, { running: false, phase: 'idle', folder: null, progress: null, lastDurationMs: Date.now() - t0 })
       this._emitState()
+      this._runEnd(begun, runErr)
       // without a clean QUIT the server applies no DELE (RFC 1939): just drop the connection
       if (client && !quitClean) client.close()
       this.activeClient = null

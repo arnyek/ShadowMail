@@ -13,10 +13,11 @@ import { sanitizeMail, MAX_LINKS } from './sanitize.js'
 import { Icon } from './Icon.jsx'
 import { folderIcon } from './folder-icons.js'
 import { formatFullDate, formatListDate } from './list-format.js'
-import { Avatar, Banner, Button, IconButton, MenuButton } from './ui/index.js'
+import { Avatar, Banner, Button, IconButton, Menu, MenuButton } from './ui/index.js'
 import { SourceView } from './SourceView.jsx'
 import { readerText } from './control-marks.js'
 import { textBlocks } from '../../../core/mime/text-blocks.js'
+import { linkify, linkRuns } from '../../../core/mime/linkify.js'
 import { copyAsText } from './copy-text.js'
 import { archiveFor } from './reader-nav.js'
 import { linkTarget, linkTexts, matchFor } from './link-target.js'
@@ -394,6 +395,58 @@ export function Reader({ messageId, onOpen, onBack = null, onAction = null, onLo
     }
   }, [message])
 
+  // The right click in the message: the main process offers the menu (token, items, place; never the link itself) for
+  // the message frame ('mail'), and for the page itself ('page'), where it opens only over a plain-text body. The
+  // chosen item goes back with the token and is done there; on a plain-text body the copy and select all stay here
+  // (the page's own copy keeps a line whole across the drawn blocks).
+  const [contextMenu, setContextMenu] = useState(null)
+  const preRef = useRef(null)
+  useEffect(() => {
+    if (!message) return
+    const off = api.onStatus(ev => {
+      if (!ev || ev.kind !== 'contextMenu' || typeof ev.token !== 'string' || !Array.isArray(ev.items)) return
+      if (ev.source === 'page') {
+        const el = document.elementFromPoint(ev.x, ev.y)
+        if (!el || !preRef.current || !preRef.current.contains(el)) return
+      } else if (ev.source !== 'mail' || !frameRef.current) return
+      setContextMenu(ev)
+    })
+    return () => {
+      off()
+      setContextMenu(null)
+    }
+  }, [message])
+  // the link-target bar over a link of a plain-text body (the frame's links come through the main process instead)
+  const showPlainLink = el => {
+    const a = el && el.closest ? el.closest('a[href]') : null
+    if (!a || !preRef.current || !preRef.current.contains(a)) return
+    const info = linkTarget(a.getAttribute('href'), [a.textContent])
+    if (info) setHovered({ info, place: barPlace(preRef.current) })
+  }
+  const leavePlainLink = (from, to) => {
+    const a = from && from.closest ? from.closest('a[href]') : null
+    if (a && to && a.contains(to)) return
+    setHovered(null)
+  }
+  const backFromMenu = m => {
+    if (m.source === 'mail' && frameRef.current) frameRef.current.focus()
+  }
+  const chooseInMenu = (m, item) => {
+    if (m.source === 'page' && item === 'copy') {
+      document.execCommand('copy') // the <pre>'s onCopy (copyAsText) writes it
+      return
+    }
+    if (m.source === 'page' && item === 'selectAll') {
+      const pre = preRef.current
+      const sel = window.getSelection()
+      if (pre && sel) sel.selectAllChildren(pre)
+      return
+    }
+    // "select all" in the frame acts on the focused frame: the focus goes back there first
+    if (item === 'selectAll') backFromMenu(m)
+    api.contextMenuChoose(m.token, item)
+  }
+
   // the star follows a change made on the list (or goes back when the change failed)
   useEffect(() => {
     if (!flagEvent || !message || !flagEvent.ids.includes(message.id)) return
@@ -421,6 +474,8 @@ export function Reader({ messageId, onOpen, onBack = null, onAction = null, onLo
   const plain = useMemo(() => (message && !message.html ? readerText(message.text) : null), [message])
   // drawn in blocks of CHUNK code points, each its own block element (one huge text node froze the window)
   const plainBlocks = useMemo(() => (plain ? textBlocks(plain.text) : []), [plain])
+  // the web and e-mail addresses of a plain-text body as links, cut to the drawn blocks (the text itself unchanged)
+  const plainRuns = useMemo(() => (plain ? linkRuns(plainBlocks, linkify(plain.text)) : []), [plain, plainBlocks])
   const account = message ? accounts.find(a => a.id === message.accountId) : null
   const moveTargets = useMemo(() => {
     if (!account || !message) return []
@@ -601,10 +656,27 @@ export function Reader({ messageId, onOpen, onBack = null, onAction = null, onLo
             />
           )
         ) : (
-          <pre className="mail-text" onCopy={copyAsText}>
-            {plainBlocks.map((b, i) => (
+          <pre
+            className="mail-text"
+            ref={preRef}
+            onCopy={copyAsText}
+            // a link of the plain body: the page's own pointer and focus show its target in the bar
+            onMouseOver={e => showPlainLink(e.target)}
+            onFocus={e => showPlainLink(e.target)}
+            onMouseOut={e => leavePlainLink(e.target, e.relatedTarget)}
+            onBlur={e => leavePlainLink(e.target, e.relatedTarget)}
+          >
+            {plainRuns.map((runs, i) => (
               <span key={i} className="text-block">
-                {b}
+                {runs.map((r, j) =>
+                  r.href ? (
+                    <a key={j} href={r.href} target="_blank" rel="noopener noreferrer">
+                      {r.text}
+                    </a>
+                  ) : (
+                    r.text
+                  ),
+                )}
               </span>
             ))}
             {plain.hidden > 0 && <span className="reader-text-cut">{`\n${t.readerTextCut(plain.hidden)}`}</span>}
@@ -612,6 +684,19 @@ export function Reader({ messageId, onOpen, onBack = null, onAction = null, onLo
         )}
       </div>
       {hovered && <LinkTargetBar info={hovered.info} place={hovered.place} />}
+      {contextMenu && (
+        <Menu
+          items={contextMenu.items.filter(k => t.readerContextMenu[k]).map(k => ({ key: k, label: t.readerContextMenu[k], onSelect: () => chooseInMenu(contextMenu, k) }))}
+          at={{ x: contextMenu.x, y: contextMenu.y }}
+          className="context-menu reader-context-menu"
+          label={t.readerContextMenuLabel}
+          onClose={reason => {
+            const m = contextMenu
+            setContextMenu(null)
+            if (reason === 'escape' || reason === 'tab') backFromMenu(m)
+          }}
+        />
+      )}
       {sourceTab && <SourceView messageId={message.id} initialTab={sourceTab} onClose={() => setSourceTab(null)} />}
       <div className="reader-replies">
         {isDraft && (

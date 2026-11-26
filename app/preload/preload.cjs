@@ -16,6 +16,8 @@ contextBridge.exposeInMainWorld('shadowMail', {
   hello: () => ipcRenderer.invoke('app:hello'),
   // the view settings (localStorage) to disk now; no argument (prefs.js calls it after a change, coalesced)
   flushPrefs: () => ipcRenderer.invoke('app:flushPrefs'),
+  // the right-click menu of a message: the chosen item of the menu the main process offered (app:status contextMenu)
+  contextMenuChoose: (token, item) => ipcRenderer.invoke('reader:contextMenu', token, item),
   vault: {
     status: () => ipcRenderer.invoke('vault:status'),
     create: password => ipcRenderer.invoke('vault:create', password),
@@ -163,7 +165,7 @@ contextBridge.exposeInMainWorld('shadowMail', {
     addImage: (sessionId, bytes) => ipcRenderer.invoke('compose:addImage', sessionId, bytes instanceof ArrayBuffer ? new Uint8Array(bytes) : bytes),
     removeAttachment: (sessionId, id) => ipcRenderer.invoke('compose:removeAttachment', sessionId, id),
     saveDraft: (sessionId, form) => ipcRenderer.invoke('compose:saveDraft', sessionId, form),
-    send: (sessionId, form) => ipcRenderer.invoke('compose:send', sessionId, form),
+    send: (sessionId, form, options) => ipcRenderer.invoke('compose:send', sessionId, form, options),
     schedule: (sessionId, form, sendAt) => ipcRenderer.invoke('compose:schedule', sessionId, form, sendAt),
     discard: sessionId => ipcRenderer.invoke('compose:discard', sessionId),
     close: sessionId => ipcRenderer.invoke('compose:close', sessionId),

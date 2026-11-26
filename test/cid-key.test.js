@@ -33,7 +33,14 @@ test('cidResolver: the Content-ID written the same way wins, then another case o
   assert.equal(cidResolver([lower, upper], p => p !== lower)('pair@x'), upper)
 })
 
-test('cidRefsIn and cidResolver are linear: 200 000 references take at most 6 times 50 000 (best of 3)', () => {
+// 4 times the input, at most 8 times the time (best of 3; a quadratic scan would be 16 times): 6 times failed once on
+// Windows at 6.8 (a quiet rerun passed), the heap of the bigger input costs more than its share. Under RATIO_FLOOR_MS
+// the ratio is timer noise; a loaded machine (`npm test` runs its files in parallel) measures again (load-retry.js)
+const RATIO = 8
+const RATIO_FLOOR_MS = 20
+const linearEnough = (small, big) => big < RATIO_FLOOR_MS || big <= Math.max(small, 1) * RATIO
+
+test(`cidRefsIn and cidResolver are linear: 200 000 references take at most ${RATIO} times 50 000 (best of 3)`, async t => {
   const best = n => {
     const html = Array.from({ length: n }, (_, i) => `<img src="cid:a${i}@x">`).join('')
     const parts = Array.from({ length: 1000 }, (_, i) => ({ cid: `A${i}@x` }))
@@ -46,9 +53,11 @@ test('cidRefsIn and cidResolver are linear: 200 000 references take at most 6 ti
     }
     return min
   }
-  const small = best(50_000)
-  const big = best(200_000)
-  assert.ok(big <= small * 6, `50 000: ${Math.round(small)} ms, 200 000: ${Math.round(big)} ms`)
+  await retryWhenLoaded(t, () => {
+    const small = best(50_000)
+    const big = best(200_000)
+    assert.ok(linearEnough(small, big), `50 000: ${Math.round(small)} ms, 200 000: ${Math.round(big)} ms (x${(big / Math.max(small, 1)).toFixed(1)})`)
+  })
 })
 
 test('imgCidRefsIn: only <img src> references, as written; linear on 200 000 references and on 20 000 unclosed <img', async t => {
@@ -69,11 +78,11 @@ test('imgCidRefsIn: only <img src> references, as written; linear on 200 000 ref
   }
   // wall-clock limits: `npm test` runs its files in parallel, so a failure is tried again only on a loaded machine
   await retryWhenLoaded(t, () => {
-    // the many references: linear (200 000 at most 6 times 50 000; its absolute time is a quiet machine's question)
+    // the many references: linear (200 000 at most RATIO times 50 000; its absolute time is a quiet machine's question)
     const refs = n => time(Array.from({ length: n }, (_, i) => `<img src="cid:a${i}@x">`).join(''))
     const small = refs(50_000)
     const big = refs(200_000)
-    assert.ok(big <= Math.max(small, 1) * 6, `50 000: ${small} ms, 200 000: ${big} ms`)
+    assert.ok(linearEnough(small, big), `50 000: ${small} ms, 200 000: ${big} ms (x${(big / Math.max(small, 1)).toFixed(1)})`)
     const ms = {
       unclosedImg: time(`${'<img src="cid:a@x" '.repeat(20_000)}${'x'.repeat(1000)}`),
       // the bracket pass: unclosed <img src="cid:<, an unclosed quote around cid:<a>, a cid:< run without >

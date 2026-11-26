@@ -13,7 +13,7 @@ registry which folder you used last (`HKCU\…\Explorer\ComDlg32\LastVisitedPidl
 
 The interface is Hungarian by default; Settings / Appearance / Nyelv / Language switches it to English.
 
-![The message list: the sidebar with the folders, the search in the header, one-line rows with a preview; an unread message on a lighter background in bold, an icon before a replied and a forwarded message](docs/screenshots/readme-en-list.png)
+![The message list: the sidebar with the folders, the search in the header, one-line rows with a preview; an unread message on a lighter background in bold, an icon after the sender of a replied and a forwarded message](docs/screenshots/readme-en-list.png)
 
 (The images are made with test data: `node scripts/ui-screenshots.mjs readme-en --set readme --lang en --out docs/screenshots`.)
 
@@ -59,6 +59,10 @@ The interface is Hungarian by default; Settings / Appearance / Nyelv / Language 
 
 ### Keys in the composer
 
+- **Ctrl+Enter** sends the message (as **Send**). In a reply and a forward the **Send and archive** button (and
+  **Ctrl+Shift+Enter**) moves the original message into the Archive after a successful send; the button shows only
+  when the account has an Archive and the original is not in it yet. If the server refuses a recipient, the original
+  stays where it is. Neither key sends while a dialog is open.
 - **Tab** goes from the Subject straight to the message text (the formatting buttons are skipped), **Shift+Tab**
   from the text back to the Subject.
 - **Alt+F10** in the text moves to the formatting toolbar: the arrows, **Home** and **End** move between the buttons,
@@ -246,6 +250,39 @@ color, order and delete labels.
 - **On a POP3 account** a label is kept on this computer and shows on every local copy of the message. When the message
   has no Message-ID and no Date header, a copy downloaded again does not show its label.
 - Claude (MCP) can put existing labels on and take them off; only you can make, rename and delete them.
+
+### New in 0.22.0, known limits
+
+- **Send and archive:** in a reply and a forward the **Send and archive** button (and **Ctrl+Shift+Enter**) moves the
+  original message into the Archive after a successful send; the button shows only when the account has an Archive
+  and the original is not in it yet. **Ctrl+Enter** sends the message (as **Send**). If the server refuses a
+  recipient, the original stays where it is.
+- **Right click in a message:** in an open message the right mouse button (and Shift+F10) opens a menu: on a link
+  **Copy link** and **Open in browser**, on an e-mail address **Copy email address** and **New message to this
+  address**, on selected text **Copy**, elsewhere **Select all**. Copy link copies the link's REAL target, also when
+  the link's text shows something else.
+- **Links in a plain-text message:** the web addresses (`https://...`, `www....`) and e-mail addresses of a
+  text-only message can be clicked: a web address opens in the browser, an e-mail address in the composer; the
+  visible text does not change.
+- **Sync without stalls:** while a big mailbox downloads (tens of thousands of messages, several accounts at once)
+  the window does not freeze: the program writes in small pieces, works on the accounts' message bodies one after
+  the other, and asks for the flags (read, star) of a folder with many messages in parts. After quitting no `-wal`
+  and `-shm` file stays in the `data` folder.
+- **Sync log:** `main.log` gets one line of numbers per sync run (see Troubleshooting below); it holds no message
+  content, folder name, address, server or user.
+- **The replied / forwarded mark after the sender:** in the list row and the search result the mark stands after
+  the sender's name (in the Sent folder the recipient's), at the right end of the cell, so the labels and subjects
+  start in line in every row. When you replied to a message AND forwarded it, one icon shows, and pointing at it
+  names both.
+
+The known limits of this release:
+
+- None of the above was measured on Windows, only on Linux; the Windows check comes before the release.
+- There is no Windows notification about a new message yet.
+- The accounts' message bodies download one after the other: when one account has a slow server, another
+  account's new message shows in the list at once, but its text (preview, search) may wait for one batch (at most
+  500 messages) to download.
+- The links of a plain-text message are not clickable in the reply quote and the Source view.
 
 ### New in 0.21.0, known limits
 
@@ -874,6 +911,9 @@ the rules for contributing: [CONTRIBUTING.md](CONTRIBUTING.md).
 - `SHADOWMAIL_SMOKE=1`: a self-check mode (after the window shows, it writes a short report under
   `data\electron\logs` and quits). Made for checking the package.
 - Logs: `data\electron\logs\main.log`, the network guard's log: `data\electron\logs\net-guard.log`.
+- The `main.log` sync lines (`sync account=... kind=...`): one line per sync run, numbers only (folders, flags, new
+  messages, bodies, durations in ms, and the program's longest stall during the run: `loop_max`). They hold no message
+  content, folder name, address, server or user.
 
 ## License
 
