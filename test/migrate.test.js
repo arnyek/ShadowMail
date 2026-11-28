@@ -136,7 +136,7 @@ test('MCP settings: a v3 database (0.10.1) migrates to 4: the settings table is 
 })
 
 test('the migration list: 1..15 without a gap or a repeat; 6 the signature image, 7 the partial unread index, 8 the folder order, 9 the folder role, 10 the chosen role, 11 the archive mode, 12 the kept folders, 13 the scheduled messages, 14 the Bcc recipients, 15 the labels', () => {
-  assert.deepEqual(MIGRATIONS.map(m => m.version), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17])
+  assert.deepEqual(MIGRATIONS.map(m => m.version), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18])
   assert.match(MIGRATIONS[5].name, /signature image/)
   assert.match(MIGRATIONS[6].name, /partial index of the unread rows/)
   assert.match(MIGRATIONS[6].up.toString(), /CREATE INDEX idx_messages_unread ON messages \(account_id, folder\) WHERE instr\(flags, '\\\\Seen'\) = 0/)
@@ -159,7 +159,7 @@ test('the migration list: 1..15 without a gap or a repeat; 6 the signature image
   assert.match(MIGRATIONS[14].up.toString(), /ALTER TABLE messages ADD COLUMN label_key TEXT;/)
 })
 
-test('a schema 7 database migrates to the latest (8 .. 17): the .bak-7 is made, every folder has no manual order, the folder trees and the account list are byte for byte the old ones', t => {
+test('a schema 7 database migrates to the latest (8 .. 18): the .bak-7 is made, every folder has no manual order, the folder trees and the account list are byte for byte the old ones', t => {
   const dir = tempDir(t)
   const file = path.join(dir, 'mail.sqlite')
   const key = Buffer.alloc(32, 7)
@@ -188,7 +188,7 @@ test('a schema 7 database migrates to the latest (8 .. 17): the .bak-7 is made, 
 
   const { db, migration } = openMailDatabase(file, { key })
   try {
-    assert.deepEqual(migration, { from: 7, to: 17, backup: backupPath(file, 7) })
+    assert.deepEqual(migration, { from: 7, to: 18, backup: backupPath(file, 7) })
     assert.ok(fs.existsSync(`${file}.bak-7`), 'the pre-migration copy')
     assert.equal(db.prepare('SELECT COUNT(*) FROM folders WHERE sort_order IS NOT NULL').pluck().get(), 0, 'no manual order anywhere')
     assert.equal(db.prepare('SELECT COUNT(*) FROM folders').pluck().get(), 25)
@@ -213,7 +213,7 @@ test('a schema 7 database migrates to the latest (8 .. 17): the .bak-7 is made, 
   }
 })
 
-test('a 0.12.0 database (schema 5, encrypted) migrates to the latest: the .bak-5 is made, 6 to 17 are applied, the data stays', t => {
+test('a 0.12.0 database (schema 5, encrypted) migrates to the latest: the .bak-5 is made, 6 to 18 are applied, the data stays', t => {
   const dir = tempDir(t)
   const file = path.join(dir, 'mail.sqlite')
   const key = Buffer.alloc(32, 9)
@@ -225,7 +225,7 @@ test('a 0.12.0 database (schema 5, encrypted) migrates to the latest: the .bak-5
   old.close()
   const { db, migration } = openMailDatabase(file, { key })
   try {
-    assert.deepEqual(migration, { from: 5, to: 17, backup: backupPath(file, 5) })
+    assert.deepEqual(migration, { from: 5, to: 18, backup: backupPath(file, 5) })
     assert.ok(fs.existsSync(`${file}.bak-5`), 'the pre-migration copy')
     assert.ok(db.prepare("SELECT name FROM pragma_table_info('accounts')").pluck().all().includes('signature_image'), 'migration 6')
     assert.equal(db.prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'idx_messages_unread'").pluck().get(), 'idx_messages_unread', 'migration 7')
@@ -263,4 +263,33 @@ test('migration 13: the scheduled table is empty after the upgrade, its account 
   db.prepare('DELETE FROM accounts WHERE id = ?').run(acc)
   assert.equal(db.prepare('SELECT count(*) AS n FROM scheduled').get().n, 0, 'CASCADE')
   assert.ok(db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = 'idx_scheduled_due'").get())
+})
+
+test('migration 18: a schema 17 database gets idx_messages_pending_idate; the .bak-17 is made, every row and every old index stays', t => {
+  const dir = tempDir(t)
+  const file = path.join(dir, 'mail.sqlite')
+  const key = Buffer.alloc(32, 7)
+  const old = openDatabase(file, key)
+  migrate(old, MIGRATIONS.slice(0, 17))
+  const acc = Number(old.prepare("INSERT INTO accounts (name, email, type, in_host, in_port, in_security, in_user, body_index_days, created_at) VALUES ('m', 'm@example.invalid', 'imap', 'h', 993, 'tls', 'u', 1095, 0)").run().lastInsertRowid)
+  const add = old.prepare("INSERT INTO messages (account_id, folder, uid, from_addr, to_addrs, cc_addrs, subject, date, idate, flags, size, has_attachments, body_state, label_key) VALUES (?, 'INBOX', ?, 'a@example.invalid', 'b@example.invalid', '', 's', ?, ?, '', 1, 0, ?, ?)")
+  for (let i = 0; i < 40; i++) add.run(acc, i + 1, i, i % 4 ? i : null, i % 3, `k:${i}`)
+  const rows = old.prepare('SELECT * FROM messages ORDER BY id').all()
+  const indexes = old.prepare("SELECT name, sql FROM sqlite_master WHERE type = 'index' ORDER BY name").all()
+  old.close()
+  const { db, migration } = openMailDatabase(file, { key })
+  try {
+    assert.deepEqual(migration, { from: 17, to: 18, backup: backupPath(file, 17) })
+    assert.ok(fs.existsSync(`${file}.bak-17`))
+    assert.deepEqual(db.prepare('SELECT * FROM messages ORDER BY id').all(), rows, 'every row byte for byte')
+    const now = db.prepare("SELECT name, sql FROM sqlite_master WHERE type = 'index' ORDER BY name").all()
+    assert.deepEqual(now.filter(i => i.name !== 'idx_messages_pending_idate'), indexes, 'every old index stays as it was')
+    assert.equal(now.find(i => i.name === 'idx_messages_pending_idate').sql, 'CREATE INDEX idx_messages_pending_idate ON messages (account_id, body_state, idate)')
+    assert.equal(db.pragma('integrity_check', { simple: true }), 'ok')
+    // the pending rows, newest first (no date last), through the new index
+    const index = new MailIndex(db)
+    assert.deepEqual(index.pendingBodies(acc, 100).map(r => r.uid), rows.filter(r => r.body_state === 0).sort((a, b) => (b.idate ?? -1) - (a.idate ?? -1) || b.id - a.id).map(r => r.uid))
+  } finally {
+    db.close()
+  }
 })

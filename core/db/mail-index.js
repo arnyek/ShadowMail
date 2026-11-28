@@ -155,6 +155,10 @@ export class MailIndex {
       setBodyState: p('UPDATE messages SET body_state = ?, preview = COALESCE(?, preview) WHERE id = ?'),
       setFlags: p('UPDATE messages SET flags = ? WHERE account_id = ? AND folder = ? AND uid = ?'),
       delMsg: p('DELETE FROM messages WHERE id = ?'),
+      // the sync's delete of a message gone from the server: only while the row is still that UID in that folder (it may
+      // have been moved since the folder was read, core/db/sync-read.js)
+      guardedPath: p('SELECT store_path FROM messages WHERE id = ? AND account_id = ? AND folder = ? AND uid = ?'),
+      delGuarded: p('DELETE FROM messages WHERE id = ? AND account_id = ? AND folder = ? AND uid = ?'),
       localUids: p('SELECT id, uid, idate, body_state, flags FROM messages WHERE account_id = ? AND folder = ?'),
       // (a) beyond the limit, not pinned: indexed text goes (pending rows simply skip the download)
       beyondLimit: p(`SELECT id, body_state FROM messages
@@ -183,10 +187,14 @@ export class MailIndex {
         WHERE account_id = @account_id AND folder = @folder AND bcc_addrs IS NULL
           AND recipient_key(to_addrs, cc_addrs, NULL) = ''`),
       setBcc: p('UPDATE messages SET bcc_addrs = ? WHERE id = ?'),
-      // rows whose header columns hold U+FFFD (raw 8-bit fields read as UTF-8 before 0.15.1); folder null = every folder,
-      // local = only rows without a UID (POP3)
-      brokenHeaders: p(`SELECT id, uid, folder, store_path FROM messages
-        WHERE account_id = @account_id AND (@folder IS NULL OR folder = @folder) AND (@local = 0 OR uid IS NULL)
+      // rows whose header columns hold U+FFFD (raw 8-bit fields read as UTF-8 before 0.15.1); local = only rows without a
+      // UID (POP3). Two statements, not one with "@folder IS NULL OR folder = @folder": with that the planner cannot use
+      // idx_messages_folder_date and reads every row of the account for each folder (measured)
+      brokenHeadersFolder: p(`SELECT id, uid, folder, store_path FROM messages
+        WHERE account_id = @account_id AND folder = @folder AND (@local = 0 OR uid IS NULL)
+          AND (instr(subject, @bad) > 0 OR instr(from_name, @bad) > 0 OR instr(to_addrs, @bad) > 0 OR instr(cc_addrs, @bad) > 0)`),
+      brokenHeadersAll: p(`SELECT id, uid, folder, store_path FROM messages
+        WHERE account_id = @account_id AND (@local = 0 OR uid IS NULL)
           AND (instr(subject, @bad) > 0 OR instr(from_name, @bad) > 0 OR instr(to_addrs, @bad) > 0 OR instr(cc_addrs, @bad) > 0)`),
       setHeaders: p(`UPDATE messages SET subject = @subject, from_name = @from_name, to_addrs = @to_addrs, cc_addrs = @cc_addrs
         WHERE id = @id`),
@@ -212,11 +220,15 @@ export class MailIndex {
       byUidl: p('SELECT * FROM messages WHERE account_id = ? AND pop3_uidl = ?'),
       pop3Doubled: p('SELECT uidl FROM pop3_doubled WHERE account_id = ?'),
       addPop3Doubled: p('INSERT OR IGNORE INTO pop3_doubled (account_id, uidl) VALUES (?, ?)'),
-      pendingLocal: p(`SELECT id, store_path FROM messages
+      // the body phase's batches: the pending rows newest first, from the index itself (migration 18); pinned with INDEXED
+      // BY, because after ANALYZE with many pending rows the planner took the (account, folder, uid) index and sorted
+      // every local row (measured); without it a query with nothing pending walked every row of the account
+      pendingLocal: p(`SELECT id, store_path FROM messages INDEXED BY idx_messages_pending_idate
         WHERE account_id = ? AND body_state = 0 AND uid IS NULL AND store_path IS NOT NULL ORDER BY idate DESC LIMIT ?`),
-      pending: p(`SELECT id, folder, uid FROM messages
+      pending: p(`SELECT id, folder, uid FROM messages INDEXED BY idx_messages_pending_idate
         WHERE account_id = ? AND body_state = 0 AND uid IS NOT NULL ORDER BY idate DESC LIMIT ?`),
       pendingCount: p('SELECT COUNT(*) AS n FROM messages WHERE account_id = ? AND body_state = 0 AND uid IS NOT NULL'),
+      pendingLocalCount: p('SELECT COUNT(*) AS n FROM messages WHERE account_id = ? AND body_state = 0 AND uid IS NULL AND store_path IS NOT NULL'),
       get: p('SELECT * FROM messages WHERE id = ?'),
       getByUid: p('SELECT * FROM messages WHERE account_id = ? AND folder = ? AND uid = ?'),
       byMsgId: p('SELECT * FROM messages WHERE account_id = ? AND message_id = ?'),
@@ -249,6 +261,14 @@ export class MailIndex {
     this.deleteIds = db.transaction(ids => {
       for (const id of ids) this.s.delMsg.run(id) // the FTS row goes with it (trigger)
     })
+    this.deleteGuardedTx = db.transaction((accountId, folder, items) => {
+      const out = []
+      for (const { id, uid } of items) {
+        const row = this.s.guardedPath.get(id, accountId, folder, uid)
+        if (row && this.s.delGuarded.run(id, accountId, folder, uid).changes) out.push({ id, storePath: row.store_path })
+      }
+      return out
+    })
     this.setBccTx = db.transaction(items => {
       let n = 0
       for (const { id, bcc } of items) n += this.s.setBcc.run(bcc || '', id).changes
@@ -260,14 +280,28 @@ export class MailIndex {
       this.s.setFtsHeaders.run({ id, subject: row.subject, sender_text: h.sender_text || '', recipients_text: h.recipients_text || '' })
       return true
     })
+    // listeners of new rows (the new-mail notice): told { id, account_id, folder } of every row inserted, inside the
+    // transaction, so a listener only takes note (the row may still roll back) and must not throw
+    this.insertListeners = new Set()
     this.insertMany = db.transaction(rows => {
       let n = 0
+      const added = this.insertListeners.size ? [] : null
       for (const r of rows) {
         // the label key from the columns as stored: the one place every new row gets it (sync, POP3, compose)
         const info = this.s.insertMsg.run({ pop3_uidl: null, store_path: null, body_state: 0, bcc_addrs: null, ...r, label_key: labelKeyOf(r) })
         if (info.changes) {
           this.s.insertFts.run(info.lastInsertRowid, r.subject || '', r.sender_text || '', r.recipients_text || '', '')
+          if (added) added.push({ id: Number(info.lastInsertRowid), account_id: r.account_id, folder: r.folder })
           n++
+        }
+      }
+      if (added && added.length) {
+        for (const fn of this.insertListeners) {
+          try {
+            fn(added)
+          } catch {
+            // a listener's error never fails the insert
+          }
         }
       }
       return n
@@ -455,6 +489,15 @@ export class MailIndex {
     }
   }
 
+  /**
+   * The sync's delete of messages gone from the server: items [{ id, uid }] of `folder`; a row goes only while its id,
+   * account, folder and UID still match (a message moved meanwhile stays). One transaction. -> [{ id, storePath }] of
+   * the deleted rows (only their files may go from the store)
+   */
+  deleteGuarded(accountId, folder, items) {
+    return this.deleteGuardedTx(accountId, folder, items)
+  }
+
   localUids(accountId, folder) {
     return this.s.localUids.all(accountId, folder)
   }
@@ -484,6 +527,12 @@ export class MailIndex {
   }
 
   /** fn inside one write transaction (the search refiner's batched write-back); -> fn's result */
+  /** fn(rows): told the new rows of every insert ({ id, account_id, folder }); -> a function that removes it */
+  onInsert(fn) {
+    this.insertListeners.add(fn)
+    return () => this.insertListeners.delete(fn)
+  }
+
   inTransaction(fn) {
     return this.db.transaction(fn)()
   }
@@ -514,7 +563,8 @@ export class MailIndex {
 
   /** [{ id, uid, folder, store_path }] of the rows with a U+FFFD header column; folder null = every folder; local: POP3 rows only. */
   brokenHeaderRows(accountId, { folder = null, local = false } = {}) {
-    return this.s.brokenHeaders.all({ account_id: accountId, folder, local: local ? 1 : 0, bad: '\uFFFD' })
+    const params = { account_id: accountId, local: local ? 1 : 0, bad: '\uFFFD' }
+    return folder == null ? this.s.brokenHeadersAll.all(params) : this.s.brokenHeadersFolder.all({ ...params, folder })
   }
 
   /**
@@ -622,6 +672,11 @@ export class MailIndex {
 
   pendingCount(accountId) {
     return this.s.pendingCount.get(accountId).n
+  }
+
+  /** POP3: how many rows wait for their text from their .eml (pendingLocalBodies without the rows) */
+  pendingLocalCount(accountId) {
+    return this.s.pendingLocalCount.get(accountId).n
   }
 
   /** The replies to Message-ID `messageId` in `folder` of the account: { id, date, count } of the latest, or null. */

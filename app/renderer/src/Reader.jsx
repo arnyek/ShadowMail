@@ -285,7 +285,7 @@ function RepliedLine({ message, onOpen }) {
   )
 }
 
-export function Reader({ messageId, onOpen, onBack = null, onAction = null, onLoaded = null, accounts = [], flagEvent = null, labelList = [], labelEvent = null, onLabel = null, onLabelPick = null }) {
+export function Reader({ messageId, onOpen, onBack = null, onAction = null, onLoaded = null, accounts = [], flagEvent = null, labelList = [], labelEvent = null, onLabel = null, onLabelPick = null, onDragOut = null }) {
   const [message, setMessage] = useState(null)
   const [labels, setLabels] = useState([]) // the open message's label ids (mail:open, then the changes)
   const [error, setError] = useState(null)
@@ -482,8 +482,10 @@ export function Reader({ messageId, onOpen, onBack = null, onAction = null, onLo
     const roles = assignRoles(account.folders)
     return account.folders.filter(f => f.path !== message.folder).map(f => ({ path: f.path, role: roles.get(f.path) || null }))
   }, [account, message])
-  // the Archive button: only where the list has one too (the account has an Archive, the message is not in it)
-  const canArchive = useMemo(() => Boolean(account && message && archiveFor(account.folders, message.folder).archive), [account, message])
+  // the Archive button, the toolbar's first: it works where the list has one too (the account has an Archive, the message
+  // is not in it); elsewhere it stays in its place, disabled, and says why (the End key's notice text)
+  const archiveTo = useMemo(() => (account && message ? archiveFor(account.folders, message.folder) : { reason: 'no_archive' }), [account, message])
+  const canArchive = Boolean(archiveTo.archive)
   // a message in its account's Drafts folder (the main process's own rule) opens again in the composer
   const isDraft = useMemo(() => Boolean(account && message && assignRoles(account.folders).get(message.folder) === 'drafts'), [account, message])
 
@@ -541,6 +543,16 @@ export function Reader({ messageId, onOpen, onBack = null, onAction = null, onLo
         {back}
         <div className="reader-tools" role="toolbar" aria-label={t.readerToolsLabel}>
           <IconButton
+            icon="archive"
+            className="reader-archive"
+            label={t.actions.archive}
+            disabled={!canArchive}
+            aria-disabled={canArchive ? undefined : 'true'}
+            title={canArchive ? t.actions.archive : t.readerKeys[archiveTo.reason]}
+            aria-description={canArchive ? undefined : t.readerKeys[archiveTo.reason]}
+            onClick={() => act('archive')}
+          />
+          <IconButton
             icon="star"
             filled={flagged}
             className={flagged ? 'star-on' : undefined}
@@ -552,7 +564,6 @@ export function Reader({ messageId, onOpen, onBack = null, onAction = null, onLo
           {/* a draft: the edit button takes this place in the toolbar (a 360 px reader has no room for both); below it stays */}
           {!isDraft && <IconButton icon="replyAll" label={t.replyModes.replyAll} onClick={() => compose('replyAll')} />}
           <IconButton icon="forward" label={t.replyModes.forward} onClick={() => compose('forward')} />
-          {canArchive && <IconButton icon="archive" className="reader-archive" label={t.actions.archive} onClick={() => act('archive')} />}
           <IconButton icon="trash" label={t.actions.delete} onClick={() => act('delete')} />
           {moveTargets.length > 0 && (
             <MenuButton
@@ -566,7 +577,23 @@ export function Reader({ messageId, onOpen, onBack = null, onAction = null, onLo
         </div>
       </div>
       <header className="reader-header">
-        <h2 className="reader-subject">{message.subject || t.noSubject}</h2>
+        <div className="reader-subject-row">
+          {/* the drag handle: only it starts a drag (the header text stays selectable); the list's own drag-out
+              controller with the open message, so a folder takes it as a move and another program as an .eml */}
+          {onDragOut && (
+            <span
+              className="reader-drag-handle"
+              draggable="true"
+              role="img"
+              aria-label={t.readerDragHandle}
+              title={t.readerDragHandle}
+              onDragStart={e => onDragOut(e, [message.id], () => ({ stored: true, size: message.size }))}
+            >
+              <Icon name="dragHandle" />
+            </span>
+          )}
+          <h2 className="reader-subject">{message.subject || t.noSubject}</h2>
+        </div>
         {onLabelPick ? (
           <div className="reader-labels" role="group" aria-label={t.labels.pickerTitle}>
             {labelList

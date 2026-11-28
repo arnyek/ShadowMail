@@ -10,7 +10,7 @@ import { Mail } from './Mail.jsx'
 import { Contacts } from './Contacts.jsx'
 import { ReaderPaneButton, READER_PANES, readerPaneOf } from './ReaderPaneButton.jsx'
 import { Icon } from './Icon.jsx'
-import { Banner, Button, Checkbox, IconButton, PageHeader, Select, SettingList, SettingRow, Splitter } from './ui/index.js'
+import { Banner, Button, Checkbox, IconButton, Modal, PageHeader, Select, SettingList, SettingRow, Splitter } from './ui/index.js'
 import { getPref, setPref } from './prefs.js'
 import { THEMES, applyTheme, themeOf } from './themes.js'
 import { LabelsSettings } from './LabelsSettings.jsx'
@@ -138,6 +138,53 @@ function TaskbarUnreadSetting() {
   )
 }
 
+/**
+ * The new-mail notice (Windows): OFF by default, the main process holds the switch. Turning it ON asks first: Windows
+ * shows the notice only with a Start menu shortcut, which the program then writes; the switch goes on only after a yes
+ * and a written shortcut. lost: the shortcut could not be written again at the unlock, the switch went off.
+ */
+function NewMailNoticeSetting() {
+  const [state, setState] = useState(null)
+  const [asking, setAsking] = useState(false)
+  const [error, setError] = useState(null)
+  useEffect(() => {
+    let alive = true
+    api.notify.status().then(r => alive && r && r.ok && setState({ enabled: r.enabled, lost: r.lost }), () => {})
+    return () => {
+      alive = false
+    }
+  }, [])
+  if (state === null) return null
+  const set = async on => {
+    setError(null)
+    setAsking(false)
+    const r = await api.notify.setEnabled(on).catch(() => null)
+    if (r && r.ok) setState({ enabled: r.enabled, lost: false })
+    else setError(r && r.error === 'shortcut_failed' ? t.newMailNotice.shortcutFailed : t.newMailNotice.failed)
+  }
+  return (
+    <SettingRow className="setting-new-mail-notice" label={t.newMailNotice.label} description={t.settingDesc.newMailNotice}>
+      <Checkbox id="new-mail-notify-switch" switch hideLabel checked={state.enabled} onChange={e => (e.target.checked ? (setError(null), setAsking(true)) : set(false))} label={t.newMailNotice.label} />
+      <p className="hint new-mail-notice-why">{t.newMailNotice.why}</p>
+      {state.lost && !error && <p className="error" role="alert">{t.newMailNotice.lost}</p>}
+      {error && <p className="error" role="alert">{error}</p>}
+      {asking && (
+        <Modal
+          title={t.newMailNotice.askTitle}
+          className="new-mail-notice-ask"
+          onClose={() => setAsking(false)}
+          actions={[
+            <Button key="no" variant="text" onClick={() => setAsking(false)}>{t.confirmCancel}</Button>,
+            <Button key="yes" variant="primary" data-autofocus onClick={() => set(true)}>{t.newMailNotice.askYes}</Button>,
+          ]}
+        >
+          <p className="confirm-text">{t.newMailNotice.ask}</p>
+        </Modal>
+      )}
+    </SettingRow>
+  )
+}
+
 /** Where a message opens: the App's value, the same one the header's quick switch changes. The language, the theme, the taskbar badge. */
 function AppearanceSettings({ readerPane, onReaderPane }) {
   return (
@@ -157,6 +204,7 @@ function AppearanceSettings({ readerPane, onReaderPane }) {
             />
           </SettingRow>
           <TaskbarUnreadSetting />
+          <NewMailNoticeSetting />
         </SettingList>
       </div>
     </section>
@@ -266,6 +314,10 @@ export function App() {
           const when = e.sendAt ? new Intl.DateTimeFormat(locale, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(e.sendAt)) : ''
           const text = t.scheduledNotice(e.event, e.subject || '', { when, lateMin: e.lateMs ? Math.floor(e.lateMs / 60_000) : 0, error: e.error })
           setScheduledNotices(list => [...list.slice(-4), { key: `${e.event}-${e.id}-${Date.now()}`, event: e.event, text }])
+        }
+        // a new-mail notice clicked: the message (or the account's inbox, for a summary) opens at once
+        if (e && e.kind === 'mailNotice' && Number.isInteger(e.accountId) && typeof e.folder === 'string') {
+          showClaude({ type: 'open', messageId: Number.isInteger(e.messageId) ? e.messageId : null, accountId: e.accountId, folder: e.folder })
         }
         const req =
           e && e.kind === 'claudeOpen' && Number.isInteger(e.messageId)

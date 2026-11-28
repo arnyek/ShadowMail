@@ -21,26 +21,15 @@ import { BODY_STATE } from '../db/mail-index.js'
 import { BODY_TX, FLAG_TX, INSERT_TX, inSlices, tick } from '../db/write-slices.js'
 import { applyBodyLimit, bodyCutoff, withinBodyLimit } from '../db/body-limit.js'
 import { classifyError } from '../accounts/probe.js'
+import { FLAG_CHUNK, changedFlags, flagRanges, folderDiff, onServer as onServerRows } from './folder-diff.js'
 
-export { bodyCutoff }
+export { bodyCutoff, FLAG_CHUNK, flagRanges }
 const META_CHUNK = 200
-// without CONDSTORE the flag check asks every known message: in UID ranges of this many known UIDs, one after the other
-// (100 000 known messages, the sync's own run over real imapflow: one `min:*` FETCH gave a 1 s main-thread block,
-// ranges of 5 000 still 165 ms on the first one, 2 000 at most 50 ms, measured)
-export const FLAG_CHUNK = 2000
 const BODY_CHUNK = 25
 export const BODY_FETCH_BYTES = 256 * 1024
 // The raw header fields a broken envelope is decoded from anew (raw 8-bit, not UTF-8: imapflow reads them as UTF-8 and
 // gives U+FFFD); content-type gives the charset (raw-headers.js).
 export const HEADER_REPAIR_FIELDS = Object.freeze(['subject', 'from', 'to', 'cc', 'content-type'])
-
-/** the known UIDs (any order) as `first:last` ranges of at most `size` UIDs each, ascending */
-export function flagRanges(uids, size = FLAG_CHUNK) {
-  const sorted = Uint32Array.from(uids).sort()
-  const out = []
-  for (let i = 0; i < sorted.length; i += size) out.push(`${sorted[i]}:${sorted[Math.min(i + size, sorted.length) - 1]}`)
-  return out
-}
 
 const chunks = (arr, n) => {
   const out = []
@@ -121,7 +110,10 @@ export class Syncer {
     bodyGate = null,
     loopWatch = null,
     onRunEnd = null,
+    syncReader = null,
   }) {
+    // core/db/sync-read.js: the folder step's reads on a worker thread; null (or a request answered null): the main thread
+    this.syncReader = syncReader
     // the run's diagnostic summary (app/main/sync-manager.js logs it): onRunEnd(summary) after every run, the main
     // thread's gaps from loopWatch.begin() (app/main/loop-watch.js); runStats: the counters of the run in work
     this.loopWatch = loopWatch
@@ -342,7 +334,7 @@ export class Syncer {
 
   /** a run starts: its counters (kind: full | targeted | pop3) and its main-thread gap window */
   _runBegin(kind) {
-    this.runStats = { kind, condstore: null, folders: 0, flags: 0, bodies: 0, listMs: 0, metaMs: 0, bodiesMs: 0 }
+    this.runStats = { kind, condstore: null, folders: 0, flags: 0, bodies: 0, listMs: 0, metaMs: 0, bodiesMs: 0, reader: this.syncReader ? 'worker' : 'main' }
     return { t0: performance.now(), loop: this.loopWatch ? this.loopWatch.begin() : null }
   }
 
@@ -365,7 +357,7 @@ export class Syncer {
     const result = err ? (err.code === 'SYNC_STOPPED' ? 'stopped' : this.state.errorCode || 'error') : this.state.errorCode || 'ok'
     const ms = n => Math.round(n)
     try {
-      this.onRunEnd({ accountId: this.account.id, kind: s.kind, condstore: s.condstore, folders: s.folders, flags: s.flags, added: this.state.lastAdded, bodies: s.bodies, ms: ms(performance.now() - begun.t0), listMs: ms(s.listMs), metaMs: ms(s.metaMs), bodiesMs: ms(s.bodiesMs), loopMax: loop.max, loopOver100: loop.over, result })
+      this.onRunEnd({ accountId: this.account.id, kind: s.kind, condstore: s.condstore, folders: s.folders, flags: s.flags, added: this.state.lastAdded, bodies: s.bodies, ms: ms(performance.now() - begun.t0), listMs: ms(s.listMs), metaMs: ms(s.metaMs), bodiesMs: ms(s.bodiesMs), loopMax: loop.max, loopOver100: loop.over, reader: s.reader, result })
     } catch {
       // a broken log hook must not fail the sync
     }
@@ -443,7 +435,7 @@ export class Syncer {
       // come back at the next run with new message ids, the local data on them lost), and the roles would be decided
       // over the old paths. Both wait for the next full run (a rename or a move asks for one; otherwise the interval)
       if (!only && this.index.folderWriteCount(accountId) === writesAtList) {
-        const before = new Set(this.index.folders(accountId).filter(f => !f.is_local).map(f => f.path))
+        const before = new Set(this.index.folderList(accountId).filter(f => !f.is_local).map(f => f.path))
         this.index.dropFoldersExcept(accountId, folders.map(f => f.path))
         const dropped = [...before].filter(p => !folders.some(f => f.path === p))
         if (dropped.length) this._changed(dropped)
@@ -514,6 +506,7 @@ export class Syncer {
     let changed = false
     // readOnly = EXAMINE: the sync never sets \Seen.
     const lock = await client.getMailboxLock(f.path, { readOnly: true })
+    let reads = null
     try {
       const mb = client.mailbox
       const uidvalidity = String(mb.uidValidity)
@@ -545,28 +538,27 @@ export class Syncer {
         if (found.length === 0) throw new Error(`UID SEARCH returned nothing for a mailbox with ${mb.exists} messages`)
         onServer = found
       }
-      const serverSet = new Set(onServer)
-      const local = this.index.localUids(accountId, f.path)
-      const localSet = new Set(local.map(r => r.uid))
+      // the folder's stored rows against the server's UIDs: on the read worker, or here
+      reads = await this._folderReads(accountId, f.path, onServer)
 
-      // deleted or moved away on the server (whole folder, there is no window any more)
-      const gone = local.filter(r => !serverSet.has(r.uid)).map(r => r.id)
-      if (gone.length) {
-        const files = this.sealed ? gone.map(id => (this.index.get(id) || {}).store_path).filter(Boolean) : []
-        this.index.deleteIds(gone)
-        for (const rel of files) {
+      // deleted or moved away on the server (whole folder, there is no window any more); a row moved since the read
+      // (by the user or Claude) does not match its old folder and UID any more and stays, with its file
+      if (reads.gone.length) {
+        const deleted = this.index.deleteGuarded(accountId, f.path, reads.gone)
+        for (const { storePath } of deleted) {
+          if (!this.sealed || !storePath) continue
           try {
-            this.sealed.remove(rel)
+            this.sealed.remove(storePath)
           } catch {
             // a path outside the store or a held file: the row is gone, the file stays
           }
         }
-        this.state.lastRemoved += gone.length
-        changed = true
+        this.state.lastRemoved += deleted.length
+        if (deleted.length) changed = true
       }
 
       // new messages, newest first
-      const fresh = onServer.filter(u => !localSet.has(u)).sort((a, b) => b - a)
+      const fresh = reads.fresh
       let done = 0
       for (const part of chunks(fresh, META_CHUNK)) {
         this._checkStopped()
@@ -593,37 +585,41 @@ export class Syncer {
       }
 
       // Sent / Drafts rows stored before 0.15.1 without To and Cc: their Bcc from the server's envelope (the recipient
-      // column's fallback), once per folder and instance; only these rows, one FETCH of their envelopes
-      if (!this.bccFillDone.has(f.path) && RECIPIENT_ROLES.has(assignRoles(this.index.folderList(accountId)).get(f.path))) {
-        this.bccFillDone.add(f.path)
-        if (await this.fillUnknownBcc(client, accountId, f.path, serverSet)) changed = true
-      }
-
-      // rows stored before 0.15.1 with a raw 8-bit header read as UTF-8: decoded anew from the server's header fields, once
-      // per folder and instance (the check reads the folder's rows)
-      if (!this.headerRepairDone.has(f.path)) {
-        this.headerRepairDone.add(f.path)
-        if (await this.repairStoredHeaders(client, f.path, serverSet)) changed = true
+      // column's fallback), once per folder and instance; only these rows, one FETCH of their envelopes.
+      // Rows stored before 0.15.1 with a raw 8-bit header read as UTF-8: decoded anew from the server's header fields,
+      // once per folder and instance. Both read the folder's rows (on the read worker when it is there)
+      const wantBcc = !this.bccFillDone.has(f.path) && RECIPIENT_ROLES.has(assignRoles(this.index.folderList(accountId)).get(f.path))
+      const wantHeaders = !this.headerRepairDone.has(f.path)
+      if (wantBcc || wantHeaders) {
+        if (wantBcc) this.bccFillDone.add(f.path)
+        const extra = await reads.extra(wantBcc, wantHeaders)
+        this._checkStopped()
+        if (wantBcc && (await this.fillUnknownBcc(client, accountId, f.path, extra.bcc))) changed = true
+        if (wantHeaders) {
+          this.headerRepairDone.add(f.path)
+          if (await this.repairStoredHeaders(client, f.path, extra.headers)) changed = true
+        }
       }
 
       // flag changes (read, starred) on messages we already had
-      const known = local.filter(r => serverSet.has(r.uid))
-      if (known.length) {
+      if (reads.knownCount) {
         const useModseq = saved && saved.highest_modseq && mb.highestModseq
-        const minUid = minOf(known.map(r => r.uid)) // no spread: 100 000+ UIDs overflow the call stack
         const opts = { uid: true }
         if (useModseq) opts.changedSince = BigInt(saved.highest_modseq)
-        const flagsByUid = new Map(known.map(r => [r.uid, r.flags]))
         const updates = []
         // CONDSTORE: one FETCH of the changes since the saved modseq; without it: the known UIDs in ranges
-        const ranges = useModseq ? [`${minUid}:*`] : flagRanges(known.map(r => r.uid))
+        const ranges = useModseq ? [`${reads.minKnown}:*`] : reads.ranges
         for (const range of ranges) {
+          // the answers of one range, compared against the stored flags (on the read worker when it is there)
+          const uids = []
+          const flags = []
           for await (const msg of client.fetch(range, { uid: true, flags: true }, opts)) {
             if (this.runStats) this.runStats.flags++
-            if (!flagsByUid.has(msg.uid)) continue
-            const flags = [...(msg.flags || [])].join(' ')
-            if (flags !== flagsByUid.get(msg.uid)) updates.push({ uid: msg.uid, flags })
+            uids.push(msg.uid)
+            flags.push([...(msg.flags || [])].join(' '))
           }
+          if (uids.length) for (const u of await reads.changedFlags(uids, flags)) updates.push(u)
+          this._checkStopped()
         }
         if (updates.length) {
           await inSlices(updates, FLAG_TX, slice => this.index.setFlagsMany(accountId, f.path, slice), () => this._checkStopped(), () => this._walHold())
@@ -643,14 +639,94 @@ export class Syncer {
       })
       if (isNew) changed = true // a new folder: the tree must show it
     } finally {
+      if (reads) reads.release()
       lock.release()
     }
     return changed
   }
 
-  /** The folder's rows with an unknown Bcc and no To / Cc get it from the server's envelope. -> any row changed? */
-  async fillUnknownBcc(client, accountId, folder, serverSet) {
-    const rows = this.index.bccUnknownRows(accountId, folder).filter(r => serverSet.has(r.uid))
+  /**
+   * The reads of one folder's step: the stored rows against the server's UIDs (server: the UID SEARCH answer), then on
+   * request the rows with an unknown Bcc or a broken header, and the flag answers against the stored flags. On the read
+   * worker (core/db/sync-read.js) when it is there; a request it answers null (no worker, it died, a read failed) goes
+   * the main-thread way, for the rest of the folder too. Both ways decide with core/imap/folder-diff.js.
+   * -> { gone: [{ id, uid }], fresh: number[] (newest first), knownCount, minKnown, ranges, extra(bcc, headers),
+   * changedFlags(uids, flags), release() }
+   */
+  async _folderReads(accountId, folder, server) {
+    const reader = this.syncReader
+    const res = reader ? await reader.diff({ accountId, folder, server: Uint32Array.from(server) }) : null
+    this._checkStopped() // a stop (lock) drops the worker's answer: nothing is read or written after it
+    if (!res) return this._mainReads(accountId, folder, server)
+    const fresh = Array.from(res.fresh)
+    // the main-thread way from the middle of the folder: the server's set, and the flags of the rows known BEFORE this
+    // folder's inserts (the rows stored now, without the new ones; the gone ones are deleted)
+    let serverSet = null
+    let known = null
+    const serverSetHere = () => (serverSet ??= new Set(server))
+    const knownHere = () => {
+      if (known) return known
+      const freshSet = new Set(fresh)
+      const set = serverSetHere()
+      known = new Map()
+      for (const r of this.index.localUids(accountId, folder)) if (set.has(r.uid) && !freshSet.has(r.uid)) known.set(r.uid, r.flags)
+      return known
+    }
+    const toMain = () => {
+      if (this.runStats) this.runStats.reader = 'main'
+    }
+    return {
+      gone: res.gone,
+      fresh,
+      knownCount: res.knownCount,
+      minKnown: res.minKnown,
+      ranges: res.ranges,
+      extra: async (bcc, headers) => {
+        const got = await reader.extra({ snap: res.snap, accountId, folder, bcc, headers })
+        this._checkStopped()
+        if (got) return got
+        toMain()
+        return this._extraHere(accountId, folder, serverSetHere(), bcc, headers)
+      },
+      changedFlags: async (uids, flags) => {
+        if (!known) {
+          const got = await reader.flags(res.snap, Uint32Array.from(uids), flags)
+          this._checkStopped()
+          if (got) return got.changed
+          toMain()
+        }
+        return changedFlags(knownHere(), uids, flags)
+      },
+      release: () => reader.release(res.snap),
+    }
+  }
+
+  /** the folder step's reads on the main thread (no read worker, or it failed) */
+  _mainReads(accountId, folder, server) {
+    if (this.runStats) this.runStats.reader = 'main'
+    const d = folderDiff(this.index.localUids(accountId, folder), server)
+    return {
+      gone: d.gone,
+      fresh: Array.from(d.fresh),
+      knownCount: d.known.size,
+      minKnown: d.minKnown,
+      ranges: d.known.size ? flagRanges(d.known.keys()) : [],
+      extra: async (bcc, headers) => this._extraHere(accountId, folder, d.serverSet, bcc, headers),
+      changedFlags: async (uids, flags) => changedFlags(d.known, uids, flags),
+      release: () => {},
+    }
+  }
+
+  /** the rows with an unknown Bcc and with a broken header, on the server, read on the main thread */
+  _extraHere(accountId, folder, serverSet, bcc, headers) {
+    return {
+      bcc: bcc ? onServerRows(this.index.bccUnknownRows(accountId, folder), serverSet) : [],
+      headers: headers ? onServerRows(this.index.brokenHeaderRows(accountId, { folder }), serverSet) : [],
+    }
+  }
+
+  /** rows: the folder's rows on the server with an unknown Bcc and no To / Cc ([{ id, uid }]): their Bcc from the server's envelope. -> any row changed? */
+  async fillUnknownBcc(client, accountId, folder, rows) {
     if (!rows.length) return false
     const idOf = new Map(rows.map(r => [r.uid, r.id]))
     const items = []
@@ -693,9 +769,8 @@ export class Syncer {
     }
   }
 
-  /** Stored rows of the folder with a U+FFFD header column: decoded anew from the server. -> any row changed? */
-  async repairStoredHeaders(client, folder, serverSet) {
-    const rows = this.index.brokenHeaderRows(this.account.id, { folder }).filter(r => serverSet.has(r.uid))
+  /** rows: the folder's stored rows on the server with a U+FFFD header column ([{ id, uid }]): decoded anew from the server. -> any row changed? */
+  async repairStoredHeaders(client, folder, rows) {
     if (!rows.length) return false
     const cols = await this.fetchHeaderColumns(client, rows.map(r => r.uid))
     let n = 0
@@ -745,6 +820,8 @@ export class Syncer {
   async syncBodies(ctx) {
     const accountId = this.account.id
     const total = this.index.pendingCount(accountId)
+    // nothing pending (the usual start): no batch is asked for, no gate is taken
+    if (!total) return
     let done = 0
     while (true) {
       // the batch under the shared gate: another account's body phase waits for it (and this one for theirs)

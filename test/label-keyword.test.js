@@ -110,7 +110,7 @@ test('migration 15 -> 16 on an encrypted database with labels: the .bak-15, a un
 
   const { db, migration } = openMailDatabase(file, { key })
   try {
-    assert.deepEqual(migration, { from: 15, to: 17, backup: backupPath(file, 15) })
+    assert.deepEqual(migration, { from: 15, to: 18, backup: backupPath(file, 15) })
     assert.ok(fs.existsSync(`${file}.bak-15`))
     const got = Object.fromEntries(db.prepare('SELECT name, keyword FROM labels').all().map(r => [r.name, r.keyword]))
     assert.deepEqual(got, { Számla: 'sz=c3=a1mla', 'To Do': 'to=20do', Junk: 'junk_2', nonjunk: 'nonjunk_2' })
@@ -129,7 +129,7 @@ test('migration 15 -> 16 on an encrypted database with labels: the .bak-15, a un
   }
 })
 
-test('migration 15 -> 16: labels that would take the same keyword in the list order get _2, _3; 1..17 on an empty file', t => {
+test('migration 15 -> 16: labels that would take the same keyword in the list order get _2, _3; 1..18 on an empty file', t => {
   const file = path.join(tempDir(t), 'mail.sqlite')
   const key = crypto.randomBytes(32)
   const old = openDatabase(file, key)
@@ -149,7 +149,7 @@ test('migration 15 -> 16: labels that would take the same keyword in the list or
   const fresh = path.join(tempDir(t), 'fresh.sqlite')
   const { db: db2, migration } = openMailDatabase(fresh, { key })
   try {
-    assert.deepEqual(migration, { from: 0, to: 17, backup: null })
+    assert.deepEqual(migration, { from: 0, to: 18, backup: null })
     assert.ok(db2.prepare("SELECT name FROM pragma_table_info('labels')").pluck().all().includes('keyword'))
   } finally {
     db2.close()

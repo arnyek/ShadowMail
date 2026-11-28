@@ -28,6 +28,7 @@ import { LabelPicker, nextLabelColor } from './LabelPicker.jsx'
 import { labelsWithDeltas } from './label-chips.js'
 import { rangeSelect } from './range-select.js'
 import { createDragOut, DRAG_OUT_MAX, DRAG_TYPE } from './drag-out.js'
+import { carriesFiles, EML_DROP_MAX, openDroppedEml } from './eml-drop.js'
 
 // a stored label change the list has not shown yet is dropped after this at the latest
 const DELTA_TIMEOUT_MS = 5000
@@ -1175,6 +1176,15 @@ export function Mail({ collapsed = false, readerPane = 'none', searchSlot = null
     })
   }
   const dragOut = dragOutRef.current
+  // .eml files dragged over "Új levél": the button lights up; dropped, each opens a composer (at most EML_DROP_MAX)
+  const [emlOver, setEmlOver] = useState(false)
+  const dropEml = async files => {
+    setEmlOver(false)
+    const accountId = selected && selected.accountId ? selected.accountId : null
+    const { errors, skipped } = await openDroppedEml(files, f => api.compose.openEml(f, accountId), EML_DROP_MAX)
+    if (errors.length) setActionError([...new Set(errors.map(e => t.emlDrop.error(e.error, e.detail || {})))].join(' '))
+    if (skipped) setActionNotice(t.emlDrop.tooMany(skipped, EML_DROP_MAX))
+  }
   // folder management
   const [folderMenu, setFolderMenu] = useState(null)
   const [accountMenu, setAccountMenu] = useState(null)
@@ -1618,6 +1628,8 @@ export function Mail({ collapsed = false, readerPane = 'none', searchSlot = null
     if (!p || searchText !== '' || JSON.stringify(filters) !== JSON.stringify(leftSearch(filters))) return
     if (!selected || selected.accountId !== p.accountId || selected.folder !== p.folder) return
     pendingOpen.current = null
+    // a summary notice names the folder only: the list, no message
+    if (!Number.isInteger(p.messageId)) return setOpenId(null)
     keep([p.messageId])
     setOpenId(p.messageId)
   })
@@ -1729,7 +1741,27 @@ export function Mail({ collapsed = false, readerPane = 'none', searchSlot = null
       <div className="mail-body" ref={bodyRef}>
         <aside className={`sidebar${collapsed ? ' collapsed' : ''}`} ref={asideRef}>
           <div className="sidebar-tools">
-            <Button variant="tonal" icon="compose" className="compose-button" title={collapsed ? t.newMessage : undefined} onClick={() => api.compose.open()}>
+            <Button
+              variant="tonal"
+              icon="compose"
+              className={`compose-button${emlOver ? ' drop-eml' : ''}`}
+              title={collapsed ? t.newMessage : undefined}
+              onClick={() => api.compose.open()}
+              onDragOver={e => {
+                // files only (Explorer, the desktop, our own list's drag-out); the drop effect stays the drag's own
+                if (!carriesFiles(e.dataTransfer)) return
+                e.preventDefault()
+                if (!emlOver) setEmlOver(true)
+              }}
+              onDragLeave={e => {
+                if (!e.currentTarget.contains(e.relatedTarget)) setEmlOver(false)
+              }}
+              onDrop={e => {
+                if (!carriesFiles(e.dataTransfer)) return
+                e.preventDefault()
+                void dropEml(Array.from(e.dataTransfer.files))
+              }}
+            >
               <span className="compose-label">{t.newMessage}</span>
             </Button>
           </div>
@@ -1860,6 +1892,7 @@ export function Mail({ collapsed = false, readerPane = 'none', searchSlot = null
             labelEvent={labelEvent}
             onLabel={runLabel}
             onLabelPick={id => openPicker([id], 'reader')}
+            onDragOut={dragOut.start}
           />
           </div>
         </div>

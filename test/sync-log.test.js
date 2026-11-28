@@ -28,12 +28,12 @@ const busy = ms => {
   const t0 = performance.now()
   while (performance.now() - t0 < ms);
 }
-const LINE = /^sync account=(\d+) kind=(full|targeted|pop3) condstore=(yes|no|-) folders=(\d+) flags=(\d+) new=(\d+) bodies=(\d+) ms=(\d+) list_ms=(\d+) meta_ms=(\d+) bodies_ms=(\d+) loop_max=(\d+) loop_over100=(\d+) result=([a-z_]+)$/
-const KEYS = ['account', 'kind', 'condstore', 'folders', 'flags', 'new', 'bodies', 'ms', 'list_ms', 'meta_ms', 'bodies_ms', 'loop_max', 'loop_over100', 'result']
+const LINE = /^sync account=(\d+) kind=(full|targeted|pop3) condstore=(yes|no|-) folders=(\d+) flags=(\d+) new=(\d+) bodies=(\d+) ms=(\d+) list_ms=(\d+) meta_ms=(\d+) bodies_ms=(\d+) loop_max=(\d+) loop_over100=(\d+) result=([a-z_]+) reader=(worker|main|-)$/
+const KEYS = ['account', 'kind', 'condstore', 'folders', 'flags', 'new', 'bodies', 'ms', 'list_ms', 'meta_ms', 'bodies_ms', 'loop_max', 'loop_over100', 'result', 'reader']
 const parse = line => {
   const m = LINE.exec(line)
   assert.ok(m, `the line's form: ${line}`)
-  return Object.fromEntries(KEYS.map((k, i) => [k, i === 1 || i === 2 || i === 13 ? m[i + 1] : Number(m[i + 1])]))
+  return Object.fromEntries(KEYS.map((k, i) => [k, i === 1 || i === 2 || i === 13 || i === 14 ? m[i + 1] : Number(m[i + 1])]))
 }
 
 // a manager over one IMAP account: INBOX with `inbox` messages and "Projekt Titok" with `other` (inside the body limit);
@@ -75,6 +75,7 @@ test('a full run: exactly one line, the keys in order, the run\'s own numbers; t
   assert.equal(l.new, 35)
   assert.equal(l.bodies, 35)
   assert.equal(l.result, 'ok')
+  assert.equal(l.reader, 'main', 'no read worker given: every folder read on the main thread')
   assert.ok(l.ms >= l.list_ms && l.ms >= l.bodies_ms, JSON.stringify(l))
   // a second full run: the 35 known messages' flags, nothing new
   await s.manager.requestSync(s.row.id)
@@ -203,13 +204,17 @@ test('POP3: kind=pop3 condstore=- folders=1, new and bodies the run\'s', async t
   await fetcher.run()
   assert.equal(summaries.length, 1)
   const l = parse(syncLogLine(summaries[0]))
-  assert.deepEqual([l.kind, l.condstore, l.folders, l.flags, l.new, l.bodies, l.result], ['pop3', '-', 1, 0, n, n, 'ok'])
+  assert.deepEqual([l.kind, l.condstore, l.folders, l.flags, l.new, l.bodies, l.result, l.reader], ['pop3', '-', 1, 0, n, n, 'ok', '-'])
 })
 
 test('syncLogLine: a stopped run, an unknown result code, a missing number', () => {
   const base = { accountId: 3, kind: 'full', condstore: false, folders: 1, flags: 2, added: 3, bodies: 4, ms: 5.4, listMs: 1, metaMs: 2, bodiesMs: 3, loopMax: 7.6, loopOver100: 0 }
-  assert.equal(syncLogLine({ ...base, result: 'stopped' }), 'sync account=3 kind=full condstore=no folders=1 flags=2 new=3 bodies=4 ms=5 list_ms=1 meta_ms=2 bodies_ms=3 loop_max=8 loop_over100=0 result=stopped')
-  assert.match(syncLogLine({ ...base, result: 'Bad Thing: x@y' }), / result=error$/, 'only a code goes in the line')
+  assert.equal(syncLogLine({ ...base, result: 'stopped' }), 'sync account=3 kind=full condstore=no folders=1 flags=2 new=3 bodies=4 ms=5 list_ms=1 meta_ms=2 bodies_ms=3 loop_max=8 loop_over100=0 result=stopped reader=-')
+  assert.match(syncLogLine({ ...base, result: 'Bad Thing: x@y' }), / result=error reader=-$/, 'only a code goes in the line')
+  assert.match(syncLogLine({ ...base, result: 'ok', reader: 'worker' }), / result=ok reader=worker$/)
+  assert.match(syncLogLine({ ...base, result: 'ok', reader: 'main' }), / result=ok reader=main$/)
+  assert.match(syncLogLine({ ...base, result: 'ok', reader: 'Bad/x' }), / result=ok reader=-$/, 'only worker or main goes in the line')
+  assert.match(syncLogLine({ ...base, kind: 'pop3', result: 'ok', reader: 'main' }), / result=ok reader=-$/, 'POP3 has no folder reads')
   assert.match(syncLogLine({ ...base, flags: undefined, result: 'ok' }), / flags=0 /)
 })
 

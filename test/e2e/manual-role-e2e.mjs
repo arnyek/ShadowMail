@@ -352,6 +352,9 @@ try {
   const bad = text.trim().split('\n').filter(l => /failed|error/i.test(l))
   check('5. the main log: no error or failure line', bad.length === 0, bad.join(' | '))
   check('5. the main log: no folder name', !['Ügyfelek', 'Régi', 'Partnerek', 'Lezárt', 'Projektek', 'Másik', 'Spam'].some(n => text.includes(n)))
+  // the sync's folder reads went through the app's read worker (its log line per run)
+  const syncLines = text.split('\n').filter(l => / sync account=\d+ kind=(full|targeted) /.test(l))
+  check('5. the sync runs read on the worker: reader=worker', syncLines.length > 0 && syncLines.every(l => / reader=worker$/.test(l.trimEnd())), syncLines.slice(0, 3).join(' | '))
   check('5. the page console: no error or warning', consoleLines.length === 0, consoleLines.join(' | '))
 } catch (err) {
   console.error(err)

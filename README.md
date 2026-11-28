@@ -38,7 +38,7 @@ The interface is Hungarian by default; Settings / Appearance / Nyelv / Language 
 - On Windows, the number of unread messages in a red badge on the taskbar icon (every account's Inbox together, "99+" above 99, none while locked); it can be switched off under Settings / Appearance.
 - All data encrypted, with a master password (see First start).
 
-![An open message: monogram, icon actions, attachment cards](docs/screenshots/readme-en-reader.png)
+![An open message: Archive first in the toolbar, the drag handle before the subject, monogram, attachment cards](docs/screenshots/readme-en-reader.png)
 
 ![Writing a message: From, To, Subject, icon formatting with Text color and Highlight, the blue Send button, next to it Send later](docs/screenshots/readme-en-compose.png)
 
@@ -47,13 +47,13 @@ The interface is Hungarian by default; Settings / Appearance / Nyelv / Language 
 - **Down** / **Up**: the next / previous message of the list (in its current order and filter; in a search, in the
   order of the hits). **PageUp**, **PageDown** and **Space** scroll the message.
 - **Delete** deletes, **End** archives (into the account's Archive folder, by year in the yearly mode). With a visible
-  selection in the list they act on that, otherwise on the open message. The reader's toolbar has an **Archive**
-  button next to Delete. With no message open, Delete deletes the visible selection and End goes to the end of the list.
+  selection in the list they act on that, otherwise on the open message. The first button of the reader's toolbar is
+  **Archive**. With no message open, Delete deletes the visible selection and End goes to the end of the list.
 - With the message open in place of the list (no reader pane), a delete, an archive, a move (to Junk too) or Mark as
   unread takes you **back to the list** at once, where you left it. With the reader beside or below the list, the
   **next** message of the list (the one below) opens instead; after the last one, the previous one.
 - Where there is nowhere to archive to (the account has no Archive folder, or the message is in it already), End does
-  nothing but a line says why.
+  nothing but a line says why; the Archive button stays in its place, grayed out, and its tooltip says why.
 - The keys work after a click into the message text too. In a text field, a menu, a dialog and on a pane divider they
   keep their usual meaning.
 
@@ -159,6 +159,9 @@ In the **More** menu of an open message:
   Claude desktop app, Explorer, the desktop, another mail program. It arrives there as an `.eml` file (named after the
   subject) with the whole, original source and its attachments, the same as the **Save as .eml** file.
 - The same move dropped on one of the program's **own folders** still moves the message.
+- The open message can be dragged from the reader too: take the **handle** before the subject (six dots) and drop it
+  on a folder (a move, then the next message opens) or into another program (an `.eml` file). The subject and the
+  sender's text can still be selected as before.
 - The file is an unencrypted copy in the `data\tmp` folder (where that cannot be marked: in the computer's temporary
   folder, `%TEMP%\ShadowMail`), marked as coming from the internet. The program removes it **10 minutes after the
   drag**, and at lock, quit and start too.
@@ -250,6 +253,43 @@ color, order and delete labels.
 - **On a POP3 account** a label is kept on this computer and shows on every local copy of the message. When the message
   has no Message-ID and no Date header, a copy downloaded again does not show its label.
 - Claude (MCP) can put existing labels on and take them off; only you can make, rename and delete them.
+
+### New in 0.23.0, known limits
+
+- **Archive first:** the first button of the reader's toolbar is **Archive**. Where there is nowhere to archive (the
+  account has no Archive folder, or the message is already there), the button stays in its place, grayed out, and its
+  tooltip says why.
+- **A handle in the reader:** with the **handle** (six dots) before the open message's subject the message can be
+  dragged onto a folder (a move) or into another program (an `.eml` file). The subject and the sender can be selected
+  as before.
+- **A new message from an .eml file:** `.eml` files dropped on the **New message** button open one new message each
+  (at most 5 at once): the recipients, the subject, the text with its images and the attachments come over, the sender
+  is the account of the selected folder. The file's own identity (sender, Message-ID, reply headers) does not come
+  over, so the message goes out as a new one. The file may be at most 25 MB. Some programs save a BOM or a line
+  starting with `From ` before the message: the program skips them.
+- **New mail notice (Windows):** Settings / Appearance / **Notify me of new mail**, off by default. When you turn it
+  on, the program asks whether it may create a shortcut in the Start menu (Windows shows notices only that way; it is
+  removed when you turn this off). Then a new, unread message in the Inbox gives a pop-up notice with the sender and
+  the subject (never the message's text); more than three messages from one sync give one summary. A click brings the
+  program forward and opens the message (for the summary, the Inbox). The first full sync after the program starts
+  and a locked program give no notice.
+- **Faster start with many folders:** the sync reads the folders' local data on a separate thread and finds the
+  message bodies to download and the rows with headers to repair from an index. On a start with no new mail,
+  measured on 49 folders and 100 000 messages, the folder step went from ~12 s to ~2.4 s, and the window does not
+  stall meanwhile.
+
+The known limits of this release:
+
+- None of the above was measured on Windows, only on Linux; for this release the Windows check comes after it is
+  out. The notice (the pop-up and the Start menu shortcut) has not been tried on Windows yet.
+- On the first unlock the database structure changes (a new index): the program saves a backup first
+  (`data\mail.sqlite.bak-17`, see below: When the database structure changes), and the unlock takes longer once
+  (measured ~4 s with 100 000 messages, on a 300 MB database).
+- Turning the notice on also overwrites a Start menu shortcut of the same name (`ShadowMail`) that points to another
+  program.
+- From an `.eml` file: a file with CR-only line ends (old Mac) opens an empty message (no recipient, subject or
+  text); such a file starting with a `From ` line does not open. From a file holding several messages (mbox) the
+  first message's recipients and subject come over, the other messages go into the text.
 
 ### New in 0.22.0, known limits
 
@@ -616,7 +656,7 @@ On the first start you set a **master password** (at least 10 characters, twice)
 store in the `data` folder: the account passwords, the database (message list, search index) and the downloaded
 messages. You unlock the program with it on every start, on any machine.
 
-![The locked program: master password, Unlock, I forgot the master password](docs/screenshots/readme-en-unlock.png)
+![The locked program: master password, Unlock, I forgot the master password, the program version below it](docs/screenshots/readme-en-unlock.png)
 
 ### The recovery code
 
@@ -913,7 +953,9 @@ the rules for contributing: [CONTRIBUTING.md](CONTRIBUTING.md).
 - Logs: `data\electron\logs\main.log`, the network guard's log: `data\electron\logs\net-guard.log`.
 - The `main.log` sync lines (`sync account=... kind=...`): one line per sync run, numbers only (folders, flags, new
   messages, bodies, durations in ms, and the program's longest stall during the run: `loop_max`). They hold no message
-  content, folder name, address, server or user.
+  content, folder name, address, server or user. At the line's end `reader=worker` means that the separate thread read
+  the folders' local data; `reader=main`: for at least one folder the program's own thread did (after an error of the
+  separate thread); for a POP3 account `reader=-`.
 
 ## License
 

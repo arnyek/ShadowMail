@@ -1,13 +1,14 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Electron main process. The data paths MUST be set before anything else touches Electron,
 // otherwise Chromium creates its folders under %APPDATA% / %LOCALAPPDATA%.
-import { app, BrowserWindow, clipboard, ClipboardItem, dialog, ipcMain, Menu, nativeImage, protocol, screen, session, shell } from 'electron'
+import { app, BrowserWindow, clipboard, ClipboardItem, dialog, ipcMain, Menu, nativeImage, Notification, protocol, screen, session, shell } from 'electron'
 import fs from 'node:fs'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { resolveDataDir, electronPaths, ensureWritableDir, databasePath } from '../../core/paths.js'
 import { upgradeDatabase } from '../../core/db/upgrade.js'
 import { startCheckpointer } from '../../core/db/checkpoint.js'
+import { startSyncReader } from '../../core/db/sync-read.js'
 import { sqliteVersion } from '../../core/db/index.js'
 import { t, lang, setLanguage, hu } from '../renderer/i18n/index.js'
 import { readLanguage, writeLanguage } from '../../core/ui-language-file.js'
@@ -62,6 +63,8 @@ import { ConfirmationQueue } from './mcp/confirm.js'
 import { endpointFile } from './mcp/server.js'
 import { openSettings } from './settings.js'
 import { overlayApplier, startTaskbarBadge, registerTaskbarIpc, TASKBAR_CHANNELS } from './taskbar.js'
+import { startNewMailNotice, registerNotifyIpc, NOTIFY_CHANNELS } from './new-mail-notify.js'
+import { notifyShortcut, APP_USER_MODEL_ID, SHORTCUT_SETTLE_MS } from './notify-shortcut.js'
 import { Scheduled } from '../../core/db/scheduled.js'
 import { createScheduler } from './scheduler.js'
 import { SearchTextService } from '../../core/mime/search-text-service.js'
@@ -138,12 +141,15 @@ let pastedSource = null
 let sealedStore = null // the session's SealedStore, closed (key wiped) on lock
 let searchWork = null // the session's search-text worker, refiner and re-index; stopped on lock
 let checkpointer = null // the session's WAL checkpoint worker (core/db/checkpoint.js); closed before the database
+let syncReader = null // the sync's folder-read worker (core/db/sync-read.js); closed before the database, with the checkpointer
 let unlocked = null // what the unlocked session opened (db, services); null while locked
 let openMailto = null // a mailto: link of the message frame -> a filled composer window
 let saveAllForLock = null // the open composers save before a lock (ipc/compose.js)
 let quitting = false
 let mcpService = null // MCP: Claude access of the unlocked session (pipe only while the switch is ON)
 let taskbar = null // the unread badge on the taskbar button of the unlocked session (taskbar.js)
+let newMailNotice = null // the new-mail notice of the unlocked session (new-mail-notify.js)
+let stopInsertWatch = null
 let scheduler = null // "Küldés később": sends the scheduled messages of the unlocked session (scheduler.js)
 // the lock waits this long for a scheduled send under way (its row is recorded while the database is open)
 const SCHEDULED_LOCK_WAIT_MS = 10_000
@@ -448,6 +454,9 @@ function main() {
 
   app.whenReady().then(() => {
     Menu.setApplicationMenu(null)
+    // the new-mail notice: Windows shows it only for a process whose AUMID a Start menu shortcut carries
+    // (notify-shortcut.js); only the packaged program, a development or test run keeps Electron's own
+    if (process.platform === 'win32' && app.isPackaged) app.setAppUserModelId(APP_USER_MODEL_ID)
     hardenSession()
     // nothing of the data folder is opened before the unlock (openSession)
     log(`data folder: ${dataFolderState(dataDir)}`)
@@ -485,7 +494,7 @@ function main() {
     })
     vault = new Vault(vaultPath(dataDir))
     routed = createRoutedIpc(ipcMain)
-    routed.reserve([...ACCOUNT_CHANNELS, ...MAIL_CHANNELS, ...ACTION_CHANNELS, ...LABEL_CHANNELS, ...FOLDER_CHANNELS, ...COMPOSE_CHANNELS, ...SEARCH_CHANNELS, ...READER_CHANNELS, ...DRAG_OUT_CHANNELS, ...MCP_CHANNELS, ...CONTACTS_CHANNELS, ...TASKBAR_CHANNELS, ...SCHEDULED_CHANNELS])
+    routed.reserve([...ACCOUNT_CHANNELS, ...MAIL_CHANNELS, ...ACTION_CHANNELS, ...LABEL_CHANNELS, ...FOLDER_CHANNELS, ...COMPOSE_CHANNELS, ...SEARCH_CHANNELS, ...READER_CHANNELS, ...DRAG_OUT_CHANNELS, ...MCP_CHANNELS, ...CONTACTS_CHANNELS, ...TASKBAR_CHANNELS, ...NOTIFY_CHANNELS, ...SCHEDULED_CHANNELS])
     // the message frame's schemes live as long as the app; they ask the reader of the open session
     handleMailProtocols({
       protocol,
@@ -587,6 +596,16 @@ async function openSessionNow({ created = false } = {}) {
     } finally {
       ckptKey.fill(0)
     }
+    // the sync's folder reads off the main thread: a second worker (a long read must not hold up a checkpoint)
+    const readKey = vault.databaseKey()
+    try {
+      syncReader = startSyncReader({ file: databasePath(dataDir), key: readKey, log })
+    } catch (err) {
+      syncReader = null
+      log(`sync read worker: ${errCode(err)}, main thread`)
+    } finally {
+      readKey.fill(0)
+    }
     log(`database schema ${opened.migration.from} -> ${opened.migration.to}${opened.migration.backup ? ` (backup ${opened.migration.backup})` : ''}`)
   } catch (err) {
     log(`database open failed: ${errCode(err)}`)
@@ -612,8 +631,9 @@ async function openSessionNow({ created = false } = {}) {
  */
 function closeSession({ now = false } = {}) {
   if (!unlocked) return
-  const closing = { db, syncManager, checkpointer }
+  const closing = { db, syncManager, checkpointer, syncReader }
   checkpointer = null
+  syncReader = null
   unlocked = null
   // the search-text worker stops first: what waits is dropped, nothing is written after this; a lost
   // local-source message clears its account's re-index flag (the database is still open here)
@@ -640,6 +660,11 @@ function closeSession({ now = false } = {}) {
   // the badge goes and its triggers are dropped while the database is still open
   if (taskbar) taskbar.stop()
   taskbar = null
+  // a locked program tells of no new mail
+  if (stopInsertWatch) stopInsertWatch()
+  stopInsertWatch = null
+  if (newMailNotice) newMailNotice.stop()
+  newMailNotice = null
   if (routed) routed.clear()
   if (reader) reader.clear()
   reader = null
@@ -658,14 +683,17 @@ function closeSession({ now = false } = {}) {
   }
   if (now) {
     closing.syncManager.stopAll().catch(() => {})
+    if (closing.syncReader) closing.syncReader.stopNow()
     if (closing.checkpointer) closing.checkpointer.stopNow()
     close()
     return
   }
-  // the checkpoint worker closes its connection FIRST (its key copy is long wiped); the main close makes the last one
-  closing.syncManager
-    .stopAll()
-    .catch(err => log(`sync stop failed: ${errCode(err)}`))
+  // the sync's read worker stops beside the sync (stopAll has marked every run stopped): a read under way is dropped,
+  // so a run waiting on it ends at once; then the checkpoint worker closes its connection (its key copy is long wiped);
+  // the main close makes the last one
+  const syncStopped = closing.syncManager.stopAll().catch(err => log(`sync stop failed: ${errCode(err)}`))
+  const readerStopped = closing.syncReader ? closing.syncReader.stop() : null
+  Promise.all([syncStopped, readerStopped])
     .then(() => closing.checkpointer && closing.checkpointer.stop())
     .catch(err => log(`db checkpoint worker: ${errCode(err)}`))
     .finally(close)
@@ -695,7 +723,7 @@ function buildServices(ipcMain) {
   // the labels (0.17.0): an IMAP account's on its server (keywords), POP3's in the database; the sync uploads the old local
   // ones of an IMAP account after its first full run
   const labels = new Labels(db)
-  const sm = new SyncManager({ store, index, notify, log, sealed, searchText: refiner, labels, syncerOptions: { walGate: checkpointer } })
+  const sm = new SyncManager({ store, index, notify, log, sealed, searchText: refiner, labels, syncerOptions: { walGate: checkpointer, syncReader }, onRunEnd: summary => notice && notice.runEnd(summary) })
   syncManager = sm
   reader = new MessageReader({
     searchText: refiner,
@@ -978,6 +1006,30 @@ function buildServices(ipcMain) {
   // the unread badge: counts now, then after every write of this connection (TEMP triggers)
   taskbar = startTaskbarBadge({ db, settings: openSettings(db), apply: applyOverlay, log })
   registerTaskbarIpc({ ipcMain, taskbar, isTrustedSender, log })
+  // the new-mail notice (off by default): the rows the index inserts, told at their sync run's end
+  const shown = new Set() // the notices on screen: a collected Notification loses its click
+  const showNotice = n => {
+    const toast = new Notification({ title: n.title, body: n.body, silent: false })
+    shown.add(toast)
+    if (shown.size > 50) shown.delete(shown.values().next().value)
+    const done = () => shown.delete(toast)
+    toast.on('close', done)
+    toast.on('failed', done)
+    toast.on('click', () => {
+      done()
+      showMainWindow(mainWindow, { focused: BrowserWindow.getFocusedWindow(), keepFocus: w => [...composeIpc.windows.values()].includes(w) })
+      notify({ kind: 'mailNotice', accountId: n.accountId, folder: n.folder, messageId: n.kind === 'message' ? n.messageId : null })
+    })
+    toast.show()
+  }
+  const shortcut = notifyShortcut({ shell, isPackaged: app.isPackaged, execPath: process.execPath, appData: app.getPath('appData'), log })
+  const notice = startNewMailNotice({
+    index, store, settings: openSettings(db), shortcut, show: showNotice, log, settleMs: SHORTCUT_SETTLE_MS,
+    texts: () => ({ noSubject: t.noSubject, summary: (n, account) => t.newMailNotice.summary(n, account) }),
+  })
+  newMailNotice = notice
+  stopInsertWatch = index.onInsert(items => notice.inserted(items))
+  registerNotifyIpc({ ipcMain, notice, isTrustedSender, log })
   // "Küldés később": only while unlocked; its notices go to the main window (sent, late, failed)
   // the scheduler's own events (sent, retry, failed...) reload the list too
   scheduler = createScheduler({ scheduled: scheduledRows, composer, log, notify: e => (notify(e), notify({ kind: 'scheduledList' })) })

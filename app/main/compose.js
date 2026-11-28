@@ -451,6 +451,42 @@ export class Composer {
   }
 
   /**
+   * A new message from an .eml file dropped on "Új levél" (a template): its To, Cc, Bcc, subject, body with its embedded
+   * images and its attachments; the From is the chosen account (accountId, else the first one). Nothing else of the
+   * file comes over: no From, Reply-To, Message-ID, In-Reply-To, References, X- header, Claude's mark or origin, so it
+   * is a new message (a new Message-ID at its first save or send). The body goes to the composer as a saved draft's
+   * does (the composer's own sanitizer, rich); the images an <img> refers to become this session's images (cleaned,
+   * upright, within 10 MB / 50 MP); every other part is an attachment, all within the session's 25 MB (over it:
+   * too_large, nothing kept). Nothing is written anywhere until the user saves or sends.
+   */
+  async prepareEml(sessionId, { source, accountId = null }) {
+    const s = this.#session(sessionId)
+    const account = (accountId !== null && this.store.getRow(accountId)) || this.store.list()[0]
+    if (!account) throw new ActionError('no_account')
+    const parsed = await parseMessage(source)
+    const fmt = list => list.map(a => displayAddress(a)).join(', ')
+    let html = parsed.html || `<p>${escapeHtml(parsed.text || '').replace(/\r?\n/g, '<br>')}</p>`
+    const { html: withImages, taken } = this.#takeCidImages(s, html, parsed.attachments, () => true)
+    html = withImages
+    const parts = parsed.attachments.filter(x => !taken.has(x))
+    if (this.#sessionBytes(s) + parts.reduce((n, a) => n + (a.content ? a.content.length : 0), 0) > MAX_ATTACHMENTS_BYTES) {
+      s.inlineImages.clear()
+      throw new ActionError('too_large')
+    }
+    for (const a of parts) {
+      const att = { id: crypto.randomUUID(), filename: a.filename, content: a.content, contentType: a.contentType }
+      s.attachments.set(att.id, att)
+    }
+    s.messageId = null
+    s.saved = false
+    s.claude = false
+    s.origin = null
+    const form = { accountId: account.id, to: fmt(parsed.to), cc: fmt(parsed.cc), bcc: fmt(parsed.bcc), subject: parsed.subject || '', draftHtml: html, inReplyTo: null, references: [] }
+    s.initial = form
+    return form
+  }
+
+  /**
    * The starting form of a prepared session (or null for a new message) and its attachments. archivable: the session
    * answers or forwards an original that "Küldés és archiválás" can archive now (#originArchivable).
    */

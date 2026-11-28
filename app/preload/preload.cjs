@@ -144,6 +144,11 @@ contextBridge.exposeInMainWorld('shadowMail', {
     openAck: (seq, result) => ipcRenderer.invoke('mcp:openAck', { seq, result }),
   },
   // the unread badge on the taskbar button: status -> { enabled }; setEnabled(bool) -> the same
+  // the new-mail notice: status -> { enabled, lost }; setEnabled(bool) -> { enabled } or { error: shortcut_failed }
+  notify: {
+    status: () => ipcRenderer.invoke('notify:status'),
+    setEnabled: on => ipcRenderer.invoke('notify:setEnabled', on),
+  },
   taskbar: {
     status: () => ipcRenderer.invoke('taskbar:status'),
     setEnabled: on => ipcRenderer.invoke('taskbar:setEnabled', on),
@@ -152,6 +157,9 @@ contextBridge.exposeInMainWorld('shadowMail', {
   compose: {
     // request: undefined (new) or { mode: reply | replyAll | forward, messageId }
     open: request => ipcRenderer.invoke('compose:open', request),
+    // an .eml dropped on "Új levél": its path (the main process reads it), its type and the chosen account
+    openEml: (file, accountId = null) =>
+      ipcRenderer.invoke('compose:open', { mode: 'eml', path: webUtils.getPathForFile(file), type: (file && file.type) || '', accountId }),
     // -> { form: null | { accountId, to, cc, subject, body, quote, inReplyTo, references }, attachments }
     initial: sessionId => ipcRenderer.invoke('compose:initial', sessionId),
     accounts: () => ipcRenderer.invoke('compose:accounts'),

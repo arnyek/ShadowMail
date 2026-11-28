@@ -357,6 +357,12 @@ main.app > .error {
   height: var(--icon-m);
 }
 
+/* .eml files dragged over "Új levél": the button framed in the accent colour of every theme */
+.compose-button.btn.drop-eml {
+  outline: 2px solid var(--c-accent);
+  outline-offset: 2px;
+}
+
 .sidebar.collapsed .sidebar-tools {
   flex-direction: column;
   padding: var(--space-2) 0 var(--space-4);
@@ -1098,6 +1104,37 @@ main.app > .error {
   font-weight: var(--fw-normal);
   margin: 0 0 var(--space-4);
   overflow-wrap: anywhere;
+}
+
+/* the subject with the drag handle before it: the handle keeps its 24 px, the subject takes the rest and wraps */
+.reader-subject-row {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+}
+
+.reader-subject-row .reader-subject {
+  flex: 1;
+  min-width: 0;
+}
+
+.reader-drag-handle {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  /* on the subject's first line (its line box is taller than the handle) */
+  margin-top: 1px;
+  border-radius: var(--radius-s);
+  color: var(--c-text-2);
+  cursor: grab;
+}
+
+.reader-drag-handle:hover {
+  background: var(--c-hover);
+  color: var(--c-text);
 }
 
 /* the replied / forwarded line under the sender: small, quiet, the reply's date a link */
@@ -3149,7 +3186,7 @@ section.contacts {
   overflow-y: auto;
   list-style: none;
   border: 1px solid var(--c-border);
-  border-radius: var(--radius-s, 4px);
+  border-radius: var(--radius-s);
 }
 .move-targets:focus-visible { outline: 2px solid var(--c-accent); outline-offset: 2px; }
 .move-target {
@@ -3158,7 +3195,7 @@ section.contacts {
   gap: var(--space-2);
   min-height: 28px;
   padding: var(--space-1) var(--space-2) var(--space-1) calc(var(--space-2) + var(--depth, 0) * var(--space-4));
-  border-radius: var(--radius-s, 4px);
+  border-radius: var(--radius-s);
   cursor: default;
 }
 .move-target.active { background: var(--c-accent-soft); box-shadow: inset 2px 0 0 var(--c-accent); }

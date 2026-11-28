@@ -181,6 +181,8 @@ export class MessageReader {
       html: parsed.html,
       text: parsed.html ? null : parsed.text,
       hasExternalImages: imageHosts.size > 0,
+      // the drag handle's choice (renderer drag-out.js): a message over the limit or of unknown size stays an internal drag
+      size: Number.isFinite(row.size) ? row.size : null,
       attachments: offeredAttachments(parsed).map(({ index, filename, contentType, size, executable, browserActive, openable }) => ({ index, filename, contentType, size, executable, browserActive, openable })),
       seenError,
     }

@@ -408,4 +408,17 @@ export const MIGRATIONS = [
       db.exec(`CREATE INDEX idx_messages_keyword_flags ON messages (account_id, label_key, flags) WHERE (' ' || flags) GLOB '* [^\\$]*'`)
     },
   },
+  {
+    version: 18,
+    name: 'messages: the pending rows by date',
+    up(db) {
+      // the body phase asks for the account's pending rows newest first (MailIndex.pendingBodies, pendingLocalBodies);
+      // on (account_id, idate) the planner walked every row of the account for body_state 0, all of them when nothing
+      // was pending (100 000 rows on the encrypted file: 1806 ms cold, 196 ms warm, measured). Here the pending rows
+      // come in date order from the index itself, read backwards: idate ascending like idx_messages_idate, so rows of the
+      // same date come in the old order too (rowid descending; a DESC column would give them ascending). Additive;
+      // idx_messages_pending stays (the pending count reads it).
+      db.exec('CREATE INDEX idx_messages_pending_idate ON messages (account_id, body_state, idate)')
+    },
+  },
 ]

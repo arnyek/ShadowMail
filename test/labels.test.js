@@ -72,7 +72,7 @@ test('migration 14 -> 15 on an encrypted 0.16.0 database: the .bak-14 is made, e
 
   const { db, migration } = openMailDatabase(file, { key })
   try {
-    assert.deepEqual(migration, { from: 14, to: 17, backup: backupPath(file, 14) })
+    assert.deepEqual(migration, { from: 14, to: 18, backup: backupPath(file, 14) })
     assert.ok(fs.existsSync(`${file}.bak-14`))
     assert.equal(db.prepare('SELECT COUNT(*) FROM messages WHERE label_key IS NULL').pluck().get(), 0, 'no NULL key')
     const stored = new Map(db.prepare('SELECT uid, label_key FROM messages').all().map(r => [r.uid, r.label_key]))

@@ -176,6 +176,9 @@ export const SAMPLES = {
   'dragOut.tooMany': n => [[n, 50]],
   'dragOut.notice': n => [['tooMany', { n, max: 50 }], ['tooLarge', { bytes: n * 1024 * 1024 + 512 * 1024, max: 100 * 1024 * 1024 }], ['noSize'], ['notYet'], ['notYet', {}]],
   'dragOut.error': n => [['not_yet', {}], ['too_large', { bytes: n * 1024 * 1024 + 512 * 1024, max: 100 * 1024 * 1024 }], ['too_large'], ...each([...Object.keys(en.dragOut.errors), ...Object.keys(en.readerErrors), 'no_such_code'], c => [c, {}])],
+  'newMailNotice.summary': n => [[n, 'Munka']],
+  'emlDrop.tooMany': n => [[n, 5]],
+  'emlDrop.error': n => [['eml_too_large', { bytes: n * 1024 * 1024 + 512 * 1024, max: 25 * 1024 * 1024 }], ['eml_too_large'], ...each([...Object.keys(en.emlDrop.errors), 'internal', 'no_such_code'], c => [c, {}])],
   'outgoingQuote.wrote': () => [['05/03/2026, 09:07, Anna <a@example.invalid>'], ['']],
 }
 

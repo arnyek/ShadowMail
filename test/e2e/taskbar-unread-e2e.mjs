@@ -236,7 +236,7 @@ try {
   const sw = page.locator('#taskbar-unread-switch')
   await sw.waitFor()
   check('Megjelenés: the switch is there, its label from the dictionary, checked', (await sw.isChecked()) && (await page.locator('label', { has: sw }).innerText()).includes(t.taskbarUnreadLabel))
-  // the preferences list: every control (three selects and the switch) starts at the same x, at 1280 and at 860 px
+  // the preferences list: every control (three selects and the two switches) starts at the same x, at 1280 and at 860 px
   const controlsLeft = () => page.evaluate(() => [...document.querySelectorAll('.settings-appearance .setting-control')].map(c => Math.round(c.firstElementChild.getBoundingClientRect().left)))
   const vp = page.viewportSize()
   for (const width of [1280, 860]) {
@@ -244,7 +244,7 @@ try {
     await page.waitForTimeout(200)
     const xs = await controlsLeft()
     const hs = await page.evaluate(() => [document.scrollingElement, document.querySelector('section.settings')].map(e => e.scrollWidth - e.clientWidth))
-    check(`Megjelenés at ${width} px: the four controls start at one x (<= 1 px), no horizontal scroll`, xs.length === 4 && Math.max(...xs) - Math.min(...xs) <= 1 && hs.every(h => h <= 0), JSON.stringify({ xs, hs }))
+    check(`Megjelenés at ${width} px: the five controls start at one x (<= 1 px), no horizontal scroll`, xs.length === 5 && Math.max(...xs) - Math.min(...xs) <= 1 && hs.every(h => h <= 0), JSON.stringify({ xs, hs }))
   }
   if (vp) await page.setViewportSize(vp)
   {

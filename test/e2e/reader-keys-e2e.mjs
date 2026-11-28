@@ -11,7 +11,7 @@
 // LAST open message with the row's button opens the one above; Up / Down / Delete / End typed inside the HTML message's
 // frame (it runs no script) reach the app through the main process (its before-input-event raised with the frame
 // focused: a real keyboard cannot type into the frame headless), PageDown there does not step; a focused divider keeps its arrows; in the
-// Archive End only says why; in the search hits Down steps in the hits' order. Two languages: E2E_LANG=en|hu.
+// Archive End only says why (the Archive button there disabled in its place); in the search hits Down steps in the hits' order. Two languages: E2E_LANG=en|hu.
 // Playwright: PW=<path of the playwright package> (default: the repo's playwright-core devDependency).
 import fs from 'node:fs'
 import os from 'node:os'
@@ -196,7 +196,7 @@ try {
   await page.locator(folderSel('Archívum')).click()
   await page.locator('.msg-row', { hasText: 'Kettő' }).click()
   await openIs('Kettő', 'Kettő open')
-  check('in the Archive: no Archive button in the reader', (await archiveButton.count()) === 0)
+  check('in the Archive: the Archive button stays in its place, disabled, with the reason', (await archiveButton.count()) === 1 && (await archiveButton.isDisabled()) && (await archiveButton.getAttribute('title')) === t.readerKeys.in_archive)
   await press('End')
   await page.locator('.action-notice').waitFor({ timeout: 5000 })
   check('in the Archive: End says why', (await page.locator('.action-notice').innerText()).includes(t.readerKeys.in_archive))

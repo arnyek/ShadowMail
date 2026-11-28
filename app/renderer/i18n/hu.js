@@ -624,6 +624,7 @@ export const hu = {
   // Reader
   backToList: 'Vissza a listához',
   readerToolsLabel: 'Műveletek a levélen',
+  readerDragHandle: 'Húzd egy mappára vagy más programba',
   // the right-click menu in a message (the items the main process offers)
   readerContextMenu: { copyLink: 'Link másolása', openLink: 'Megnyitás böngészőben', copyAddress: 'E-mail cím másolása', newMail: 'Új levél ide', copy: 'Másolás', selectAll: 'Az összes kijelölése' },
   readerContextMenuLabel: 'Műveletek a levélben',
@@ -645,12 +646,25 @@ export const hu = {
     theme: 'Színek és sűrűség.',
     readerPane: 'Hol nyíljon meg a kijelölt levél.',
     taskbar: 'Piros karika a számmal, ha a Beérkezettekben olvasatlan levél van (Windows).',
+    newMailNotice: 'Felugró értesítés a feladóval és a tárggyal, ha új levél jön a Beérkezettekbe (Windows).',
   },
   settingsAppearance: 'Megjelenés',
   readerPaneLabel: 'Olvasópanel',
   // the unread badge on the taskbar button (Windows): the switch, its error, and the screen reader's description of the badge
   taskbarUnreadLabel: 'Olvasatlan levelek száma a tálca-ikonon',
   taskbarUnreadFailed: 'A beállítást nem sikerült menteni.',
+  // the new-mail notice (Windows): the switch, the question before the Start menu shortcut, the notice's summary
+  newMailNotice: {
+    label: 'Értesítés új levélről',
+    why: 'Ehhez a ShadowMail egy parancsikont tesz a Start menübe: a Windows csak így mutatja az értesítéseit. Kikapcsoláskor törli.',
+    askTitle: 'Értesítés új levélről',
+    ask: 'Az értesítésekhez a ShadowMail egy parancsikont tesz a Start menübe (a Windows csak így mutatja őket). Létrehozhatom?',
+    askYes: 'Igen, létrehozhatod',
+    shortcutFailed: 'A Start menü-parancsikont nem sikerült létrehozni, ezért az értesítés kikapcsolva maradt.',
+    failed: 'A beállítást nem sikerült menteni.',
+    lost: 'A Start menü-parancsikont nem sikerült újra létrehozni, ezért az értesítés kikapcsolt.',
+    summary: (n, account) => `${n} új levél (${account})`,
+  },
   taskbarUnreadBadge: n => `${n} olvasatlan levél`,
   readerPaneOptions: { none: 'Nincs: a levél a lista helyén nyílik', right: 'Jobbra a lista mellett', bottom: 'Alul a lista alatt' },
   // the interface language: the label and the options are the same in every language (each language in its own words), so
@@ -1188,6 +1202,20 @@ export const hu = {
       write_failed: 'A másolatot nem sikerült lemezre írni.',
       disk_full: 'Nincs elég hely a lemezen a másolathoz.',
       not_writable: 'A data\\tmp mappa nem írható.',
+    },
+  },
+  // .eml files dropped on "Új levél": each opens a composer from it (a template)
+  emlDrop: {
+    tooMany: (n, max) => `Egyszerre legfeljebb ${max} levélíró nyílik meg; ${n} fájl kimaradt, ${n === 1 ? 'azt' : 'azokat'} húzd rá újra.`,
+    error: (code, res = {}) =>
+      code === 'eml_too_large'
+        ? `Az .eml fájl ${(Math.ceil((res.bytes || 0) / 1024 / 1024 * 10) / 10).toFixed(1).replace('.', ',')} MB-os, legfeljebb ${Math.round((res.max || 0) / 1024 / 1024)} MB-os nyitható meg.`
+        : `Az .eml fájlból nem nyílt levélíró: ${hu.emlDrop.errors[code] || hu.searchError(code)}`,
+    errors: {
+      not_eml: 'csak .eml fájl húzható ide.',
+      eml_unreadable: 'a fájl nem olvasható levélként.',
+      too_large: 'a mellékletei együtt 25 MB-nál nagyobbak.',
+      no_account: 'nincs fiók, amelyikből küldeni lehetne.',
     },
   },
   // the name of an attachment without one, in the reader and its save dialog: <word>-<n>

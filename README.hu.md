@@ -37,7 +37,7 @@ Windows írja, nem a program. A Windows „Legutóbbi fájlok” listájába a S
 - Windowson az olvasatlan levelek száma piros karikában a tálca-ikonon (minden fiók Beérkezett mappája együtt, 99 fölött "99+", zárolva nincs); kikapcsolható: Beállítások / Megjelenés.
 - Minden adat titkosítva, mesterjelszóval (lásd Első indítás).
 
-![Egy megnyitott levél: monogram, ikonos műveletek, mellékletkártyák](docs/screenshots/readme-reader.png)
+![Egy megnyitott levél: az eszköztár elején az Archiválás, a tárgy előtt a húzó fogantyú, monogram, mellékletkártyák](docs/screenshots/readme-reader.png)
 
 ![Levélírás: Feladó, Címzett, Tárgy, ikonos formázás Szövegszínnel és Kiemeléssel, kék Küldés gomb, mellette Küldés később](docs/screenshots/readme-compose.png)
 
@@ -46,13 +46,13 @@ Windows írja, nem a program. A Windows „Legutóbbi fájlok” listájába a S
 - **Le** / **Fel**: a lista következő / előző levele (a lista mostani sorrendjében és szűrésével; keresésnél a
   találatok sorrendjében). A levél szövegét a **PageUp**, **PageDown** és a **Szóköz** görgeti.
 - **Delete**: törlés, **End**: archiválás (a fiók Archívum-mappájába, évenkénti módban az év mappájába). Ha van
-  látható kijelölés a listában, azokra hat, különben a megnyitott levélre. Az olvasó eszköztárában a Törlés mellett
-  **Archiválás** gomb is van. Nyitott levél nélkül a Delete a látható kijelölést törli, az End a lista végére görget.
+  látható kijelölés a listában, azokra hat, különben a megnyitott levélre. Az olvasó eszköztárának első gombja az
+  **Archiválás**. Nyitott levél nélkül a Delete a látható kijelölést törli, az End a lista végére görget.
 - Ha a levél a lista helyén van nyitva (olvasópanel nélkül), törlés, archiválás, áthelyezés (a Levélszemétbe is) vagy
   Olvasatlannak jelölés után azonnal **visszajön a lista**, ott, ahol hagytad. Ha az olvasó a lista mellett vagy alatt
   van, a lista **következő** (alatta lévő) levele nyílik meg; ha az volt az utolsó, az előző.
 - Ahol nincs hova archiválni (a fióknak nincs Archívum-mappája, vagy a levél már ott van), az End nem csinál semmit,
-  csak egy sor mondja meg, miért.
+  csak egy sor mondja meg, miért; az Archiválás gomb a helyén marad, szürkén, és a súgója mondja meg, miért.
 - A billentyűk akkor is működnek, ha a levél szövegébe kattintottál. Szövegmezőben, menüben, párbeszédablakban és a
   panelek elválasztóján a megszokott jelentésük marad.
 
@@ -154,6 +154,9 @@ Egy megnyitott levél **További** menüjében:
   Intézőbe, az Asztalra, egy másik levelezőbe. A levél ott `.eml` fájlként érkezik (a neve a tárgyból), a teljes,
   eredeti forrásával, mellékletekkel együtt, mint a **Mentés .eml-ként** fájlja.
 - Ugyanez a mozdulat a program **saját mappájára** ejtve továbbra is áthelyezés.
+- A megnyitott levél az olvasóból is húzható: a tárgy előtti **fogantyút** (hat pötty) fogd meg, és ejtsd egy mappára
+  (áthelyezés, utána a következő levél nyílik) vagy egy másik programba (`.eml` fájl). A tárgy és a feladó szövege
+  ugyanúgy kijelölhető, mint eddig.
 - A fájl egy titkosítatlan másolat a `data\tmp` mappában (ahol az nem tudja megjelölni: a gép ideiglenes mappájában,
   `%TEMP%\ShadowMail`), internetről származónak jelölve. A program **10 perccel a húzás után** törli, és zároláskor,
   kilépéskor, induláskor is.
@@ -245,6 +248,40 @@ színezhetsz, rendezhetsz és törölhetsz címkét.
 - **POP3-fióknál** a címke ezen a gépen tárolódik, és a levél minden helyi példányán látszik. Ha a levélnek nincs
   Message-ID és Date fejléce, egy újra letöltött példányán a címke nem látszik.
 - Claude (MCP) felteheti és leveheti a meglévő címkéket; létrehozni, átnevezni és törölni csak te tudsz.
+
+### Újdonságok a 0.23.0-ban, ismert korlátok
+
+- **Archiválás elöl:** az olvasó eszköztárának első gombja az **Archiválás**. Ahol nincs hova archiválni (a fióknak
+  nincs Archívum-mappája, vagy a levél már ott van), a gomb a helyén marad, szürkén, és a súgója mondja meg, miért.
+- **Fogantyú az olvasóban:** a megnyitott levél tárgya előtti **fogantyúval** (hat pötty) a levél egy mappára
+  (áthelyezés) vagy egy másik programba (`.eml` fájl) húzható. A tárgy és a feladó szövege ugyanúgy kijelölhető.
+- **.eml fájlból új levél:** az **Új levél** gombra húzott `.eml` fájlokból egy-egy új levél nyílik (egyszerre
+  legfeljebb 5): a címzettek, a tárgy, a szöveg a képeivel és a mellékletek jönnek át, a feladó a kijelölt mappa
+  fiókja. A fájl saját azonosítói (feladó, Message-ID, válasz-fejlécek) nem jönnek át, így a levél újként megy ki. A
+  fájl legfeljebb 25 MB-os lehet. Egyes programok mentése a levél elé egy BOM-ot vagy egy `From ` kezdetű sort tesz:
+  ezeket a program átugorja.
+- **Értesítés új levélről (Windows):** Beállítások / Megjelenés / **Értesítés új levélről**, alapból kikapcsolva.
+  Bekapcsoláskor a program megkérdezi, létrehozhat-e egy parancsikont a Start menüben (a Windows csak így mutatja
+  az értesítéseket; kikapcsoláskor törli). Utána az új, olvasatlan levél a Beérkezettekben felugró értesítést ad a
+  feladóval és a tárggyal (a levél szövegét soha); egy szinkronból háromnál több levélnél egy összesítőt. Kattintásra
+  a program előjön, és megnyílik a levél (az összesítőnél a Beérkezett). A program indítása utáni első teljes
+  szinkron leveleiről és zárolt programból nem szól.
+- **Gyorsabb indulás sok mappával:** a szinkron a mappák helyi adatait külön szálon olvassa, a letöltendő
+  levéltörzseket és a javítandó fejlécű sorokat indexből keresi. Új levél nélküli indításnál 49 mappán és 100 000
+  levélen mérve a mappák lépése ~12 s-ról ~2,4 s-ra rövidült, és közben az ablak nem akad meg.
+
+A kiadás ismert korlátai:
+
+- Windowson a fentieket nem mértük, csak Linuxon; ennél a kiadásnál a Windows-próba a megjelenés után következik.
+  Az értesítést (a felugró ablakot és a Start menü-parancsikont) Windowson még nem próbáltuk ki.
+- Az első feloldáskor az adatbázis szerkezete változik (egy új index): a program előbb mentést készít
+  (`data\mail.sqlite.bak-17`, lásd lent: Ha az adatbázis szerkezete változik), és a feloldás egyszer tovább tart
+  (100 000 levélnél, 300 MB-os adatbázison mérve ~4 s).
+- Az értesítés bekapcsolása a Start menüben egy ugyanilyen nevű (`ShadowMail`), de másik programra mutató
+  parancsikont is felülír.
+- `.eml` fájlból: a csak CR sorvégű (régi Mac-es) fájlból üres levél nyílik (címzett, tárgy és szöveg nélkül); ha
+  egy ilyen fájl `From ` sorral kezdődik, nem nyílik meg. Egy több levelet tartalmazó (mbox) fájlból az első levél
+  címzettjei és tárgya jönnek át, a többi levél a szövegbe kerül.
 
 ### Újdonságok a 0.22.0-ban, ismert korlátok
 
@@ -608,7 +645,7 @@ Az első indításkor egy **mesterjelszót** kell megadnod (legalább 10 karakte
 `data` mappában a teljes levelezést: a fiókok jelszavait, az adatbázist (levéllista, keresőindex) és a
 letöltött leveleket. Minden indításkor ezzel oldod fel a programot, bármelyik gépen.
 
-![A zárolt program: mesterjelszó, Feloldás, Elfelejtettem a mesterjelszót](docs/screenshots/readme-unlock.png)
+![A zárolt program: mesterjelszó, Feloldás, Elfelejtettem a mesterjelszót, alatta a programverzió](docs/screenshots/readme-unlock.png)
 
 ### A helyreállító kód
 
@@ -908,7 +945,9 @@ hozzájárulás szabályai: [CONTRIBUTING.md](CONTRIBUTING.md).
 - Naplók: `data\electron\logs\main.log`, a hálózati őr naplója: `data\electron\logs\net-guard.log`.
 - A `main.log` szinkron-sorai (`sync account=... kind=...`): szinkronizálásonként egy sor, csak számokkal (mappák,
   flagek, új levelek, törzsek, időtartamok ms-ban, és a program leghosszabb akadása a futás alatt: `loop_max`). Levél-
-  tartalmat, mappanevet, címet, szervert és felhasználót nem tartalmaznak.
+  tartalmat, mappanevet, címet, szervert és felhasználót nem tartalmaznak. A sor végén a `reader=worker` azt jelenti,
+  hogy a mappák helyi adatait a külön szál olvasta; `reader=main`: legalább egy mappánál a program saját szála (a
+  külön szál hibája után); POP3-fióknál `reader=-`.
 
 ## Licenc
 

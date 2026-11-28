@@ -671,6 +671,7 @@ source.unmarked (2);… és további 2 láthatatlan karakter (nincs egyenként j
 source.cutByMarks;"… a jelölésekkel a szöveg hosszabb lenne 2 MB-nál, a vége nem látszik. A teljes levélhez mentsd .eml-ként.";"… with the marks the text would be longer than 2 MB, so its end is not shown. For the full message, save it as .eml."
 backToList;Vissza a listához;Back to the list
 readerToolsLabel;Műveletek a levélen;Actions on the message
+readerDragHandle;Húzd egy mappára vagy más programba;Drag to a folder or another program
 readerContextMenu.copyLink;Link másolása;Copy link
 readerContextMenu.openLink;Megnyitás böngészőben;Open in browser
 readerContextMenu.copyAddress;E-mail cím másolása;Copy email address
@@ -696,10 +697,21 @@ settingDesc.language;A felület nyelve. A váltás azonnal érvényes.;The langu
 settingDesc.theme;Színek és sűrűség.;Colors and density.
 settingDesc.readerPane;Hol nyíljon meg a kijelölt levél.;Where the selected message opens.
 settingDesc.taskbar;"Piros karika a számmal, ha a Beérkezettekben olvasatlan levél van (Windows).";A red disc with the number when the Inbox has unread messages (Windows).
+settingDesc.newMailNotice;"Felugró értesítés a feladóval és a tárggyal, ha új levél jön a Beérkezettekbe (Windows).";A pop-up notice with the sender and the subject when new mail arrives in the Inbox (Windows).
 settingsAppearance;Megjelenés;Appearance
 readerPaneLabel;Olvasópanel;Reading pane
 taskbarUnreadLabel;Olvasatlan levelek száma a tálca-ikonon;Unread count on the taskbar icon
 taskbarUnreadFailed;A beállítást nem sikerült menteni.;The setting could not be saved.
+newMailNotice.label;Értesítés új levélről;Notify me of new mail
+newMailNotice.why;Ehhez a ShadowMail egy parancsikont tesz a Start menübe: a Windows csak így mutatja az értesítéseit. Kikapcsoláskor törli.;For this ShadowMail puts a shortcut in the Start menu: Windows shows its notices only that way. It is removed when you turn this off.
+newMailNotice.askTitle;Értesítés új levélről;Notify me of new mail
+newMailNotice.ask;Az értesítésekhez a ShadowMail egy parancsikont tesz a Start menübe (a Windows csak így mutatja őket). Létrehozhatom?;For the notices ShadowMail puts a shortcut in the Start menu (Windows shows them only that way). May I create it?
+newMailNotice.askYes;"Igen, létrehozhatod";"Yes, create it"
+newMailNotice.shortcutFailed;"A Start menü-parancsikont nem sikerült létrehozni, ezért az értesítés kikapcsolva maradt.";"The Start menu shortcut could not be created, so the notice stayed off."
+newMailNotice.failed;A beállítást nem sikerült menteni.;The setting could not be saved.
+newMailNotice.lost;"A Start menü-parancsikont nem sikerült újra létrehozni, ezért az értesítés kikapcsolt.";"The Start menu shortcut could not be created again, so the notice was turned off."
+newMailNotice.summary (1);1 új levél (Munka);1 new message (Munka)
+newMailNotice.summary (2);2 új levél (Munka);2 new messages (Munka)
 taskbarUnreadBadge (1);1 olvasatlan levél;1 unread message
 taskbarUnreadBadge (2);2 olvasatlan levél;2 unread messages
 readerPaneOptions.none;Nincs: a levél a lista helyén nyílik;None: the message opens in place of the list
@@ -1193,6 +1205,14 @@ dragOut.errors.motw_failed;"A másolat nem jelölhető meg biztonságosan; ments
 dragOut.errors.write_failed;A másolatot nem sikerült lemezre írni.;The copy could not be written to disk.
 dragOut.errors.disk_full;Nincs elég hely a lemezen a másolathoz.;There is not enough space on the disk for the copy.
 dragOut.errors.not_writable;A data\tmp mappa nem írható.;The data\tmp folder is not writable.
+emlDrop.tooMany (1);"Egyszerre legfeljebb 5 levélíró nyílik meg; 1 fájl kimaradt, azt húzd rá újra.";"At most 5 composers open at once; 1 file was left out, drop it again."
+emlDrop.tooMany (2);"Egyszerre legfeljebb 5 levélíró nyílik meg; 2 fájl kimaradt, azokat húzd rá újra.";"At most 5 composers open at once; 2 files were left out, drop them again."
+emlDrop.error (1);"Az .eml fájl 1,5 MB-os, legfeljebb 25 MB-os nyitható meg.";"The .eml file is 1.5 MB; at most 25 MB can be opened."
+emlDrop.error (2);"Az .eml fájl 2,5 MB-os, legfeljebb 25 MB-os nyitható meg.";"The .eml file is 2.5 MB; at most 25 MB can be opened."
+emlDrop.errors.not_eml;csak .eml fájl húzható ide.;only .eml files can be dropped here.
+emlDrop.errors.eml_unreadable;a fájl nem olvasható levélként.;the file cannot be read as a message.
+emlDrop.errors.too_large;a mellékletei együtt 25 MB-nál nagyobbak.;its attachments are over 25 MB together.
+emlDrop.errors.no_account;"nincs fiók, amelyikből küldeni lehetne.";there is no account to send it from.
 attachmentFallback;melleklet;attachment
 resetConfirmWord;TÖRLÉS;DELETE
 outgoingQuote.wrote (1);"05/03/2026, 09:07, Anna <a@example.invalid> írta:";"05/03/2026, 09:07, Anna <a@example.invalid> wrote:"

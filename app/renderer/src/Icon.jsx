@@ -29,6 +29,7 @@ import {
   FilterX,
   Folder,
   FolderInput,
+  GripVertical,
   Forward,
   Image,
   Inbox,
@@ -127,6 +128,8 @@ const LayoutBottom = ownGlyph(
 /** Role name -> Lucide component. The first block is the plan's 3.3 list. */
 export const ICONS = {
   compose: Pencil,
+  // the reader's drag handle: the open message dragged onto a folder or out of the program
+  dragHandle: GripVertical,
   inbox: Inbox,
   starred: Star,
   sent: Send,

@@ -24,12 +24,14 @@ export const TARGETED_LOG_MS = 1000
 
 /**
  * One sync run's diagnostic line (main.log), numbers and codes only: no folder name, address, server or user. The
- * keys and their order are fixed (the line is read after a release to see what a startup costs on real data).
+ * keys and their order are fixed (the line is read after a release to see what a startup costs on real data); `reader`
+ * came last: worker = every folder's reads on the read worker (core/db/sync-read.js), main = at least one on the main
+ * thread, - = POP3 (no folder reads).
  */
 export function syncLogLine(s) {
   const condstore = s.kind === 'pop3' || s.condstore === null ? '-' : s.condstore ? 'yes' : 'no'
   const n = v => (Number.isFinite(v) ? Math.round(v) : 0)
-  return `sync account=${n(s.accountId)} kind=${s.kind} condstore=${condstore} folders=${n(s.folders)} flags=${n(s.flags)} new=${n(s.added)} bodies=${n(s.bodies)} ms=${n(s.ms)} list_ms=${n(s.listMs)} meta_ms=${n(s.metaMs)} bodies_ms=${n(s.bodiesMs)} loop_max=${n(s.loopMax)} loop_over100=${n(s.loopOver100)} result=${/^[a-z_]+$/.test(s.result) ? s.result : 'error'}`
+  return `sync account=${n(s.accountId)} kind=${s.kind} condstore=${condstore} folders=${n(s.folders)} flags=${n(s.flags)} new=${n(s.added)} bodies=${n(s.bodies)} ms=${n(s.ms)} list_ms=${n(s.listMs)} meta_ms=${n(s.metaMs)} bodies_ms=${n(s.bodiesMs)} loop_max=${n(s.loopMax)} loop_over100=${n(s.loopOver100)} result=${/^[a-z_]+$/.test(s.result) ? s.result : 'error'} reader=${s.kind !== 'pop3' && (s.reader === 'worker' || s.reader === 'main') ? s.reader : '-'}`
 }
 
 /** a targeted run only when it was slow (TARGETED_LOG_MS) or blocked the main thread over 100 ms; the others always */
@@ -61,7 +63,9 @@ export class SyncManager {
    * @param notify   (payload) => void: { kind: 'sync', accounts } and { kind: 'mail', changes }
    * @param connect  (accountRow, { idle }) => Promise<connected client>; default: imapflow with the stored password
    */
-  constructor({ store, index, notify = () => {}, log = () => {}, connect = null, connectPop3 = null, sealed = null, now = () => Date.now(), throttleMs = STATUS_THROTTLE_MS, syncerOptions = {}, idleOptions = {}, searchText = null, labels = null }) {
+  constructor({ store, index, notify = () => {}, log = () => {}, connect = null, connectPop3 = null, sealed = null, now = () => Date.now(), throttleMs = STATUS_THROTTLE_MS, syncerOptions = {}, idleOptions = {}, searchText = null, labels = null, onRunEnd = null }) {
+    // every run's summary after its log line (the new-mail notice decides there); its error never reaches the sync
+    this.onRunEnd = onRunEnd
     this.labels = labels // Labels: an IMAP account's local labels go to its server after the first full run (label-upload.js)
     this.searchText = searchText // the worker thread's refiner, or null (the visible text made in the syncer)
     this.store = store
@@ -129,6 +133,13 @@ export class SyncManager {
 
   #logRun(summary) {
     if (logsRun(summary)) this.log(syncLogLine(summary))
+    if (this.onRunEnd) {
+      try {
+        this.onRunEnd(summary)
+      } catch {
+        // a listener's error never fails the sync
+      }
+    }
   }
 
   /** Settings changed (or a new account): restart it with the fresh row. */

@@ -124,7 +124,8 @@ export class Pop3Fetcher extends Syncer {
   /** Texts of the pending rows from their .eml files (state 1 or 2), newest first. */
   async #localBodies() {
     const accountId = this.account.id
-    const total = this.index.pendingLocalBodies(accountId, 1_000_000).length
+    // a count, not the rows themselves (that read every pending row's id and path only to count them)
+    const total = this.index.pendingLocalCount(accountId)
     let done = 0
     if (!total) return 0
     this._setState({ phase: 'bodies', folder: null, progress: { done, total } })

@@ -2,6 +2,8 @@
 // IPC of the composer. The composer is its own window (compose.html#compose=<session>); closing it
 // is asked first: the window's close is held back and the page decides (save / discard / cancel).
 // Attachment contents and file paths stay in the main process; the page sees names and sizes only.
+import fs from 'node:fs'
+import path from 'node:path'
 import { noRecent } from '../dialog-options.js'
 import { ActionError } from '../sync-manager.js'
 import { parseMailto } from '../../../core/smtp/compose.js'
@@ -13,6 +15,56 @@ import { SHAPE_LIMIT, SWITCH_LIMIT } from '../../../core/mime/shape-limit.js'
 export { SHAPE_LIMIT, SWITCH_LIMIT }
 // T: how long the main process waits for a composer to say it holds its starting body (compose:ready)
 export const READY_TIMEOUT_MS = 5000
+
+// an .eml file dropped on "Új levél": read by the main process, at most this big
+export const EML_MAX_BYTES = 25 * 1024 * 1024
+// a message's first line is a header field (name: value); anything else is not taken as an .eml
+const HEADER_START = /^[\x21-\x39\x3b-\x7e]+:/
+const UTF8_BOM = Buffer.from([0xef, 0xbb, 0xbf])
+// the gate looks this far: a leading "From " line must end within it
+const EML_HEAD_BYTES = 1000
+
+/**
+ * Where the message itself starts: after a leading UTF-8 BOM and after at most one mbox "From " separator line (saved
+ * .eml files carry either; the parser reads them, but they are not part of the message). -1: a "From " line without
+ * its end in the first EML_HEAD_BYTES.
+ */
+function emlStart(source) {
+  let at = source.subarray(0, 3).equals(UTF8_BOM) ? 3 : 0
+  if (source.subarray(at, at + 5).toString('latin1') === 'From ') {
+    const lf = source.indexOf(0x0a, at)
+    if (lf < 0 || lf >= EML_HEAD_BYTES) return -1
+    at = lf + 1
+  }
+  return at
+}
+
+/**
+ * The bytes of a dropped .eml (the page gave its path, the main process reads it): its name ends in .eml or its type is
+ * message/rfc822, a regular file of at most EML_MAX_BYTES, starting with a header field (after a leading BOM and an
+ * mbox "From " line, which are cut off: the bytes returned start at the first header). Errors (ActionError): not_eml,
+ * eml_too_large (detail { bytes, max }), eml_unreadable.
+ */
+export function readEml(file, type = '') {
+  if (typeof file !== 'string' || !path.isAbsolute(file) || (!/\.eml$/i.test(file) && type !== 'message/rfc822')) throw new ActionError('not_eml')
+  let fd
+  try {
+    fd = fs.openSync(file, 'r')
+    const st = fs.fstatSync(fd)
+    if (!st.isFile()) throw new ActionError('not_eml')
+    if (st.size > EML_MAX_BYTES) throw Object.assign(new ActionError('eml_too_large'), { detail: { bytes: st.size, max: EML_MAX_BYTES } })
+    const source = fs.readFileSync(fd)
+    const at = emlStart(source)
+    const message = at < 0 ? null : source.subarray(at)
+    if (!message || !message.length || !HEADER_START.test(message.subarray(0, EML_HEAD_BYTES).toString('latin1'))) throw new ActionError('eml_unreadable')
+    return message
+  } catch (err) {
+    if (err instanceof ActionError) throw err
+    throw new ActionError('eml_unreadable')
+  } finally {
+    if (fd !== undefined) fs.closeSync(fd)
+  }
+}
 
 /**
  * The test switch: SHADOWMAIL_TEST_COMPOSE_TIMEOUT_MS may only LOWER T, so the watchdog can be measured on
@@ -216,6 +268,33 @@ export function registerComposeIpc({
         throw err
       }
       return openSession(sessionId)
+    }
+    // an .eml dropped on "Új levél": a new message from it (a template); the path and the chosen account only
+    if (isPlainObject(request) && request.mode === 'eml') {
+      const keys = Object.keys(request).sort().join(',')
+      if (!['accountId,mode,path', 'accountId,mode,path,type', 'mode,path', 'mode,path,type'].includes(keys)) throw new BadRequest()
+      if (request.accountId !== undefined && request.accountId !== null && !isId(request.accountId)) throw new BadRequest()
+      if (request.type !== undefined && typeof request.type !== 'string') throw new BadRequest()
+      let source
+      try {
+        source = readEml(request.path, request.type || '')
+      } catch (err) {
+        // the code and the size only: never the file's name or path
+        log(`compose: eml not opened (${errCode(err)}${err.detail ? `, ${err.detail.bytes} bytes` : ''})`)
+        throw err
+      }
+      const sessionId = composer.open()
+      try {
+        await composer.prepareEml(sessionId, { source, accountId: request.accountId ?? null })
+      } catch (err) {
+        composer.close(sessionId)
+        // a message the parser cannot take is unreadable; the parser's own error (it may quote the file) never shows
+        const shown = err instanceof ActionError ? err : new ActionError('eml_unreadable')
+        log(`compose: eml not opened (${errCode(shown)}, ${source.length} bytes)`)
+        throw shown
+      }
+      log(`compose: eml opened (${source.length} bytes)`)
+      return openSession(sessionId, 'draft', null, windowOf(event))
     }
     const toOne = isPlainObject(request) && request.mode === 'to' && typeof request.to === 'string' && request.to.length > 0 && request.to.length <= 320 && !/[\u0000-\u001f\u007f,;<>]/.test(request.to)
     if (toOne) {

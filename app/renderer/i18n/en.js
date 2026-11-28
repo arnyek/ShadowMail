@@ -629,6 +629,7 @@ export const en = {
   // Reader
   backToList: 'Back to the list',
   readerToolsLabel: 'Actions on the message',
+  readerDragHandle: 'Drag to a folder or another program',
   // the right-click menu in a message (the items the main process offers)
   readerContextMenu: { copyLink: 'Copy link', openLink: 'Open in browser', copyAddress: 'Copy email address', newMail: 'New message to this address', copy: 'Copy', selectAll: 'Select all' },
   readerContextMenuLabel: 'Actions in the message',
@@ -650,12 +651,24 @@ export const en = {
     theme: 'Colors and density.',
     readerPane: 'Where the selected message opens.',
     taskbar: 'A red disc with the number when the Inbox has unread messages (Windows).',
+    newMailNotice: 'A pop-up notice with the sender and the subject when new mail arrives in the Inbox (Windows).',
   },
   settingsAppearance: 'Appearance',
   readerPaneLabel: 'Reading pane',
   // the unread badge on the taskbar button (Windows): the switch, its error, and the screen reader's description of the badge
   taskbarUnreadLabel: 'Unread count on the taskbar icon',
   taskbarUnreadFailed: 'The setting could not be saved.',
+  newMailNotice: {
+    label: 'Notify me of new mail',
+    why: 'For this ShadowMail puts a shortcut in the Start menu: Windows shows its notices only that way. It is removed when you turn this off.',
+    askTitle: 'Notify me of new mail',
+    ask: 'For the notices ShadowMail puts a shortcut in the Start menu (Windows shows them only that way). May I create it?',
+    askYes: 'Yes, create it',
+    shortcutFailed: 'The Start menu shortcut could not be created, so the notice stayed off.',
+    failed: 'The setting could not be saved.',
+    lost: 'The Start menu shortcut could not be created again, so the notice was turned off.',
+    summary: (n, account) => `${count(n, 'new message')} (${account})`,
+  },
   taskbarUnreadBadge: n => count(n, 'unread message'),
   readerPaneOptions: { none: 'None: the message opens in place of the list', right: 'On the right of the list', bottom: 'Below the list' },
   languageLabel: 'Nyelv / Language',
@@ -1190,6 +1203,20 @@ export const en = {
       write_failed: 'The copy could not be written to disk.',
       disk_full: 'There is not enough space on the disk for the copy.',
       not_writable: 'The data\\tmp folder is not writable.',
+    },
+  },
+  // .eml files dropped on "New message": each opens a composer from it (a template)
+  emlDrop: {
+    tooMany: (n, max) => `At most ${num(max)} composers open at once; ${count(n, 'file was', 'files were')} left out, drop ${n === 1 ? 'it' : 'them'} again.`,
+    error: (code, res = {}) =>
+      code === 'eml_too_large'
+        ? `The .eml file is ${(Math.ceil((res.bytes || 0) / 1024 / 1024 * 10) / 10).toFixed(1)} MB; at most ${Math.round((res.max || 0) / 1024 / 1024)} MB can be opened.`
+        : `No composer opened from the .eml file: ${en.emlDrop.errors[code] || en.searchError(code)}`,
+    errors: {
+      not_eml: 'only .eml files can be dropped here.',
+      eml_unreadable: 'the file cannot be read as a message.',
+      too_large: 'its attachments are over 25 MB together.',
+      no_account: 'there is no account to send it from.',
     },
   },
   attachmentFallback: 'attachment',
